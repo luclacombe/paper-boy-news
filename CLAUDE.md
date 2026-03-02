@@ -42,23 +42,28 @@ src/paper_boy/                     # Core library + CLI
 web/                               # Streamlit web app
 ├── app.py                         # Main entry point + page routing
 ├── requirements.txt               # Web-specific dependencies
+├── assets/                        # Source images for device icons
+│   ├── kindle.png
+│   ├── kobo.png
+│   ├── remarkable.png
+│   └── other.png
 ├── components/                    # Reusable UI components
 │   ├── theme.py                   # CSS design system (newspaper aesthetic)
-│   ├── masthead.py                # Newspaper header component
-│   ├── navigation.py              # Horizontal nav bar
-│   ├── cards.py                   # Status, headline, source, edition cards
+│   ├── masthead.py                # Compact header + inline navigation
+│   ├── cards.py                   # Status, headline, source, edition, device, bundle cards
+│   ├── device_icons.py            # Base64-encoded device illustrations for onboarding
 │   └── loading.py                 # Empty states + build progress messages
 ├── pages/                         # Multi-page app
 │   ├── landing.py                 # Intro page (pre-onboarding)
-│   ├── onboarding.py              # 3-step setup wizard
-│   ├── dashboard.py               # "Today's Edition" — build + status
-│   ├── sources.py                 # "My Sources" — feed management
-│   ├── delivery.py                # "Delivery" — settings
-│   └── history.py                 # "Past Editions" — archive
+│   ├── onboarding.py              # 4-step setup wizard
+│   ├── dashboard.py               # "Home" — build, status, first-run experience
+│   ├── sources.py                 # "Sources" — feed management
+│   ├── delivery.py                # "Delivery" — device, method, schedule, newspaper settings
+│   └── history.py                 # "Editions" — archive with download
 ├── services/                      # Backend logic
 │   ├── database.py                # User config + history persistence (JSON)
 │   ├── builder.py                 # Bridge to paper_boy build pipeline
-│   ├── feed_catalog.py            # Curated feed library management
+│   ├── feed_catalog.py            # Curated feed library + bundle descriptions + RSS validation
 │   └── github_actions.py          # GitHub Actions workflow trigger + status
 └── data/
     └── feed_catalog.yaml          # Curated feed catalog (40+ feeds, 7 categories)
@@ -124,24 +129,27 @@ pytest
 ## Web App Architecture
 
 ### Page Flow
-- **Not onboarded**: Landing → Onboarding (3-step wizard) → Dashboard
-- **Onboarded**: Dashboard → Sources → Delivery → History (4-page nav)
+- **Not onboarded**: Landing → Onboarding (4-step wizard) → Dashboard
+- **Onboarded**: Home → Sources → Delivery → Editions (4-page nav)
 
 ### Onboarding Steps
-1. Choose path (Free Sources vs Paid Subscriptions — only Free enabled)
-2. Pick sources (starter bundles, category browsing, or custom RSS)
-3. Choose e-reader (Kobo, Kindle, reMarkable, Other) + configure delivery (method, schedule, newspaper settings)
+1. Choose device (Kindle, Kobo, reMarkable, Other) — with device illustration cards
+2. Choose path (Free Sources vs Paid Subscriptions — only Free enabled)
+3. Pick sources (starter bundles with two-way sync, category browsing, custom RSS)
+4. Configure delivery (device-specific method, schedule, newspaper title, reading time)
 
 ### Services Layer
 - `builder.py` bridges web UI config → `paper_boy.Config` → EPUB build + delivery (via `deliver_edition()`)
-- `database.py` persists user config + delivery history as JSON files (device, email settings included)
-- `feed_catalog.py` loads the curated feed catalog from `web/data/feed_catalog.yaml`
-- `github_actions.py` triggers/monitors GitHub Actions builds (wired to dashboard + history pages)
+- `database.py` persists user config + delivery history as JSON files (device, email, timezone settings included)
+- `feed_catalog.py` loads the curated feed catalog, resolves bundles, describes selections, validates RSS URLs
+- `github_actions.py` triggers/monitors GitHub Actions builds (wired to dashboard)
 
 ### Design System
-- Newspaper aesthetic: Playfair Display + Libre Baskerville (serif), Source Sans 3 (sans)
-- Color palette: newsprint (#FAF8F5), ink (#1B1B1B), edition red (#C23B22)
+- Newspaper aesthetic: Playfair Display + Libre Baskerville (serif), Source Sans 3 (sans), JetBrains Mono (mono)
+- Color palette: newsprint (#FAF8F5), ink (#1B1B1B), edition red (#C23B22), delivered green (#2D6A4F), building amber (#D4A843)
+- Lucide icons loaded via CSS import
 - All CSS is in `web/components/theme.py`
+- Device illustration cards use base64-encoded PNGs (`device_icons.py`), source assets in `web/assets/`
 
 ## Key Design Decisions
 
@@ -153,9 +161,13 @@ pytest
 - **Image optimization** in feeds.py — resize + JPEG compression for e-reader
 - **Automatic cleanup** of old issues on Google Drive (`keep_days` config)
 - **Dashboard delivers end-to-end** — build triggers delivery (Google Drive upload or email) automatically
+- **First-run experience** — post-onboarding summary card with setup status and "Create First Edition" CTA
 - **Article headlines** shown on dashboard from build results (stored in session_state)
 - **Feed health** tracked from build results — sources page shows active/warning status
-- **GitHub Actions integration** — trigger builds from dashboard, view runs in history
+- **GitHub Actions integration** — trigger builds from dashboard
+- **Reading time slider** — user picks reading duration (5–30 min), mapped to article count internally
+- **Bundle two-way sync** — individual checkbox changes auto-select/deselect bundles, and vice versa
+- **Device-first onboarding** — device selection drives delivery method options in later steps
 - **Streamlit web app** as the primary user-facing interface (CLI remains for automation)
 - **Separate dependency specs** — web app has its own `requirements.txt`, core library uses `pyproject.toml`
 - **JSON file persistence** for web app state (Phase 1), Supabase planned for Phase 1.5

@@ -55,14 +55,15 @@ This repo includes a workflow that runs at 6:00 AM UTC daily.
 
 ## Web App Features
 
-- **Onboarding wizard** — 3-step setup: choose sources, pick your e-reader, build your first edition
-- **Dashboard** — Build editions, see article headlines, trigger delivery to your device
-- **Source management** — Browse 40+ curated feeds across 7 categories, or add custom RSS URLs
+- **Onboarding wizard** — 4-step setup: choose your device, pick your sources, configure delivery, build your first edition
+- **Dashboard** — Build editions, see article headlines, first-run setup summary, trigger delivery
+- **Source management** — Browse 40+ curated feeds across 7 categories, starter bundles, or add custom RSS URLs
 - **Feed health** — See which sources are active or failing after each build
-- **Starter bundles** — Morning Briefing, Tech & Science, Business & Finance
+- **Starter bundles** — Morning Briefing, Tech & Science, Business & Finance (with two-way sync)
+- **Reading time** — Choose how long you want to read (5–30 min), mapped to article count automatically
 - **Multi-device delivery** — Kobo (Google Drive), Kindle (Send-to-Kindle email), reMarkable (download), or manual download
-- **Delivery settings** — Device-specific configuration (SMTP for Kindle, folder name for Kobo)
-- **Edition history** — Browse and download past editions, view GitHub Actions builds
+- **Delivery settings** — Device, method, schedule, newspaper title, and reading time configuration
+- **Edition history** — Browse and download past editions
 - **GitHub Actions** — Trigger remote builds from the dashboard
 
 ## Configuration
