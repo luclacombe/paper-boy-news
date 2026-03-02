@@ -57,6 +57,43 @@ def get_feeds_for_bundle(bundle_name: str) -> list[dict]:
     return []
 
 
+def describe_feed_selection(feed_urls: set[str]) -> str:
+    """Describe a feed selection as bundles + extras.
+
+    Examples:
+        "Morning Briefing"
+        "Morning Briefing + 3 extra sources"
+        "Morning Briefing and Tech & Science"
+        "Morning Briefing, Tech & Science, and Business & Finance + 1 extra source"
+        "15 sources"  (no complete bundles matched)
+    """
+    matched_bundles = []
+    covered_urls: set[str] = set()
+    for bundle in get_bundles():
+        bundle_feeds = get_feeds_for_bundle(bundle["name"])
+        if bundle_feeds and all(f["url"] in feed_urls for f in bundle_feeds):
+            matched_bundles.append(bundle["name"])
+            for f in bundle_feeds:
+                covered_urls.add(f["url"])
+
+    extra_count = len(feed_urls - covered_urls)
+
+    if not matched_bundles:
+        count = len(feed_urls)
+        return f"{count} source{'s' if count != 1 else ''}"
+
+    if len(matched_bundles) == 1:
+        bundle_text = matched_bundles[0]
+    elif len(matched_bundles) == 2:
+        bundle_text = f"{matched_bundles[0]} and {matched_bundles[1]}"
+    else:
+        bundle_text = ", ".join(matched_bundles[:-1]) + f", and {matched_bundles[-1]}"
+
+    if extra_count > 0:
+        return f"{bundle_text} + {extra_count} extra source{'s' if extra_count != 1 else ''}"
+    return bundle_text
+
+
 def validate_rss_url(url: str) -> bool:
     """Basic validation of an RSS feed URL."""
     if not url:
