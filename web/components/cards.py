@@ -53,7 +53,7 @@ def status_banner(
     if detail:
         detail_html = f'<div class="mono-text" style="margin-top: 0.25rem;">{detail}</div>'
 
-    st.markdown(
+    st.html(
         f"""
     <div class="status-banner" style="border-left: 4px solid {style['border_color']};">
         <div style="font-size: 1.1rem; font-weight: 600; color: {style['icon_color']};">
@@ -62,8 +62,7 @@ def status_banner(
         </div>
         {detail_html}
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
 
 
@@ -95,7 +94,7 @@ def headline_card(source_name: str, headlines: List[str], source_type: str = "RS
     if source_type == "Newsletter":
         type_badge = '<span class="section-label" style="float: right; font-size: 0.7rem;">newsletter</span>'
 
-    st.markdown(
+    st.html(
         f"""
     <div class="pb-card">
         <div class="section-label" style="margin-bottom: 0.5rem;">
@@ -105,8 +104,7 @@ def headline_card(source_name: str, headlines: List[str], source_type: str = "RS
         <hr class="thin-rule" style="margin-bottom: 0.6rem;">
         {headlines_html}
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
 
 
@@ -117,7 +115,7 @@ def source_card(
     last_fetched: str = "",
     status: str = "active",
 ):
-    """Render a source card for the My Sources page.
+    """Render a source card for the Sources page.
 
     Args:
         name: Source name.
@@ -130,13 +128,17 @@ def source_card(
     badge_text = "Active" if status == "active" else "Warning"
     badge_icon = "&#10003;" if status == "active" else "&#9888;"
 
-    stats_html = ""
+    stats_parts = []
     if article_count is not None:
-        stats_html = f'<span class="mono-text">{article_count} articles</span>'
+        stats_parts.append(f'<span class="mono-text">{article_count} articles</span>')
     if last_fetched:
-        stats_html += f' <span class="caption-text">&middot; Last fetched: {last_fetched}</span>'
+        stats_parts.append(f'<span class="caption-text">Last fetched: {last_fetched}</span>')
 
-    st.markdown(
+    stats_html = ""
+    if stats_parts:
+        stats_html = f'<div style="margin-top: 0.5rem;">{" &middot; ".join(stats_parts)}</div>'
+
+    st.html(
         f"""
     <div class="pb-card">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -146,12 +148,9 @@ def source_card(
             </div>
             <span class="badge {badge_class}">{badge_icon} {badge_text}</span>
         </div>
-        <div style="margin-top: 0.5rem;">
-            {stats_html}
-        </div>
+        {stats_html}
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
 
 
@@ -162,9 +161,10 @@ def edition_card(
     source_count: int,
     file_size: str,
     status: str,
+    delivery_method: str = "",
     error_message: str = "",
 ):
-    """Render an edition card for the Past Editions page.
+    """Render an edition card for the Editions page.
 
     Args:
         date_str: Formatted date string.
@@ -173,6 +173,7 @@ def edition_card(
         source_count: Number of sources.
         file_size: File size string (e.g., "2.4 MB").
         status: "delivered", "failed", or "building".
+        delivery_method: How the edition was delivered (e.g., "google_drive", "email", "local").
         error_message: Error message if failed.
     """
     badge_class = {
@@ -189,66 +190,92 @@ def edition_card(
 
     error_html = ""
     if error_message:
-        error_html = f'<div class="caption-text" style="margin-top: 0.3rem;">{error_message}</div>'
+        error_html = f'<div class="caption-text" style="margin-top: 0.3rem; color: #C23B22;">{error_message}</div>'
 
-    st.markdown(
+    # Stats line
+    stats_parts = []
+    if article_count:
+        stats_parts.append(f"{article_count} articles")
+    if source_count:
+        stats_parts.append(f"{source_count} sources")
+    if file_size:
+        stats_parts.append(file_size)
+    stats_line = " &middot; ".join(stats_parts)
+
+    # Delivery method label
+    method_label = ""
+    if delivery_method and status == "delivered":
+        method_map = {
+            "google_drive": "Google Drive",
+            "email": "Email",
+            "local": "Downloaded",
+        }
+        method_label = method_map.get(delivery_method, delivery_method)
+
+    right_html = f'<span class="badge {badge_class}">{badge_text}</span>'
+    if edition_number:
+        right_html += f'<div class="caption-text" style="margin-top: 0.2rem;">Edition #{edition_number}</div>'
+    if method_label:
+        right_html += f'<div class="caption-text" style="margin-top: 0.15rem; font-size: 0.75rem;">via {method_label}</div>'
+
+    st.html(
         f"""
     <div class="pb-card">
         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div>
                 <div class="headline-text" style="font-size: 1rem;">{date_str}</div>
-                <div class="mono-text" style="margin-top: 0.2rem;">
-                    {article_count} articles &middot; {source_count} sources &middot; {file_size}
-                </div>
+                <div class="mono-text" style="margin-top: 0.2rem;">{stats_line}</div>
                 {error_html}
             </div>
             <div style="text-align: right;">
-                <span class="badge {badge_class}">{badge_text}</span>
-                <div class="caption-text" style="margin-top: 0.2rem;">Edition #{edition_number}</div>
+                {right_html}
             </div>
         </div>
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
 
 
-def onboarding_choice_card(
-    title: str,
-    subtitle: str,
-    description: str,
-    button_text: str,
-    time_estimate: str,
-    enabled: bool = True,
-):
-    """Render a choice card for the onboarding step 1.
+def device_card(device_name: str, svg_icon: str, selected: bool = False):
+    """Render a device selection card with halftone-style SVG illustration.
 
-    Returns True if the button was clicked.
+    The card is made clickable via an invisible Streamlit button overlay
+    (see theme.py CSS for .device-select-card).
     """
-    opacity = "1" if enabled else "0.6"
-    coming_soon = "" if enabled else '<span class="badge badge-building" style="margin-left: 0.5rem;">Coming soon</span>'
+    card_class = "pb-card pb-card-clickable device-select-card"
+    if selected:
+        card_class += " pb-card-selected"
 
-    st.markdown(
+    st.html(
         f"""
-    <div class="pb-card" style="opacity: {opacity}; padding: 1.5rem;">
-        <div class="section-label" style="font-size: 0.85rem; margin-bottom: 0.5rem;">
-            {title}{coming_soon}
+    <div class="{card_class}" style="text-align: center; padding: 1.5rem 0.75rem; min-height: 180px;
+         display: flex; flex-direction: column; align-items: center; justify-content: center;">
+        <div style="margin-bottom: 0.5rem;">{svg_icon}</div>
+        <div class="headline-text" style="font-size: 1rem;">{device_name}</div>
+    </div>
+    """
+    )
+
+
+def bundle_card(name: str, description: str, selected: bool = False):
+    """Render a selectable bundle card with visual feedback.
+
+    The card is made clickable via an invisible Streamlit button overlay
+    (see theme.py CSS for .bundle-select-card).
+    """
+    card_class = "pb-card pb-card-clickable bundle-select-card"
+    if selected:
+        card_class += " pb-card-selected"
+
+    st.html(
+        f"""
+    <div class="{card_class}" style="text-align: center; padding: 1.25rem;">
+        <div class="headline-text" style="font-size: 0.95rem; margin-bottom: 0.5rem;">
+            {name}
         </div>
-        <hr class="thin-rule" style="margin-bottom: 0.75rem;">
-        <div class="headline-text" style="font-size: 1rem; margin-bottom: 0.5rem;">
-            {subtitle}
-        </div>
-        <div class="body-text" style="font-size: 0.9rem; margin-bottom: 0.75rem;">
+        <div class="caption-text" style="font-size: 0.8rem;">
             {description}
         </div>
-        <div class="caption-text" style="margin-bottom: 0.75rem;">{time_estimate}</div>
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
-
-    if enabled:
-        return st.button(button_text, use_container_width=True, type="primary")
-    else:
-        st.button(button_text, use_container_width=True, disabled=True)
-        return False
