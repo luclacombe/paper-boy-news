@@ -3,26 +3,18 @@
 import streamlit as st
 
 from web.components.theme import inject_theme
-from web.components.masthead import render_page_header
-from web.components.navigation import render_navigation
+from web.components.masthead import render_header
 from web.services.database import get_user_config, save_user_config
 
 
 inject_theme()
-render_page_header("Delivery")
-render_navigation("delivery")
+render_header("delivery")
 
 config = get_user_config()
 
 # === DEVICE ===
-st.markdown(
-    """
-<div class="section-label" style="margin-bottom: 0.75rem;">
-    E-READER
-</div>
-<hr class="dotted-rule" style="margin-bottom: 1rem;">
-""",
-    unsafe_allow_html=True,
+st.html(
+    '<div class="section-label" style="margin-bottom: 0.75rem;">E-READER</div>'
 )
 
 device_options = ["kobo", "kindle", "remarkable", "other"]
@@ -43,20 +35,9 @@ device = st.radio(
     horizontal=True,
 )
 
-st.markdown(
-    "<hr class='thin-rule' style='margin: 1.5rem 0;'>",
-    unsafe_allow_html=True,
-)
-
 # === DESTINATION (device-specific) ===
-st.markdown(
-    """
-<div class="section-label" style="margin-bottom: 0.75rem;">
-    DESTINATION
-</div>
-<hr class="dotted-rule" style="margin-bottom: 1rem;">
-""",
-    unsafe_allow_html=True,
+st.html(
+    '<div class="section-label" style="margin-top: 1.5rem; margin-bottom: 0.75rem;">DESTINATION</div>'
 )
 
 # Initialize variables for save
@@ -86,15 +67,14 @@ if device == "kobo":
     )
 
     if delivery_method == "google_drive":
-        st.markdown(
+        st.html(
             """
         <div class="pb-card" style="padding: 1rem;">
             <div class="body-text" style="font-size: 0.9rem; margin-bottom: 0.5rem;">
                 Your newspaper appears in your Kobo library automatically via Google Drive sync.
             </div>
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
 
         folder_name = st.text_input(
@@ -102,25 +82,23 @@ if device == "kobo":
             value=config.get("google_drive_folder", "Rakuten Kobo"),
         )
 
-        st.markdown(
+        st.html(
             """
         <div class="caption-text" style="margin-top: 0.25rem;">
             This is the folder in your Google Drive that syncs with your Kobo.
             The default is "Rakuten Kobo".
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
     else:
-        st.markdown(
+        st.html(
             """
         <div class="pb-card" style="padding: 1rem;">
             <div class="body-text" style="font-size: 0.9rem;">
-                Download each edition manually from the Past Editions page.
+                Download each edition manually from the Editions page.
             </div>
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
 
 elif device == "kindle":
@@ -140,7 +118,7 @@ elif device == "kindle":
     )
 
     if delivery_method == "email":
-        st.markdown(
+        st.html(
             """
         <div class="pb-card" style="padding: 1rem;">
             <div class="body-text" style="font-size: 0.9rem; margin-bottom: 0.5rem;">
@@ -148,8 +126,7 @@ elif device == "kindle":
                 Amazon accepts EPUB files natively.
             </div>
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
 
         kindle_email = st.text_input(
@@ -159,23 +136,21 @@ elif device == "kindle":
             help="Find this in Amazon → Manage Your Content and Devices → Preferences → Personal Document Settings.",
         )
 
-        st.markdown(
+        st.html(
             """
         <div class="section-label" style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 0.75rem;">
             SENDING EMAIL (SMTP)
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
 
-        st.markdown(
+        st.html(
             """
         <div class="caption-text" style="margin-bottom: 0.5rem;">
             The email account that sends to your Kindle.
             For Gmail, use an App Password (not your regular password).
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
 
         email_sender = st.text_input(
@@ -205,30 +180,28 @@ elif device == "kindle":
                 max_value=65535,
             )
 
-        st.markdown(
+        st.html(
             """
         <div class="caption-text" style="margin-top: 0.5rem;">
             Make sure to add your sender email to Amazon's Approved Personal Document
             E-mail List in your Kindle settings.
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
     else:
-        st.markdown(
+        st.html(
             """
         <div class="pb-card" style="padding: 1rem;">
             <div class="body-text" style="font-size: 0.9rem;">
                 Download and sideload via USB or email manually.
             </div>
         </div>
-        """,
-            unsafe_allow_html=True,
+        """
         )
 
 elif device == "remarkable":
     delivery_method = "local"
-    st.markdown(
+    st.html(
         """
     <div class="pb-card" style="padding: 1rem;">
         <div class="body-text" style="font-size: 0.9rem;">
@@ -236,13 +209,12 @@ elif device == "remarkable":
             or the reMarkable desktop app.
         </div>
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
 
 else:  # other
     delivery_method = "local"
-    st.markdown(
+    st.html(
         """
     <div class="pb-card" style="padding: 1rem;">
         <div class="body-text" style="font-size: 0.9rem;">
@@ -250,36 +222,27 @@ else:  # other
             Works with any e-reader or reading app that supports EPUB.
         </div>
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
 
-st.markdown(
-    "<hr class='thin-rule' style='margin: 1.5rem 0;'>",
-    unsafe_allow_html=True,
-)
-
 # === SCHEDULE ===
-st.markdown(
-    """
-<div class="section-label" style="margin-bottom: 0.75rem;">
-    SCHEDULE
-</div>
-<hr class="dotted-rule" style="margin-bottom: 1rem;">
-""",
-    unsafe_allow_html=True,
+st.html(
+    '<div class="section-label" style="margin-top: 1.5rem; margin-bottom: 0.75rem;">SCHEDULE</div>'
 )
 
-st.markdown(
+st.html(
     '<div class="body-text" style="font-size: 0.9rem; margin-bottom: 0.5rem;">'
-    "Build and deliver every day at:"
-    "</div>",
-    unsafe_allow_html=True,
+    "Your paper will be ready every day at:"
+    "</div>"
 )
 
 time_options = ["05:00", "05:30", "06:00", "06:30", "07:00", "07:30", "08:00"]
 current_time = config.get("delivery_time", "06:00")
 time_index = time_options.index(current_time) if current_time in time_options else 2
+
+timezone_options = ["UTC", "US/Eastern", "US/Central", "US/Pacific", "Europe/London", "Europe/Paris"]
+current_timezone = config.get("timezone", "UTC")
+timezone_index = timezone_options.index(current_timezone) if current_timezone in timezone_options else 0
 
 time_col, tz_col = st.columns(2)
 with time_col:
@@ -293,25 +256,23 @@ with time_col:
 with tz_col:
     timezone = st.selectbox(
         "Timezone",
-        options=["UTC", "US/Eastern", "US/Central", "US/Pacific", "Europe/London", "Europe/Paris"],
-        index=0,
+        options=timezone_options,
+        index=timezone_index,
         label_visibility="collapsed",
     )
 
-st.markdown(
-    "<hr class='thin-rule' style='margin: 1.5rem 0;'>",
-    unsafe_allow_html=True,
-)
+# Reading time -> article count mapping
+READING_TIME_MAP = {
+    "5 min": 3,
+    "10 min": 5,
+    "15 min": 8,
+    "20 min": 10,
+    "30 min": 15,
+}
 
 # === NEWSPAPER SETTINGS ===
-st.markdown(
-    """
-<div class="section-label" style="margin-bottom: 0.75rem;">
-    NEWSPAPER SETTINGS
-</div>
-<hr class="dotted-rule" style="margin-bottom: 1rem;">
-""",
-    unsafe_allow_html=True,
+st.html(
+    '<div class="section-label" style="margin-top: 1.5rem; margin-bottom: 0.75rem;">YOUR NEWSPAPER</div>'
 )
 
 title = st.text_input(
@@ -319,14 +280,25 @@ title = st.text_input(
     value=config.get("title", "Morning Digest"),
 )
 
-max_options = [3, 5, 8, 10, 15, 20]
-current_max = config.get("max_articles_per_feed", 10)
-max_index = max_options.index(current_max) if current_max in max_options else 3
+st.html(
+    '<div class="body-text" style="font-size: 0.9rem; margin: 0.5rem 0;">'
+    "How long do you want to read each morning?"
+    "</div>"
+)
 
-max_articles = st.selectbox(
-    "Max articles per source",
-    options=max_options,
-    index=max_index,
+current_reading_time = config.get("reading_time", "20 min")
+reading_time = st.select_slider(
+    "Reading time",
+    options=list(READING_TIME_MAP.keys()),
+    value=current_reading_time if current_reading_time in READING_TIME_MAP else "20 min",
+    label_visibility="collapsed",
+)
+max_articles = READING_TIME_MAP[reading_time]
+
+st.html(
+    '<div class="caption-text" style="margin-top: 0.25rem;">'
+    "Approximate &mdash; actual time depends on article length."
+    "</div>"
 )
 
 include_images = st.checkbox(
@@ -334,10 +306,7 @@ include_images = st.checkbox(
     value=config.get("include_images", True),
 )
 
-st.markdown(
-    "<hr class='thin-rule' style='margin: 1.5rem 0;'>",
-    unsafe_allow_html=True,
-)
+st.html('<div style="margin-top: 1.5rem;"></div>')
 
 # === SAVE BUTTON ===
 if st.button("Save Changes", type="primary", use_container_width=True):
@@ -351,17 +320,18 @@ if st.button("Save Changes", type="primary", use_container_width=True):
     updated_config["email_sender"] = email_sender
     updated_config["email_password"] = email_password
     updated_config["delivery_time"] = delivery_time
+    updated_config["timezone"] = timezone
     updated_config["title"] = title
     updated_config["max_articles_per_feed"] = max_articles
+    updated_config["reading_time"] = reading_time
     updated_config["include_images"] = include_images
 
     save_user_config(updated_config)
 
-    st.markdown(
+    st.html(
         """
     <div style="text-align: center; padding: 0.5rem; margin-top: 0.5rem;">
         <span class="badge badge-delivered">&#10003; Settings saved</span>
     </div>
-    """,
-        unsafe_allow_html=True,
+    """
     )
