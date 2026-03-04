@@ -34,23 +34,36 @@ def _delivery_needs_setup(config: dict) -> tuple[bool, str]:
     Returns (needs_setup, message) tuple.
     """
     method = config.get("delivery_method", "local")
-    device = config.get("device", "other")
 
     if method == "google_drive":
-        # Google Drive needs credentials — check if GOOGLE_CREDENTIALS env var
-        # or credentials.json exists (these are set up outside the app)
-        has_creds = (
+        # Check for OAuth2 tokens, env var, or credentials file
+        has_oauth = (
+            config.get("google_tokens")
+            and config["google_tokens"].get("refresh_token")
+        )
+        has_service_account = (
             os.environ.get("GOOGLE_CREDENTIALS")
             or os.path.exists("credentials.json")
         )
-        if not has_creds:
-            return True, "Connect your Google Drive so editions are delivered to your Kobo automatically."
+        if not has_oauth and not has_service_account:
+            return True, "Connect your Google account so editions are delivered to your Kobo automatically."
         return False, ""
 
     if method == "email":
-        # Email needs SMTP settings
-        if not config.get("kindle_email") or not config.get("email_sender") or not config.get("email_password"):
-            return True, "Add your Kindle email and SMTP settings so editions are sent to your Kindle."
+        if not config.get("kindle_email"):
+            return True, "Add your Kindle email address so editions can be sent to your Kindle."
+
+        # Gmail API path — check for Google tokens with gmail.send scope
+        email_method = config.get("email_method", "gmail")
+        if email_method == "gmail":
+            tokens = config.get("google_tokens")
+            if tokens and "https://www.googleapis.com/auth/gmail.send" in tokens.get("scopes", []):
+                return False, ""
+            return True, "Connect your Google account to send editions to your Kindle via Gmail."
+
+        # SMTP path — check for sender and password
+        if not config.get("email_sender") or not config.get("email_password"):
+            return True, "Add your SMTP email settings so editions are sent to your Kindle."
         return False, ""
 
     return False, ""

@@ -109,6 +109,9 @@ def build_edition(
 def deliver_edition(epub_path, user_config: dict) -> Tuple[bool, str]:
     """Deliver a built EPUB using the configured delivery method.
 
+    Uses Gmail API via OAuth2 when Google tokens with gmail.send scope are
+    available and the delivery method is email. Otherwise falls back to SMTP.
+
     Args:
         epub_path: Path to the EPUB file.
         user_config: Dict from the database service.
@@ -121,12 +124,28 @@ def deliver_edition(epub_path, user_config: dict) -> Tuple[bool, str]:
     if config.delivery.method == "local":
         return True, "Download ready"
 
+    token_data = user_config.get("google_tokens")
+
+    # Determine effective delivery method — use Gmail API when OAuth tokens
+    # are available with gmail.send scope and delivery method is email
+    effective_method = config.delivery.method
+    if effective_method == "email" and token_data:
+        scopes = token_data.get("scopes", [])
+        if "https://www.googleapis.com/auth/gmail.send" in scopes:
+            effective_method = "gmail_api"
+
     try:
-        deliver(Path(epub_path), config)
-        method = config.delivery.method
-        if method == "google_drive":
+        # Temporarily override method if routing to Gmail API
+        original_method = config.delivery.method
+        config.delivery.method = effective_method
+        deliver(Path(epub_path), config, token_data=token_data)
+        config.delivery.method = original_method
+
+        if effective_method == "google_drive":
             return True, f"Uploaded to Google Drive ({config.delivery.google_drive.folder_name})"
-        elif method == "email":
+        elif effective_method == "gmail_api":
+            return True, f"Sent to {config.delivery.email.recipient} via Gmail"
+        elif effective_method == "email":
             return True, f"Emailed to {config.delivery.email.recipient}"
         return True, "Delivered"
     except Exception as e:
