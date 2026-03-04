@@ -5,12 +5,27 @@ import streamlit as st
 from web.components.theme import inject_theme
 from web.components.masthead import render_header
 from web.services.database import get_user_config, save_user_config
-
+from web.services.google_oauth import (
+    get_authorization_url,
+    handle_oauth_callback,
+    has_drive_scope,
+    has_gmail_scope,
+    is_configured as google_is_configured,
+)
 
 inject_theme()
 render_header("delivery")
 
 config = get_user_config()
+
+# === Handle OAuth callback (must run before any UI) ===
+if google_is_configured():
+    token_data = handle_oauth_callback()
+    if token_data:
+        config["google_tokens"] = token_data
+        save_user_config(config)
+        st.success("Google account connected successfully!")
+        st.rerun()
 
 # === DEVICE ===
 st.html(
@@ -47,6 +62,7 @@ email_smtp_host = config.get("email_smtp_host", "smtp.gmail.com")
 email_smtp_port = config.get("email_smtp_port", 465)
 email_sender = config.get("email_sender", "")
 email_password = config.get("email_password", "")
+email_method = config.get("email_method", "gmail")
 
 current_method = config.get("delivery_method", "local")
 
@@ -76,6 +92,47 @@ if device == "kobo":
         </div>
         """
         )
+
+        # Google Drive connection status
+        if config.get("google_tokens") and has_drive_scope(config):
+            st.html(
+                """
+            <div style="padding: 0.5rem 0;">
+                <span class="badge badge-delivered">Connected to Google Drive</span>
+            </div>
+            """
+            )
+            if st.button("Disconnect Google Account", key="disconnect_drive"):
+                config["google_tokens"] = None
+                save_user_config(config)
+                st.rerun()
+        elif google_is_configured():
+            auth_url = get_authorization_url()
+            st.link_button(
+                "Connect with Google",
+                auth_url,
+                type="primary",
+                use_container_width=True,
+            )
+            st.html(
+                """
+            <div class="caption-text" style="margin-top: 0.25rem;">
+                Authorizes Paper Boy to upload newspapers to your Google Drive.
+            </div>
+            """
+            )
+        else:
+            st.html(
+                """
+            <div class="pb-card" style="padding: 1rem;">
+                <div class="caption-text">
+                    Google OAuth not configured. Add your Google client credentials
+                    to <code>.streamlit/secrets.toml</code> to enable this.
+                    See <code>.streamlit/secrets.example.toml</code> for the format.
+                </div>
+            </div>
+            """
+            )
 
         folder_name = st.text_input(
             "Google Drive folder name",
@@ -133,58 +190,169 @@ elif device == "kindle":
             "Kindle email address",
             value=config.get("kindle_email", ""),
             placeholder="your-name@kindle.com",
-            help="Find this in Amazon → Manage Your Content and Devices → Preferences → Personal Document Settings.",
+            help="Find this in Amazon > Manage Your Content and Devices > Preferences > Personal Document Settings.",
         )
 
+        # Email sending method choice
         st.html(
             """
         <div class="section-label" style="margin-top: 1rem; margin-bottom: 0.5rem; font-size: 0.75rem;">
-            SENDING EMAIL (SMTP)
+            SENDING METHOD
         </div>
         """
         )
 
-        st.html(
+        email_method_options = ["gmail", "smtp"]
+        email_method_labels = {
+            "gmail": "Send via Gmail (recommended)",
+            "smtp": "Send via SMTP",
+        }
+        current_email_method = config.get("email_method", "gmail")
+        email_method_index = (
+            email_method_options.index(current_email_method)
+            if current_email_method in email_method_options
+            else 0
+        )
+
+        email_method = st.radio(
+            "Email sending method",
+            options=email_method_options,
+            format_func=lambda x: email_method_labels[x],
+            index=email_method_index,
+            label_visibility="collapsed",
+        )
+
+        if email_method == "gmail":
+            # Gmail API path — uses same Google OAuth as Drive
+            if config.get("google_tokens") and has_gmail_scope(config):
+                st.html(
+                    """
+                <div style="padding: 0.5rem 0;">
+                    <span class="badge badge-delivered">Gmail connected</span>
+                </div>
+                """
+                )
+                st.html(
+                    """
+                <div class="caption-text">
+                    Editions will be sent from your Gmail account. No App Password needed.
+                </div>
+                """
+                )
+                if st.button("Disconnect Google Account", key="disconnect_gmail"):
+                    config["google_tokens"] = None
+                    save_user_config(config)
+                    st.rerun()
+            elif google_is_configured():
+                st.html(
+                    """
+                <div class="caption-text" style="margin-bottom: 0.5rem;">
+                    Connect your Gmail account to send editions directly.
+                    No App Password needed.
+                </div>
+                """
+                )
+                auth_url = get_authorization_url()
+                st.link_button(
+                    "Connect with Google",
+                    auth_url,
+                    type="primary",
+                    use_container_width=True,
+                )
+            else:
+                st.html(
+                    """
+                <div class="pb-card" style="padding: 1rem;">
+                    <div class="caption-text">
+                        Google OAuth not configured. Add your Google client credentials
+                        to <code>.streamlit/secrets.toml</code>, or switch to SMTP below.
+                    </div>
+                </div>
+                """
+                )
+
+        else:
+            # SMTP path — manual credentials
+            st.html(
+                """
+            <div class="caption-text" style="margin-bottom: 0.5rem;">
+                The email account that sends to your Kindle.
+                For Gmail, use an App Password (not your regular password).
+            </div>
             """
-        <div class="caption-text" style="margin-bottom: 0.5rem;">
-            The email account that sends to your Kindle.
-            For Gmail, use an App Password (not your regular password).
-        </div>
-        """
-        )
-
-        email_sender = st.text_input(
-            "Sender email",
-            value=config.get("email_sender", ""),
-            placeholder="your-email@gmail.com",
-        )
-
-        email_password = st.text_input(
-            "App password",
-            value=config.get("email_password", ""),
-            type="password",
-            help="For Gmail: Google Account → Security → 2-Step Verification → App Passwords.",
-        )
-
-        smtp_col1, smtp_col2 = st.columns(2)
-        with smtp_col1:
-            email_smtp_host = st.text_input(
-                "SMTP host",
-                value=config.get("email_smtp_host", "smtp.gmail.com"),
-            )
-        with smtp_col2:
-            email_smtp_port = st.number_input(
-                "SMTP port",
-                value=config.get("email_smtp_port", 465),
-                min_value=1,
-                max_value=65535,
             )
 
+            email_sender = st.text_input(
+                "Sender email",
+                value=config.get("email_sender", ""),
+                placeholder="your-email@gmail.com",
+            )
+
+            email_password = st.text_input(
+                "App password",
+                value=config.get("email_password", ""),
+                type="password",
+            )
+
+            smtp_col1, smtp_col2 = st.columns(2)
+            with smtp_col1:
+                email_smtp_host = st.text_input(
+                    "SMTP host",
+                    value=config.get("email_smtp_host", "smtp.gmail.com"),
+                )
+            with smtp_col2:
+                email_smtp_port = st.number_input(
+                    "SMTP port",
+                    value=config.get("email_smtp_port", 465),
+                    min_value=1,
+                    max_value=65535,
+                )
+
+            # Test connection button
+            if email_sender and email_password:
+                if st.button("Test Connection", key="test_smtp"):
+                    from web.services.smtp_test import check_smtp_connection
+
+                    with st.spinner("Testing connection..."):
+                        success, message = check_smtp_connection(
+                            email_smtp_host,
+                            int(email_smtp_port),
+                            email_sender,
+                            email_password,
+                        )
+                    if success:
+                        st.success(message)
+                    else:
+                        st.error(message)
+
+            # Setup guide
+            with st.expander("Gmail App Password setup guide"):
+                st.markdown(
+                    """
+**Step 1: Enable 2-Step Verification**
+1. Go to [myaccount.google.com/security](https://myaccount.google.com/security)
+2. Under "How you sign in to Google", click **2-Step Verification**
+3. Follow the prompts to enable it
+
+**Step 2: Create an App Password**
+1. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+2. Enter a name (e.g. "Paper Boy") and click **Create**
+3. Copy the 16-character password and paste it above
+
+**Step 3: Approve sender on Amazon**
+1. Go to [amazon.com/hz/mycd/myx](https://amazon.com/hz/mycd/myx)
+2. Go to **Preferences** > **Personal Document Settings**
+3. Under "Approved Personal Document E-mail List", add your sender email
+"""
+                )
+
+        # Kindle approved senders reminder (shown for both methods)
         st.html(
             """
         <div class="caption-text" style="margin-top: 0.5rem;">
-            Make sure to add your sender email to Amazon's Approved Personal Document
-            E-mail List in your Kindle settings.
+            Make sure your sending email is on Amazon's Approved Personal Document
+            E-mail List in your
+            <a href="https://amazon.com/hz/mycd/myx" target="_blank">Kindle settings</a>.
         </div>
         """
         )
@@ -315,6 +483,7 @@ if st.button("Save Changes", type="primary", use_container_width=True):
     updated_config["delivery_method"] = delivery_method
     updated_config["google_drive_folder"] = folder_name
     updated_config["kindle_email"] = kindle_email
+    updated_config["email_method"] = email_method
     updated_config["email_smtp_host"] = email_smtp_host
     updated_config["email_smtp_port"] = email_smtp_port
     updated_config["email_sender"] = email_sender
