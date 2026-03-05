@@ -1,5 +1,6 @@
 """JWT verification middleware for Supabase auth."""
 
+import logging
 import os
 from typing import Optional
 
@@ -7,9 +8,18 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+logger = logging.getLogger(__name__)
+
 security = HTTPBearer(auto_error=False)
 
 JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+if not JWT_SECRET and ENVIRONMENT == "production":
+    raise RuntimeError(
+        "SUPABASE_JWT_SECRET must be set in production. "
+        "Set the environment variable before starting the server."
+    )
 
 
 async def verify_token(
@@ -22,6 +32,10 @@ async def verify_token(
     """
     # Dev mode: skip verification if no secret is configured
     if not JWT_SECRET:
+        logger.warning(
+            "SUPABASE_JWT_SECRET not set — running in insecure dev mode. "
+            "Never deploy without this variable."
+        )
         if credentials and credentials.credentials:
             try:
                 payload = jwt.decode(
