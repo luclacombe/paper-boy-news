@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { AnimatePresence, motion } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
 import { getCatalogData, getBundleFeeds } from "@/actions/feed-catalog";
 import { useOnboardingState } from "@/hooks/use-onboarding-state";
 import { readingTimeToArticleCount } from "@/lib/reading-time";
+import { NewspaperMasthead } from "@/components/newspaper-masthead";
 import { StepIndicator } from "@/components/step-indicator";
 import { DeviceCard } from "@/components/device-card";
 import { BundleCard } from "@/components/bundle-card";
+import { MarginDecoration } from "@/components/margin-decoration";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +25,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 import { DEVICES, DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
 import { READING_TIME_OPTIONS } from "@/lib/reading-time";
 import type {
@@ -44,10 +48,6 @@ export default function OnboardingPage() {
   const [bundleFeedMap, setBundleFeedMap] = useState<
     Map<string, CatalogFeed[]>
   >(new Map());
-  const [selectedBundles, setSelectedBundles] = useState<Set<string>>(
-    new Set()
-  );
-
   // Step 2: custom RSS
   const [customUrl, setCustomUrl] = useState("");
   const [customUrlError, setCustomUrlError] = useState<string | null>(null);
@@ -77,23 +77,25 @@ export default function OnboardingPage() {
     });
   }, []);
 
-  // Two-way bundle sync: when feeds change, update which bundles are fully selected
-  useEffect(() => {
-    if (bundleFeedMap.size === 0) return;
+  // Derived state: which bundles are fully selected based on current feeds
+  const selectedBundles = useMemo(() => {
+    if (bundleFeedMap.size === 0) return new Set<string>();
     const feedUrls = new Set(state.feeds.map((f) => f.url));
-    const newBundles = new Set<string>();
+    const result = new Set<string>();
     for (const [name, feeds] of bundleFeedMap) {
       if (feeds.length > 0 && feeds.every((f) => feedUrls.has(f.url))) {
-        newBundles.add(name);
+        result.add(name);
       }
     }
-    setSelectedBundles(newBundles);
+    return result;
   }, [state.feeds, bundleFeedMap]);
 
   if (!loaded) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-newsprint">
-        <p className="font-body text-sm text-caption">Loading...</p>
+      <div className="flex min-h-screen items-center justify-center bg-newsprint page-vignette">
+        <p className="font-body text-sm italic text-caption">
+          Setting the type&hellip;
+        </p>
       </div>
     );
   }
@@ -245,7 +247,11 @@ export default function OnboardingPage() {
     const { error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
-      setAuthError(error.message);
+      if (error.message.includes("already registered")) {
+        setAuthError("already_registered");
+      } else {
+        setAuthError(error.message);
+      }
       setAuthLoading(false);
     } else {
       router.push("/onboarding/complete");
@@ -257,11 +263,11 @@ export default function OnboardingPage() {
   function renderStep1() {
     return (
       <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="font-display text-xl font-bold text-ink">
+        <div className="section-rule text-center">
+          <h2 className="font-display text-2xl font-bold text-ink">
             Choose Your Device
           </h2>
-          <p className="mt-1 font-body text-sm text-caption">
+          <p className="mt-1 font-body text-sm italic text-caption">
             Which e-reader will you use?
           </p>
         </div>
@@ -284,16 +290,23 @@ export default function OnboardingPage() {
         </div>
 
         {state.device && (
-          <p className="text-center font-body text-xs text-caption">
+          <p className="text-center font-body text-xs italic text-caption">
             {DEVICES.find((d) => d.value === state.device)?.description}
           </p>
         )}
 
-        <div className="flex justify-end">
+        <div className="flex justify-between">
+          <Button
+            onClick={() => router.push("/")}
+            variant="outline"
+            className="letterpress font-body text-sm uppercase tracking-wider"
+          >
+            Back
+          </Button>
           <Button
             onClick={() => goToStep(2)}
             disabled={!state.device}
-            className="bg-ink font-body text-sm font-semibold uppercase tracking-wider text-newsprint hover:bg-ink/90"
+            className="letterpress bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
           >
             Continue
           </Button>
@@ -307,18 +320,18 @@ export default function OnboardingPage() {
 
     return (
       <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="font-display text-xl font-bold text-ink">
+        <div className="section-rule text-center">
+          <h2 className="font-display text-2xl font-bold text-ink">
             Pick Your Sources
           </h2>
-          <p className="mt-1 font-body text-sm text-caption">
+          <p className="mt-1 font-body text-sm italic text-caption">
             Start with a bundle or pick individual feeds.
           </p>
         </div>
 
         {/* Bundles */}
         <div className="space-y-3">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Starter Bundles
           </h3>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -336,14 +349,14 @@ export default function OnboardingPage() {
 
         {/* Individual feeds by category */}
         <div className="space-y-4">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Individual Sources
           </h3>
           {categories.map((cat) => (
             <details key={cat.name} className="group">
-              <summary className="flex cursor-pointer items-center justify-between rounded-sm border border-rule-gray bg-white px-4 py-2.5 font-body text-sm font-semibold text-ink hover:bg-newsprint">
+              <summary className="newsprint-card flex cursor-pointer items-center justify-between overflow-hidden border border-rule-gray bg-card px-4 py-2.5 font-headline text-sm font-bold text-ink hover:bg-newsprint">
                 <span>{cat.name}</span>
-                <span className="text-xs text-caption">
+                <span className="font-mono text-xs text-caption">
                   {cat.feeds.filter((f) => feedUrls.has(f.url)).length}/
                   {cat.feeds.length}
                 </span>
@@ -352,7 +365,7 @@ export default function OnboardingPage() {
                 {cat.feeds.map((feed) => (
                   <label
                     key={feed.id}
-                    className="flex items-start gap-3 rounded-sm px-3 py-2 hover:bg-white"
+                    className="flex items-start gap-3 px-3 py-2 hover:bg-card"
                   >
                     <Checkbox
                       checked={feedUrls.has(feed.url)}
@@ -366,10 +379,10 @@ export default function OnboardingPage() {
                       className="mt-0.5"
                     />
                     <div>
-                      <span className="font-body text-sm font-semibold text-ink">
+                      <span className="font-headline text-sm font-bold text-ink">
                         {feed.name}
                       </span>
-                      <span className="ml-2 font-body text-xs text-caption">
+                      <span className="ml-2 font-body text-xs italic text-caption">
                         {feed.description}
                       </span>
                     </div>
@@ -381,8 +394,9 @@ export default function OnboardingPage() {
         </div>
 
         {/* Custom RSS */}
+        <div className="ornamental-divider" />
         <div className="space-y-2">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Custom RSS Feed
           </h3>
           <div className="flex gap-2">
@@ -397,22 +411,22 @@ export default function OnboardingPage() {
               type="button"
               onClick={addCustomFeed}
               variant="outline"
-              className="shrink-0 font-body text-sm"
+              className="letterpress shrink-0 font-body text-sm"
             >
               Add
             </Button>
           </div>
           {customUrlError && (
-            <p className="font-body text-xs text-edition-red">
+            <p className="font-body text-xs italic text-edition-red">
               {customUrlError}
             </p>
           )}
         </div>
 
         {/* Summary */}
-        <div className="rounded-sm border border-rule-gray bg-white px-4 py-3">
+        <div className="newsprint-card overflow-hidden border border-rule-gray bg-card px-4 py-3">
           <p className="font-body text-sm text-ink">
-            <span className="font-semibold">{state.feeds.length}</span>{" "}
+            <span className="font-headline font-bold">{state.feeds.length}</span>{" "}
             source{state.feeds.length !== 1 ? "s" : ""} selected
           </p>
         </div>
@@ -421,14 +435,14 @@ export default function OnboardingPage() {
           <Button
             onClick={() => goToStep(1)}
             variant="outline"
-            className="font-body text-sm font-semibold uppercase tracking-wider"
+            className="letterpress font-body text-sm uppercase tracking-wider"
           >
             Back
           </Button>
           <Button
             onClick={() => goToStep(3)}
             disabled={state.feeds.length === 0}
-            className="bg-ink font-body text-sm font-semibold uppercase tracking-wider text-newsprint hover:bg-ink/90"
+            className="letterpress bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
           >
             Continue
           </Button>
@@ -443,18 +457,18 @@ export default function OnboardingPage() {
 
     return (
       <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="font-display text-xl font-bold text-ink">
+        <div className="section-rule text-center">
+          <h2 className="font-display text-2xl font-bold text-ink">
             Delivery Settings
           </h2>
-          <p className="mt-1 font-body text-sm text-caption">
+          <p className="mt-1 font-body text-sm italic text-caption">
             How and when should your newspaper arrive?
           </p>
         </div>
 
         {/* Delivery method */}
         <div className="space-y-3">
-          <Label className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+          <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Delivery Method
           </Label>
           <RadioGroup
@@ -467,14 +481,14 @@ export default function OnboardingPage() {
             {methods.map((m) => (
               <label
                 key={m.value}
-                className="flex items-start gap-3 rounded-sm border border-rule-gray bg-white px-4 py-3 hover:border-caption"
+                className="newsprint-card flex items-start gap-3 overflow-hidden border border-rule-gray bg-card px-4 py-3 hover:border-caption"
               >
                 <RadioGroupItem value={m.value} className="mt-0.5" />
                 <div>
-                  <span className="font-body text-sm font-semibold text-ink">
+                  <span className="font-headline text-sm font-bold text-ink">
                     {m.label}
                   </span>
-                  <p className="font-body text-xs text-caption">
+                  <p className="font-body text-xs italic text-caption">
                     {m.description}
                   </p>
                 </div>
@@ -486,7 +500,7 @@ export default function OnboardingPage() {
         {/* Kindle email (conditional) */}
         {state.deliveryMethod === "email" && state.device === "kindle" && (
           <div className="space-y-2">
-            <Label className="font-body text-sm text-ink">
+            <Label className="font-headline text-sm text-ink">
               Kindle Email Address
             </Label>
             <Input
@@ -501,7 +515,7 @@ export default function OnboardingPage() {
         {/* Schedule */}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+            <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
               Delivery Time
             </Label>
             <Select
@@ -521,7 +535,7 @@ export default function OnboardingPage() {
             </Select>
           </div>
           <div className="space-y-2">
-            <Label className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+            <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
               Timezone
             </Label>
             <Select
@@ -543,12 +557,13 @@ export default function OnboardingPage() {
         </div>
 
         {/* Newspaper settings */}
+        <div className="ornamental-divider" />
         <div className="space-y-4">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-wider text-caption">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Newspaper Settings
           </h3>
           <div className="space-y-2">
-            <Label className="font-body text-sm text-ink">
+            <Label className="font-headline text-sm text-ink">
               Newspaper Title
             </Label>
             <Input
@@ -558,30 +573,39 @@ export default function OnboardingPage() {
             />
           </div>
           <div className="space-y-2">
-            <Label className="font-body text-sm text-ink">
-              Reading Time:{" "}
-              <span className="font-semibold">{readingMinutes} min</span>
-              <span className="ml-1 text-xs text-caption">
+            <Label className="font-headline text-sm text-ink">
+              Reading Time
+              <span className="ml-1 font-mono text-xs text-caption">
                 (~{readingTimeToArticleCount(readingMinutes)} articles/feed)
               </span>
             </Label>
-            <Slider
-              value={[
-                READING_TIME_OPTIONS.indexOf(readingMinutes) !== -1
-                  ? READING_TIME_OPTIONS.indexOf(readingMinutes)
-                  : 2,
-              ]}
-              onValueChange={([i]) => {
-                const minutes = READING_TIME_OPTIONS[i];
-                update({
-                  readingTime: String(minutes),
-                  maxArticlesPerFeed: readingTimeToArticleCount(minutes),
-                });
-              }}
-              min={0}
-              max={READING_TIME_OPTIONS.length - 1}
-              step={1}
-            />
+            <div className="flex border border-rule-gray">
+              {READING_TIME_OPTIONS.map((minutes) => {
+                const isSelected = readingMinutes === minutes;
+                return (
+                  <button
+                    key={minutes}
+                    type="button"
+                    onClick={() =>
+                      update({
+                        readingTime: String(minutes),
+                        maxArticlesPerFeed:
+                          readingTimeToArticleCount(minutes),
+                      })
+                    }
+                    className={cn(
+                      "flex-1 py-2.5 font-mono text-xs transition-colors",
+                      "border-r border-rule-gray last:border-r-0",
+                      isSelected
+                        ? "letterpress bg-ink font-bold text-newsprint"
+                        : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
+                    )}
+                  >
+                    {minutes}m
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <label className="flex items-center gap-3">
             <Checkbox
@@ -600,13 +624,13 @@ export default function OnboardingPage() {
           <Button
             onClick={() => goToStep(2)}
             variant="outline"
-            className="font-body text-sm font-semibold uppercase tracking-wider"
+            className="letterpress font-body text-sm uppercase tracking-wider"
           >
             Back
           </Button>
           <Button
             onClick={() => goToStep(4)}
-            className="bg-ink font-body text-sm font-semibold uppercase tracking-wider text-newsprint hover:bg-ink/90"
+            className="letterpress bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
           >
             Continue
           </Button>
@@ -618,21 +642,59 @@ export default function OnboardingPage() {
   function renderStep4() {
     return (
       <div className="space-y-6">
-        <div className="text-center">
-          <h2 className="font-display text-xl font-bold text-ink">
+        <div className="section-rule text-center">
+          <h2 className="font-display text-2xl font-bold text-ink">
             Create Your Account
           </h2>
-          <p className="mt-1 font-body text-sm text-caption">
+          <p className="mt-1 font-body text-sm italic text-caption">
             A free account lets us save your settings and deliver your newspaper
             automatically each morning.
           </p>
+        </div>
+
+        {/* Why create an account? */}
+        <div className="newsprint-card overflow-hidden border border-rule-gray bg-card px-5 py-4 space-y-2.5">
+          {(state.device === "kindle" || state.device === "kobo") &&
+            state.deliveryMethod !== "local" && (
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 font-display text-sm text-edition-red">
+                  *
+                </span>
+                <p className="font-body text-xs text-ink">
+                  <span className="font-headline font-bold">
+                    Recommended: Sign in with Google.
+                  </span>{" "}
+                  {state.device === "kindle"
+                    ? "This lets Paper Boy deliver your newspaper via Gmail\u2019s Send-to-Kindle service\u00a0\u2014 no app passwords needed."
+                    : "This lets Paper Boy sync your newspaper to Google Drive, where your Kobo picks it up automatically."}
+                </p>
+              </div>
+            )}
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 font-display text-sm text-caption">
+              &bull;
+            </span>
+            <p className="font-body text-xs text-caption">
+              Accounts keep bots out and let us save your preferences and deliver
+              your newspaper each morning. No spam, ever.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 font-display text-sm text-caption">
+              &bull;
+            </span>
+            <p className="font-body text-xs text-caption">
+              We only store what&rsquo;s needed to build and deliver your paper.
+              No tracking, no ads, no data sharing.
+            </p>
+          </div>
         </div>
 
         {/* Google sign-in (primary) */}
         <Button
           onClick={handleGoogleSignIn}
           disabled={authLoading}
-          className="flex w-full items-center justify-center gap-2 bg-ink font-body text-sm font-semibold text-newsprint hover:bg-ink/90"
+          className="letterpress flex w-full items-center justify-center gap-2 bg-ink font-body text-sm text-newsprint hover:bg-ink/90"
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24">
             <path
@@ -658,7 +720,7 @@ export default function OnboardingPage() {
         {/* Divider */}
         <div className="flex items-center gap-3">
           <div className="h-px flex-1 bg-rule-gray" />
-          <span className="font-body text-xs text-caption">or</span>
+          <span className="small-caps font-body text-xs text-caption">or</span>
           <div className="h-px flex-1 bg-rule-gray" />
         </div>
 
@@ -666,14 +728,14 @@ export default function OnboardingPage() {
         {authMode !== "email" ? (
           <button
             onClick={() => setAuthMode("email")}
-            className="w-full font-body text-sm text-caption underline hover:text-ink"
+            className="w-full font-body text-sm italic text-caption underline hover:text-ink"
           >
             Sign up with email and password
           </button>
         ) : (
           <form onSubmit={handleEmailSignUp} className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="ob-email" className="font-body text-sm text-ink">
+              <Label htmlFor="ob-email" className="font-headline text-sm text-ink">
                 Email
               </Label>
               <Input
@@ -689,7 +751,7 @@ export default function OnboardingPage() {
             <div className="space-y-2">
               <Label
                 htmlFor="ob-password"
-                className="font-body text-sm text-ink"
+                className="font-headline text-sm text-ink"
               >
                 Password
               </Label>
@@ -706,7 +768,7 @@ export default function OnboardingPage() {
             <div className="space-y-2">
               <Label
                 htmlFor="ob-confirm"
-                className="font-body text-sm text-ink"
+                className="font-headline text-sm text-ink"
               >
                 Confirm Password
               </Label>
@@ -723,7 +785,7 @@ export default function OnboardingPage() {
             <Button
               type="submit"
               disabled={authLoading}
-              className="w-full bg-ink font-body text-sm font-semibold uppercase tracking-wider text-newsprint hover:bg-ink/90"
+              className="letterpress w-full bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
             >
               {authLoading ? "Creating account..." : "Create Account"}
             </Button>
@@ -731,16 +793,38 @@ export default function OnboardingPage() {
         )}
 
         {authError && (
-          <p className="text-center font-body text-sm text-edition-red">
-            {authError}
+          <p className="text-center font-body text-sm italic text-edition-red">
+            {authError === "already_registered" ? (
+              <>
+                This email is already registered.{" "}
+                <Link
+                  href="/login"
+                  className="font-semibold text-ink underline hover:no-underline"
+                >
+                  Sign in instead
+                </Link>
+              </>
+            ) : (
+              authError
+            )}
           </p>
         )}
+
+        <p className="text-center font-body text-sm text-caption">
+          Already have an account?{" "}
+          <Link
+            href="/login"
+            className="underline hover:no-underline"
+          >
+            Sign in
+          </Link>
+        </p>
 
         <div className="flex justify-start">
           <Button
             onClick={() => goToStep(3)}
             variant="outline"
-            className="font-body text-sm font-semibold uppercase tracking-wider"
+            className="letterpress font-body text-sm uppercase tracking-wider"
           >
             Back
           </Button>
@@ -750,27 +834,58 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-newsprint">
-      <main className="mx-auto max-w-xl px-6 py-12">
-        {/* Masthead */}
-        <div className="mb-8 text-center">
-          <h1 className="font-display text-2xl font-black uppercase tracking-[0.15em] text-ink">
-            Paper Boy
-          </h1>
-          <div className="mt-4">
-            <StepIndicator currentStep={state.step} totalSteps={TOTAL_STEPS} />
-          </div>
-          <p className="mt-2 font-body text-xs text-caption">
-            Step {state.step} of {TOTAL_STEPS}
-          </p>
-        </div>
+    <div className="min-h-screen bg-newsprint page-vignette">
+      <div className="mx-auto flex max-w-4xl px-6 py-12">
+        {/* Left margin decoration */}
+        <aside className="hidden w-24 shrink-0 lg:block" aria-hidden="true">
+          <MarginDecoration side="left" />
+        </aside>
 
-        {/* Step content */}
-        {state.step === 1 && renderStep1()}
-        {state.step === 2 && renderStep2()}
-        {state.step === 3 && renderStep3()}
-        {state.step === 4 && renderStep4()}
-      </main>
+        <main className="mx-auto flex w-full max-w-2xl flex-col min-h-[calc(100vh-6rem)] px-0 sm:px-6">
+          {/* Masthead */}
+          <NewspaperMasthead
+            subtitle="Your morning edition, set in type."
+            showDateline
+          />
+
+          {/* Step content with animated transitions */}
+          <div className="mt-8 flex-1">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={state.step}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.25, ease: "easeInOut" }}
+              >
+                {state.step === 1 && renderStep1()}
+                {state.step === 2 && renderStep2()}
+                {state.step === 3 && renderStep3()}
+                {state.step === 4 && renderStep4()}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Step indicator (bottom) */}
+          <div className="section-rule mt-8 mb-1 text-center">
+            <StepIndicator
+              currentStep={state.step}
+              totalSteps={TOTAL_STEPS}
+              maxStepVisited={state.maxStepVisited}
+              onStepClick={goToStep}
+            />
+            <p className="mt-2 font-mono text-xs text-caption">
+              Step {state.step} of {TOTAL_STEPS}
+            </p>
+          </div>
+        </main>
+
+        {/* Right margin decoration */}
+        <aside className="hidden w-24 shrink-0 lg:block" aria-hidden="true">
+          <MarginDecoration side="right" />
+        </aside>
+      </div>
     </div>
   );
 }
+

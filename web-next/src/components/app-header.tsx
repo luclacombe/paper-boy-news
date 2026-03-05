@@ -26,15 +26,20 @@ export function AppHeader() {
     <header className="mx-auto max-w-2xl px-6 pt-6">
       {/* Title */}
       <div className="mb-3 flex items-center justify-between">
-        <Link
-          href="/dashboard"
-          className="font-display text-lg font-black uppercase tracking-[0.15em] text-ink"
-        >
-          Paper Boy
-        </Link>
+        <div className="flex flex-col items-start">
+          <Link
+            href="/dashboard"
+            className="ink-bleed font-display text-xl font-black uppercase leading-none tracking-[0.2em] text-ink"
+          >
+            Paper Boy
+          </Link>
+          <p className="mt-0.5 font-mono text-[10px] uppercase tracking-widest text-caption">
+            Morning Edition
+          </p>
+        </div>
         <button
           onClick={handleSignOut}
-          className="font-body text-xs text-caption transition-colors hover:text-ink"
+          className="small-caps font-mono text-xs text-caption transition-colors hover:text-ink"
         >
           Sign out
         </button>
@@ -50,9 +55,9 @@ export function AppHeader() {
               key={item.href}
               href={item.href}
               className={cn(
-                "px-3 py-2 font-body text-sm transition-colors",
+                "small-caps px-3 py-2 font-headline text-sm tracking-wider transition-colors",
                 isActive
-                  ? "border-b-[3px] border-edition-red font-semibold text-ink"
+                  ? "border-b-[3px] border-edition-red font-bold text-ink"
                   : "text-caption hover:text-ink"
               )}
             >
@@ -62,8 +67,8 @@ export function AppHeader() {
         })}
       </nav>
 
-      {/* Rule */}
-      <div className="mt-0 h-px bg-rule-gray" />
+      {/* Double rule */}
+      <div className="section-rule mt-0 border-t-0" />
     </header>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useSyncExternalStore, useCallback } from "react";
 import type { Device, DeliveryMethod, EmailMethod } from "@/types";
 
 const STORAGE_KEY = "paperboy_onboarding";
 
 export interface OnboardingState {
   step: number;
+  maxStepVisited: number;
   device: Device | null;
   feeds: { name: string; url: string; category: string }[];
   deliveryMethod: DeliveryMethod;
@@ -23,6 +24,7 @@ export interface OnboardingState {
 
 const DEFAULTS: OnboardingState = {
   step: 1,
+  maxStepVisited: 1,
   device: null,
   feeds: [],
   deliveryMethod: "local",
@@ -37,14 +39,39 @@ const DEFAULTS: OnboardingState = {
   emailMethod: "gmail",
 };
 
-function loadFromStorage(): OnboardingState {
-  if (typeof window === "undefined") return DEFAULTS;
+// ── Module-level external store for onboarding state ──
+
+let currentState: OnboardingState = DEFAULTS;
+const listeners = new Set<() => void>();
+
+function emitChange() {
+  for (const listener of listeners) listener();
+}
+
+function subscribe(callback: () => void) {
+  listeners.add(callback);
+  return () => {
+    listeners.delete(callback);
+  };
+}
+
+function getSnapshot(): OnboardingState {
+  return currentState;
+}
+
+function getServerSnapshot(): OnboardingState {
+  return DEFAULTS;
+}
+
+// Initialize from localStorage on module load (client-only)
+if (typeof window !== "undefined") {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULTS;
-    return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) {
+      currentState = { ...DEFAULTS, ...JSON.parse(raw) };
+    }
   } catch {
-    return DEFAULTS;
+    // Storage unavailable — use defaults
   }
 }
 
@@ -57,9 +84,13 @@ function saveToStorage(state: OnboardingState) {
   }
 }
 
+// ── Exported helpers (used by onboarding/complete page) ──
+
 export function clearOnboardingStorage() {
   if (typeof window === "undefined") return;
   localStorage.removeItem(STORAGE_KEY);
+  currentState = DEFAULTS;
+  emitChange();
 }
 
 export function getOnboardingStorage(): OnboardingState | null {
@@ -73,29 +104,38 @@ export function getOnboardingStorage(): OnboardingState | null {
   }
 }
 
+// ── Hook ──
+
 export function useOnboardingState() {
-  const [state, setState] = useState<OnboardingState>(DEFAULTS);
-  const [loaded, setLoaded] = useState(false);
+  const state = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  // Load from localStorage on mount
-  useEffect(() => {
-    setState(loadFromStorage());
-    setLoaded(true);
-  }, []);
-
-  // Persist to localStorage on every change (after initial load)
-  useEffect(() => {
-    if (loaded) saveToStorage(state);
-  }, [state, loaded]);
+  // On the server, loaded is false (renders loading screen to avoid hydration mismatch)
+  // On the client, loaded is true (localStorage already read at module init)
+  const loaded = useSyncExternalStore(
+    subscribe,
+    () => true,
+    () => false
+  );
 
   const update = useCallback(
-    (partial: Partial<OnboardingState>) =>
-      setState((prev) => ({ ...prev, ...partial })),
+    (partial: Partial<OnboardingState>) => {
+      currentState = { ...currentState, ...partial };
+      saveToStorage(currentState);
+      emitChange();
+    },
     []
   );
 
   const goToStep = useCallback(
-    (step: number) => setState((prev) => ({ ...prev, step })),
+    (step: number) => {
+      currentState = {
+        ...currentState,
+        step,
+        maxStepVisited: Math.max(currentState.maxStepVisited, step),
+      };
+      saveToStorage(currentState);
+      emitChange();
+    },
     []
   );
 

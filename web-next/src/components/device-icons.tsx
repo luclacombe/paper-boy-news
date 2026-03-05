@@ -1,9 +1,4 @@
-import {
-  Tablet,
-  BookOpen,
-  Smartphone,
-  Monitor,
-} from "lucide-react";
+import Image from "next/image";
 import type { Device } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -12,22 +7,21 @@ interface DeviceIconProps {
   className?: string;
 }
 
-/**
- * Simple device icons using Lucide.
- * The Streamlit version uses base64 PNGs — these will be replaced
- * with proper illustrations during the UI expansion phase.
- */
-export function DeviceIcon({ device, className }: DeviceIconProps) {
-  const iconClass = cn("stroke-[1.5]", className);
+const DEVICE_IMAGES: Record<Device, string> = {
+  kindle: "/devices/kindle.png",
+  kobo: "/devices/kobo.png",
+  remarkable: "/devices/remarkable.png",
+  other: "/devices/other.png",
+};
 
-  switch (device) {
-    case "kindle":
-      return <Tablet className={iconClass} />;
-    case "kobo":
-      return <BookOpen className={iconClass} />;
-    case "remarkable":
-      return <Smartphone className={iconClass} />;
-    case "other":
-      return <Monitor className={iconClass} />;
-  }
+export function DeviceIcon({ device, className }: DeviceIconProps) {
+  return (
+    <Image
+      src={DEVICE_IMAGES[device]}
+      alt={device}
+      width={90}
+      height={120}
+      className={cn("newsprint-image", className)}
+    />
+  );
 }
