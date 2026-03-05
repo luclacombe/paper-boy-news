@@ -14,23 +14,33 @@ const mockUpdateSet = vi.fn().mockReturnValue({
   where: vi.fn().mockResolvedValue(undefined),
 });
 const mockInsertValues = vi.fn().mockResolvedValue(undefined);
+const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("@/db", () => ({
-  db: {
-    select: vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue({
-          limit: vi.fn().mockImplementation(() => mockSelectResult),
-        }),
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockDb: any = {
+  select: vi.fn().mockReturnValue({
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        limit: vi.fn().mockImplementation(() => mockSelectResult),
       }),
     }),
-    update: vi.fn().mockReturnValue({
-      set: mockUpdateSet,
-    }),
-    insert: vi.fn().mockReturnValue({
-      values: mockInsertValues,
-    }),
-  },
+  }),
+  update: vi.fn().mockReturnValue({
+    set: mockUpdateSet,
+  }),
+  insert: vi.fn().mockReturnValue({
+    values: mockInsertValues,
+  }),
+  delete: vi.fn().mockReturnValue({
+    where: mockDeleteWhere,
+  }),
+};
+mockDb.transaction = vi.fn().mockImplementation(
+  async (cb: (tx: typeof mockDb) => Promise<void>) => cb(mockDb)
+);
+
+vi.mock("@/db", () => ({
+  db: mockDb,
 }));
 
 const ONBOARDING_DATA: OnboardingData = {
@@ -81,6 +91,9 @@ describe("completeOnboarding", () => {
     const { completeOnboarding } = await import("@/actions/onboarding");
     await completeOnboarding(ONBOARDING_DATA);
 
+    // Runs in a transaction
+    expect(mockDb.transaction).toHaveBeenCalled();
+
     // Profile updated with onboarding fields
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -91,6 +104,9 @@ describe("completeOnboarding", () => {
       })
     );
 
+    // Existing feeds cleared before insert
+    expect(mockDeleteWhere).toHaveBeenCalled();
+
     // Feeds bulk inserted with position indices
     expect(mockInsertValues).toHaveBeenCalled();
     const insertedFeeds = mockInsertValues.mock.calls[0][0];
@@ -99,14 +115,23 @@ describe("completeOnboarding", () => {
     expect(insertedFeeds[1].position).toBe(1);
   });
 
-  it("skips feed insert when feeds array is empty", async () => {
+  it("rejects empty feeds array with validation error", async () => {
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     mockSelectResult.push({ id: "profile-1" });
 
     const { completeOnboarding } = await import("@/actions/onboarding");
-    await completeOnboarding({ ...ONBOARDING_DATA, feeds: [] });
+    await expect(
+      completeOnboarding({ ...ONBOARDING_DATA, feeds: [] })
+    ).rejects.toThrow("At least one feed is required");
+  });
 
-    expect(mockUpdateSet).toHaveBeenCalled();
-    expect(mockInsertValues).not.toHaveBeenCalled();
+  it("rejects invalid device", async () => {
+    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
+    mockSelectResult.push({ id: "profile-1" });
+
+    const { completeOnboarding } = await import("@/actions/onboarding");
+    await expect(
+      completeOnboarding({ ...ONBOARDING_DATA, device: "invalid" as OnboardingData["device"] })
+    ).rejects.toThrow("Invalid device");
   });
 });

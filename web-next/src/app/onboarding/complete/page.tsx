@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { completeOnboarding } from "@/actions/onboarding";
+import {
+  completeOnboarding,
+  getOnboardingStatus,
+} from "@/actions/onboarding";
 import {
   getOnboardingStorage,
   clearOnboardingStorage,
@@ -21,6 +24,17 @@ export default function OnboardingCompletePage() {
 
     async function save() {
       const stored = getOnboardingStorage();
+      const hasValidData = stored && stored.device && stored.feeds.length > 0;
+
+      // Defense-in-depth: if user is already onboarded and has no new
+      // onboarding data, they're a returning user who signed in via the
+      // onboarding page — redirect to dashboard
+      const { isOnboarded } = await getOnboardingStatus();
+      if (isOnboarded && !hasValidData) {
+        clearOnboardingStorage();
+        router.push("/dashboard");
+        return;
+      }
 
       if (!stored || !stored.device || stored.feeds.length === 0) {
         setError("missing");
