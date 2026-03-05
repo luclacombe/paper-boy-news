@@ -19,6 +19,8 @@ token.json
 token.pickle
 .env
 .env.*
+!.env.example
+!.env.local.example
 *.pem
 *.key
 *.bak
@@ -45,6 +47,9 @@ delivery_history.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Node
+node_modules/
 
 # Pytest
 .pytest_cache/

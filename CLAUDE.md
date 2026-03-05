@@ -1,174 +1,156 @@
 # Paper Boy
 
-Automated morning newspaper generator for e-readers (Kobo, Kindle, etc).
+Automated morning newspaper generator for e-readers (Kobo, Kindle, reMarkable).
 
 ## Project Overview
 
-Paper Boy fetches news from RSS feeds, compiles them into a well-formatted EPUB with proper metadata, and delivers it to e-readers via Google Drive (Kobo), email (Kindle Send-to-Kindle), or direct download. Available as both a **CLI tool** and a **Streamlit web app**.
+Paper Boy fetches news from RSS feeds, compiles them into a well-formatted EPUB, and delivers it to e-readers via Google Drive (Kobo), email (Kindle Send-to-Kindle), or direct download.
 
-- **CLI**: Build and deliver newspapers from the command line
-- **Web App**: Visual interface with onboarding wizard, source management, build dashboard, and edition history
-- **GitHub Actions**: Scheduled daily builds (6:00 AM UTC)
+The project has three components:
 
-## Tech Stack
+1. **Core Python library** (`src/paper_boy/`) — RSS fetching, EPUB generation, delivery backends, CLI
+2. **FastAPI backend** (`api/`) — HTTP API wrapping the core library, deployed on Railway
+3. **Next.js web app** (`web-next/`) — Full-stack web UI with Supabase auth, deployed on Vercel
 
-### Core Library
-- **Python 3.9+** with `pyproject.toml` (PEP 621), built with setuptools
-- **feedparser** — RSS/Atom feed parsing
-- **trafilatura** — Article text extraction from URLs
-- **ebooklib** — EPUB creation
-- **Pillow** — Cover image generation
-- **google-api-python-client + google-auth-oauthlib + google-auth-httplib2** — Google Drive upload
-- **click** — CLI framework
-- **pyyaml** — Config file parsing
+There is also a legacy **Streamlit app** (`web/`) that is being replaced by the Next.js app and will be removed soon.
 
-### Web App
-- **streamlit** — Web UI framework
-- **requests** — GitHub Actions API integration
+## Architecture
+
+```
+┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
+│   Next.js (Vercel)  │────▶│  FastAPI (Railway)   │────▶│  Core Python lib    │
+│   web-next/         │     │  api/                │     │  src/paper_boy/     │
+│                     │     │                      │     │                     │
+│  Supabase Auth      │     │  POST /build         │     │  feedparser         │
+│  Drizzle ORM        │     │  POST /deliver       │     │  trafilatura        │
+│  Server Actions     │     │  POST /feeds/validate│     │  ebooklib           │
+│  App Router         │     │  POST /smtp-test     │     │  Pillow (covers)    │
+└─────────────────────┘     └─────────────────────┘     └─────────────────────┘
+         │                                                        │
+         ▼                                                        ▼
+┌─────────────────────┐                               ┌─────────────────────┐
+│  Supabase           │                               │  CLI (paper-boy)    │
+│  PostgreSQL + Auth  │                               │  GitHub Actions     │
+│  Storage (EPUBs)    │                               │  Daily cron builds  │
+└─────────────────────┘                               └─────────────────────┘
+```
 
 ## Project Structure
 
 ```
-src/paper_boy/                     # Core library + CLI
-├── __init__.py                    # Package init (__version__)
-├── cli.py                         # CLI entry point (click commands: build, deliver)
-├── config.py                      # YAML config loading + validation (Config, DeliveryConfig, EmailConfig, etc.)
-├── feeds.py                       # RSS fetching + article text extraction + image optimization
-├── epub.py                        # EPUB generation with metadata + embedded CSS
-├── cover.py                       # Cover image generation (600x900px, Pillow)
-├── delivery.py                    # Delivery backends: Google Drive, email (Send-to-Kindle), local
-└── main.py                        # Orchestration: fetch → build → deliver (returns BuildResult)
-
-web/                               # Streamlit web app
-├── app.py                         # Main entry point + page routing
-├── requirements.txt               # Web-specific dependencies
-├── assets/                        # Source images for device icons
-│   ├── kindle.png
-│   ├── kobo.png
-│   ├── remarkable.png
-│   └── other.png
-├── components/                    # Reusable UI components
-│   ├── theme.py                   # CSS design system (newspaper aesthetic)
-│   ├── masthead.py                # Compact header + inline navigation
-│   ├── cards.py                   # Status, headline, source, edition, device, bundle cards
-│   ├── device_icons.py            # Base64-encoded device illustrations for onboarding
-│   └── loading.py                 # Empty states + build progress messages
-├── pages/                         # Multi-page app
-│   ├── landing.py                 # Intro page (pre-onboarding)
-│   ├── onboarding.py              # 4-step setup wizard
-│   ├── dashboard.py               # "Home" — build, status, first-run experience
-│   ├── sources.py                 # "Sources" — feed management
-│   ├── delivery.py                # "Delivery" — device, method, schedule, newspaper settings
-│   └── history.py                 # "Editions" — archive with download
-├── services/                      # Backend logic
-│   ├── database.py                # User config + history persistence (JSON)
-│   ├── builder.py                 # Bridge to paper_boy build pipeline
-│   ├── feed_catalog.py            # Curated feed library + bundle descriptions + RSS validation
-│   └── github_actions.py          # GitHub Actions workflow trigger + status
-└── data/
-    └── feed_catalog.yaml          # Curated feed catalog (40+ feeds, 7 categories)
-
-.streamlit/
-└── config.toml                    # Streamlit theme config (newspaper colors)
-
-tests/
-├── test_config.py                 # Config loading + validation tests
-├── test_cover.py                  # Cover image generation tests
-└── test_epub.py                   # EPUB creation + metadata tests
-
-.github/workflows/
-└── daily-news.yml                 # Daily cron (6:00 AM UTC) + manual dispatch
+src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
+api/                     # FastAPI backend (see api/CLAUDE.md)
+web-next/                # Next.js web app (see web-next/CLAUDE.md)
+web/                     # Legacy Streamlit app (being replaced — do not extend)
+tests/                   # Python tests for core lib + API (see tests/CLAUDE.md)
+.github/workflows/       # CI + daily cron
 ```
+
+## Tech Stack
+
+| Component | Stack |
+|-----------|-------|
+| Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, click |
+| API | FastAPI, uvicorn, deployed on Railway (Docker) |
+| Web app | Next.js 16, React 19, TypeScript (strict), Tailwind CSS v4, shadcn/ui |
+| Auth | Supabase Auth (Google OAuth + email/password) |
+| Database | Supabase PostgreSQL via Drizzle ORM |
+| Package manager | pnpm (web-next), pip (Python) |
+| Testing | Vitest (web-next), pytest (Python) |
+| CI | GitHub Actions — Python tests + Next.js lint/test/build |
 
 ## Commands
 
 ```bash
-# Install core library in development mode
-pip install -e ".[dev]"
+# ── Core library ──
+pip install -e ".[dev]"           # Install in dev mode
+paper-boy build                   # CLI: build newspaper
+paper-boy deliver                 # CLI: build + deliver
+pytest                            # Run Python tests
 
-# Run Streamlit web app
-pip install -r web/requirements.txt
-streamlit run web/app.py
+# ── FastAPI backend ──
+pip install -r api/requirements.txt
+uvicorn api.main:app --reload     # Run API locally (port 8000)
 
-# CLI: Build newspaper locally
-paper-boy build
+# ── Next.js web app ──
+cd web-next
+pnpm install                      # Install dependencies
+pnpm dev                          # Dev server (port 3000)
+pnpm build                        # Production build
+pnpm lint                         # ESLint
+pnpm test                         # Vitest
+pnpm db:push                      # Push Drizzle schema to DB
+pnpm db:studio                    # Open Drizzle Studio
 
-# CLI: Build and deliver to Google Drive
-paper-boy deliver
+# ── Local Supabase (Docker required) ──
+supabase start                    # Start local Postgres + Auth + Studio + Inbucket
+supabase stop                     # Stop local Supabase
+supabase db reset                 # Reset DB, re-run migrations + seed data
 
-# CLI: Build with custom config
-paper-boy build --config my-config.yaml --output ./output/
-
-# CLI: Verbose logging
-paper-boy -v build
-
-# Run tests
-pytest
+# ── Dev helpers (from web-next/) ──
+pnpm env:local                    # Switch to local Supabase
+pnpm env:cloud                    # Switch to cloud Supabase
+pnpm dev:reset                    # Reset all users to pre-onboarding state
+pnpm dev:reset -- --email X       # Reset specific user by email
 ```
+
+## Local Development (Supabase)
+
+For testing auth flows (onboarding, sign-up, login, delivery) without touching production:
+
+1. **Prerequisites**: Docker Desktop running, Supabase CLI installed
+2. **First-time setup**:
+   ```bash
+   supabase start                                  # From project root — starts all services
+   cd web-next
+   cp .env.local .env.local.cloud                  # Save cloud credentials
+   cp .env.local.example .env.local.dev            # Local credentials template (pre-filled)
+   pnpm env:local                                  # Activate local env
+   pnpm install                                    # Install deps (adds tsx)
+   pnpm dev                                        # Start Next.js
+   ```
+3. **Seeded test accounts** (password: `password123`):
+   - `dev@paperboy.local` — fresh user, onboarding not complete
+   - `onboarded@paperboy.local` — onboarded with feeds + delivery history
+4. **Re-test onboarding**: `pnpm dev:reset` — resets users to pre-onboarding state, stay logged in
+5. **Full DB reset**: `supabase db reset` — drops everything, re-runs migrations + seed
+
+**Local services**:
+| Service | URL |
+|---------|-----|
+| Studio (DB browser) | http://localhost:54323 |
+| Inbucket (email catcher) | http://localhost:54324 |
+| Auth API | http://localhost:54321/auth/v1 |
+| REST API | http://localhost:54321/rest/v1 |
+
+**Note**: Google OAuth sign-in doesn't work locally — use email/password instead (no email confirmation required). Google Drive/Gmail delivery testing still requires real OAuth tokens.
 
 ## Conventions
 
-- Core library source code lives in `src/paper_boy/`
-- Web app source code lives in `web/`
-- Web app dependencies are in `web/requirements.txt` (separate from `pyproject.toml`)
-- Config is YAML-based (`config.yaml`, see `config.example.yaml`)
-- EPUB metadata uses `calibre:series` for Kobo series grouping (Kobo device only)
-- EPUB3 standard series metadata included for all devices
-- Cover images are 600x900px, generated with Pillow
-- Multi-device support: Kobo (Google Drive), Kindle (Send-to-Kindle email), reMarkable (download), Other (download)
-- Google Drive delivery targets configurable folder (default "Rakuten Kobo")
-- Email delivery uses SMTP (stdlib smtplib) for Send-to-Kindle and generic email
-- Google credentials: `GOOGLE_CREDENTIALS` env var (GitHub Actions) or `credentials.json` file (local)
-- GitHub Actions secrets store credentials (never commit secrets)
-- Tests use pytest, located in `tests/`
-- Imports use the `paper_boy` package namespace
-- Delivery methods implemented: `google_drive`, `email`, `local`
-- `build_newspaper()` returns `BuildResult` (epub_path, sections, total_articles)
-- Reset user data: delete `user_config.json` and `delivery_history.json` from project root
+- TypeScript strict mode, path alias `@/*` → `src/*`
+- Tailwind CSS v4 + shadcn/ui for all styling
+- Server Actions in `web-next/src/actions/` for all data mutations
+- Drizzle ORM for database access (never raw SQL in app code)
+- Supabase client via `@/lib/supabase/server.ts` (server) and `@/lib/supabase/client.ts` (browser)
+- All types in `web-next/src/types/index.ts`
+- Core Python library uses `paper_boy` package namespace
+- Config is YAML-based for CLI (`config.yaml`), Supabase DB for web app
+- EPUB metadata: `calibre:series` for Kobo, standard EPUB3 for all devices
+- Cover images: 600x900px, generated with Pillow
+- Secrets: never commit `.env.local`, use env vars in CI/deployment
 
-## Web App Architecture
+## Deployment
 
-### Page Flow
-- **Not onboarded**: Landing → Onboarding (4-step wizard) → Dashboard
-- **Onboarded**: Home → Sources → Delivery → Editions (4-page nav)
+| Service | Platform | Config |
+|---------|----------|--------|
+| Web app | Vercel | `web-next/` directory, `paper-boy-news.vercel.app` |
+| API | Railway | `api/Dockerfile`, `railway.toml` |
+| Database | Supabase | PostgreSQL + Auth + Storage |
+| Daily builds | GitHub Actions | `.github/workflows/daily-news.yml` (6:00 AM UTC) |
 
-### Onboarding Steps
-1. Choose device (Kindle, Kobo, reMarkable, Other) — with device illustration cards
-2. Choose path (Free Sources vs Paid Subscriptions — only Free enabled)
-3. Pick sources (starter bundles with two-way sync, category browsing, custom RSS)
-4. Configure delivery (device-specific method, schedule, newspaper title, reading time)
+## Current Status
 
-### Services Layer
-- `builder.py` bridges web UI config → `paper_boy.Config` → EPUB build + delivery (via `deliver_edition()`)
-- `database.py` persists user config + delivery history as JSON files (device, email, timezone settings included)
-- `feed_catalog.py` loads the curated feed catalog, resolves bundles, describes selections, validates RSS URLs
-- `github_actions.py` triggers/monitors GitHub Actions builds (wired to dashboard)
-
-### Design System
-- Newspaper aesthetic: Playfair Display + Libre Baskerville (serif), Source Sans 3 (sans), JetBrains Mono (mono)
-- Color palette: newsprint (#FAF8F5), ink (#1B1B1B), edition red (#C23B22), delivered green (#2D6A4F), building amber (#D4A843)
-- Lucide icons loaded via CSS import
-- All CSS is in `web/components/theme.py`
-- Device illustration cards use base64-encoded PNGs (`device_icons.py`), source assets in `web/assets/`
-
-## Key Design Decisions
-
-- **EPUB format** for all e-readers (universal format, supported by Kobo, Kindle, reMarkable, etc.)
-- **Multi-device delivery** — Google Drive (Kobo), Send-to-Kindle email, download (all devices)
-- **Device-aware EPUB metadata** — calibre:series for Kobo only, standard EPUB3 for all
-- **Free RSS sources** for default config (Guardian, Ars Technica, NPR)
-- **trafilatura** for full article extraction, with RSS content as fallback
-- **Image optimization** in feeds.py — resize + JPEG compression for e-reader
-- **Automatic cleanup** of old issues on Google Drive (`keep_days` config)
-- **Dashboard delivers end-to-end** — build triggers delivery (Google Drive upload or email) automatically
-- **First-run experience** — post-onboarding summary card with setup status and "Create First Edition" CTA
-- **Article headlines** shown on dashboard from build results (stored in session_state)
-- **Feed health** tracked from build results — sources page shows active/warning status
-- **GitHub Actions integration** — trigger builds from dashboard
-- **Reading time slider** — user picks reading duration (5–30 min), mapped to article count internally
-- **Bundle two-way sync** — individual checkbox changes auto-select/deselect bundles, and vice versa
-- **Device-first onboarding** — device selection drives delivery method options in later steps
-- **Streamlit web app** as the primary user-facing interface (CLI remains for automation)
-- **Separate dependency specs** — web app has its own `requirements.txt`, core library uses `pyproject.toml`
-- **JSON file persistence** for web app state (Phase 1), Supabase planned for Phase 1.5
-- **Curated feed catalog** with 40+ feeds across 7 categories and 3 starter bundles
+- Core library, API, auth, and server actions are complete
+- App pages (`/dashboard`, `/sources`, `/delivery`, `/editions`) are **stubs** — UI not yet built
+- Onboarding wizard and login flow are functional
+- Legacy Streamlit app (`web/`) still present, pending removal

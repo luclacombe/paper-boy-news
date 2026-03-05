@@ -15,17 +15,29 @@ Fetches news from RSS feeds, compiles them into a well-formatted EPUB, and deliv
 
 ### Web App (Recommended)
 
+**[→ paper-boy-news.vercel.app](https://paper-boy-news.vercel.app)**
+
+Sign up for free and the onboarding wizard walks you through everything — pick your sources, configure delivery, and build your first edition in minutes.
+
+#### Local development
+
 ```bash
-# Clone and install
+# Prerequisites: Docker Desktop, Node.js 20+, pnpm, Supabase CLI
+
 git clone https://github.com/luclacombe/paper-boy.git
 cd paper-boy
-pip install -r web/requirements.txt
 
-# Run the app
-streamlit run web/app.py
+# Start local Supabase (Postgres + Auth + Studio)
+supabase start
+
+# Start the web app
+cd web-next
+cp .env.local.example .env.local     # fill in local Supabase URLs (see web-next/CLAUDE.md)
+pnpm install
+pnpm dev                              # http://localhost:3000
 ```
 
-The app walks you through setup with an onboarding wizard — pick your sources, configure delivery, and build your first edition.
+Test accounts (password: `password123`): `dev@paperboy.local` · `onboarded@paperboy.local`
 
 ### CLI
 
@@ -140,12 +152,36 @@ Paper Boy can email EPUBs directly to your Kindle. Amazon accepts EPUB files nat
        recipient: "your-kindle@kindle.com"
    ```
 
+## Tech Stack
+
+| Component | Stack |
+|-----------|-------|
+| Web app | Next.js 16, React 19, TypeScript (strict), Tailwind CSS v4, shadcn/ui |
+| Auth | Supabase Auth (Google OAuth + email/password) |
+| Database | Supabase PostgreSQL via Drizzle ORM |
+| API | FastAPI, deployed on Railway |
+| Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow |
+| Package manager | pnpm (web), pip (Python) |
+
 ## Development
 
 ```bash
+# Python core library
 pip install -e ".[dev]"
 pytest
+
+# Next.js web app (requires local Supabase — see Local Development above)
+cd web-next
+pnpm dev        # dev server
+pnpm test       # Vitest
+pnpm build      # production build
+pnpm lint       # ESLint
+
+# FastAPI backend
+uvicorn api.main:app --reload   # http://localhost:8000
 ```
+
+See [web-next/CLAUDE.md](web-next/CLAUDE.md) and [api/CLAUDE.md](api/CLAUDE.md) for detailed setup guides.
 
 ## License
 
