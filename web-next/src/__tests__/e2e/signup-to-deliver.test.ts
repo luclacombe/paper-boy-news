@@ -41,52 +41,58 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 // Mock DB — captures mutations so we can inspect them
-vi.mock("@/db", () => ({
-  db: {
-    select: vi.fn().mockImplementation((fields?: unknown) => ({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockImplementation(() => {
-          // Count query
-          if (fields && typeof fields === "object" && "value" in (fields as Record<string, unknown>)) {
-            return [{ value: historyRows.length }];
-          }
-          // Profile lookup (limit chain)
-          return {
-            limit: vi.fn().mockImplementation(() => {
-              return profileRow ? [profileRow] : [];
-            }),
-            orderBy: vi.fn().mockImplementation(() => feedRows),
-          };
-        }),
-      }),
-    })),
-    update: vi.fn().mockReturnValue({
-      set: vi.fn().mockImplementation((data: Record<string, unknown>) => {
-        // Apply update to profileRow
-        if (profileRow) Object.assign(profileRow, data);
-        return { where: vi.fn().mockResolvedValue(undefined) };
-      }),
-    }),
-    insert: vi.fn().mockImplementation(() => ({
-      values: vi.fn().mockImplementation((data: unknown) => {
-        // Track inserts for feeds and history
-        if (Array.isArray(data)) {
-          feedRows.push(...data);
-        } else if (data && typeof data === "object" && "status" in (data as Record<string, unknown>)) {
-          historyRows.push(data as Record<string, unknown>);
-        } else if (data && typeof data === "object") {
-          feedRows.push(data as Record<string, unknown>);
-        }
-        return Promise.resolve(undefined);
-      }),
-    })),
-    delete: vi.fn().mockReturnValue({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockDb: any = {
+  select: vi.fn().mockImplementation((fields?: unknown) => ({
+    from: vi.fn().mockReturnValue({
       where: vi.fn().mockImplementation(() => {
-        feedRows.length = 0;
-        return Promise.resolve(undefined);
+        // Count query
+        if (fields && typeof fields === "object" && "value" in (fields as Record<string, unknown>)) {
+          return [{ value: historyRows.length }];
+        }
+        // Profile lookup (limit chain)
+        return {
+          limit: vi.fn().mockImplementation(() => {
+            return profileRow ? [profileRow] : [];
+          }),
+          orderBy: vi.fn().mockImplementation(() => feedRows),
+        };
       }),
     }),
-  },
+  })),
+  update: vi.fn().mockReturnValue({
+    set: vi.fn().mockImplementation((data: Record<string, unknown>) => {
+      // Apply update to profileRow
+      if (profileRow) Object.assign(profileRow, data);
+      return { where: vi.fn().mockResolvedValue(undefined) };
+    }),
+  }),
+  insert: vi.fn().mockImplementation(() => ({
+    values: vi.fn().mockImplementation((data: unknown) => {
+      // Track inserts for feeds and history
+      if (Array.isArray(data)) {
+        feedRows.push(...data);
+      } else if (data && typeof data === "object" && "status" in (data as Record<string, unknown>)) {
+        historyRows.push(data as Record<string, unknown>);
+      } else if (data && typeof data === "object") {
+        feedRows.push(data as Record<string, unknown>);
+      }
+      return Promise.resolve(undefined);
+    }),
+  })),
+  delete: vi.fn().mockReturnValue({
+    where: vi.fn().mockImplementation(() => {
+      feedRows.length = 0;
+      return Promise.resolve(undefined);
+    }),
+  }),
+};
+mockDb.transaction = vi.fn().mockImplementation(
+  async (cb: (tx: typeof mockDb) => Promise<void>) => cb(mockDb)
+);
+
+vi.mock("@/db", () => ({
+  db: mockDb,
 }));
 
 describe("E2E: signup → onboarding → build → deliver", () => {
