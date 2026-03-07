@@ -21,6 +21,7 @@ export function DeviceIcon({ device, className }: DeviceIconProps) {
       alt={device}
       width={90}
       height={120}
+      sizes="45px"
       className={cn("newsprint-image", className)}
     />
   );
