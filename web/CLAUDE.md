@@ -1,4 +1,4 @@
-# web-next — Next.js Web App
+# web — Next.js Web App
 
 Full-stack web app for Paper Boy. Deployed on Vercel at `paper-boy-news.vercel.app`.
 

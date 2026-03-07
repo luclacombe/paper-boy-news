@@ -31,8 +31,8 @@ cd paper-boy
 supabase start
 
 # Start the web app
-cd web-next
-cp .env.local.example .env.local     # fill in local Supabase URLs (see web-next/CLAUDE.md)
+cd web
+cp .env.local.example .env.local     # fill in local Supabase URLs (see web/CLAUDE.md)
 pnpm install
 pnpm dev                              # http://localhost:3000
 ```
@@ -171,7 +171,7 @@ pip install -e ".[dev]"
 pytest
 
 # Next.js web app (requires local Supabase — see Local Development above)
-cd web-next
+cd web
 pnpm dev        # dev server
 pnpm test       # Vitest
 pnpm build      # production build
@@ -181,7 +181,7 @@ pnpm lint       # ESLint
 uvicorn api.main:app --reload   # http://localhost:8000
 ```
 
-See [web-next/CLAUDE.md](web-next/CLAUDE.md) and [api/CLAUDE.md](api/CLAUDE.md) for detailed setup guides.
+See [web/CLAUDE.md](web/CLAUDE.md) and [api/CLAUDE.md](api/CLAUDE.md) for detailed setup guides.
 
 ## License
 

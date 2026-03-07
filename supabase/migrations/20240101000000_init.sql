@@ -1,5 +1,5 @@
 -- Initial schema: tables, RLS policies, and triggers
--- Mirrors web-next/src/db/schema.ts + web-next/src/db/migrations/001_rls_and_triggers.sql
+-- Mirrors web/src/db/schema.ts + web/src/db/migrations/001_rls_and_triggers.sql
 
 -- ══════════════════════════════════════════════════════════
 -- Tables
