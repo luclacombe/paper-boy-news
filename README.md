@@ -5,7 +5,7 @@
 Paper Boy: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, and delivers it to your Kobo, Kindle, or reMarkable before you wake up.
 
 [![CI](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml/badge.svg)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm_NC-blue.svg)](LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](web/tsconfig.json)
 [![Deploy: Vercel](https://img.shields.io/badge/Web_App-Vercel-black?logo=vercel)](https://paper-boy-news.vercel.app)
 [![Deploy: Railway](https://img.shields.io/badge/API-Railway-purple?logo=railway)](https://railway.app)
 
