@@ -1,0 +1,52 @@
+import { getUserConfig } from "@/actions/user-config";
+import { getFeeds } from "@/actions/feeds";
+import { getCatalogData } from "@/actions/feed-catalog";
+import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
+import { SettingsClient } from "@/components/settings-client";
+import { redirect } from "next/navigation";
+import type { SettingsSection } from "@/components/settings-accordion";
+
+const VALID_SECTIONS: SettingsSection[] = [
+  "sources",
+  "delivery",
+  "schedule",
+  "paper",
+];
+
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [config, feeds, catalogData, hasDrive, hasGmail, params] =
+    await Promise.all([
+      getUserConfig(),
+      getFeeds(),
+      getCatalogData(),
+      hasDriveScope(),
+      hasGmailScope(),
+      searchParams,
+    ]);
+
+  if (!config) redirect("/login");
+
+  const openParam = typeof params.open === "string" ? params.open : null;
+  const initialOpen =
+    openParam && VALID_SECTIONS.includes(openParam as SettingsSection)
+      ? (openParam as SettingsSection)
+      : null;
+
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-8">
+      <SettingsClient
+        config={config}
+        feeds={feeds}
+        categories={catalogData.categories}
+        bundles={catalogData.bundles}
+        hasDrive={hasDrive}
+        hasGmail={hasGmail}
+        initialOpen={initialOpen}
+      />
+    </main>
+  );
+}
