@@ -28,6 +28,11 @@ vi.mock("@/lib/api-client", () => ({
   deliverNewspaper: (...args: unknown[]) => mockDeliverNewspaper(...args),
 }));
 
+// Mock getEditionForDate (one-per-day guard)
+vi.mock("@/actions/delivery-history", () => ({
+  getEditionForDate: vi.fn().mockResolvedValue(null),
+}));
+
 // Mock Supabase client
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn().mockResolvedValue({
@@ -158,10 +163,11 @@ describe("E2E: signup → onboarding → build → deliver", () => {
       emailSender: "",
       emailPassword: "",
       googleTokens: null,
+      timezone: "UTC",
     });
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     // 4. Verify build succeeded
     expect(result.success).toBe(true);
@@ -195,6 +201,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
       emailSender: "",
       emailPassword: "",
       googleTokens: null,
+      timezone: "UTC",
     });
     mockGetUserProfile.mockImplementation(() => Promise.resolve(profileRow));
 
@@ -203,8 +210,8 @@ describe("E2E: signup → onboarding → build → deliver", () => {
 
     mockBuildNewspaper.mockRejectedValue(new Error("API down"));
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("API down");

@@ -58,7 +58,11 @@ async def build(req: BuildRequest, _user_id: str = Depends(verify_token)):
         config = _config_from_request(req)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_") as tmp_dir:
-            issue_date = date.today()
+            issue_date = (
+                date.fromisoformat(req.edition_date)
+                if req.edition_date
+                else date.today()
+            )
             output_path = os.path.join(
                 tmp_dir, f"paper-boy-{issue_date.isoformat()}.epub"
             )

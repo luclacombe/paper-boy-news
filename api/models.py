@@ -20,6 +20,7 @@ class BuildRequest(BaseModel):
     include_images: bool = True
     feeds: List[FeedInput]
     device: str = "kobo"
+    edition_date: Optional[str] = None
 
 
 class BuildResponse(BaseModel):

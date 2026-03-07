@@ -82,6 +82,7 @@ export interface SectionSummary {
 
 export interface BuildResult {
   success: boolean;
+  editionDate: string;
   totalArticles: number;
   sections: SectionSummary[];
   fileSize: string;
@@ -122,6 +123,17 @@ export interface CatalogBundle {
   feeds: string[]; // Feed IDs
 }
 
+// === Setup Status ===
+
+export interface SetupStatus {
+  isFirstVisit: boolean;
+  needsDriveAuth: boolean;
+  needsGmailAuth: boolean;
+  needsSmtpConfig: boolean;
+  needsKindleEmail: boolean;
+  isFullyConfigured: boolean;
+}
+
 // === Onboarding ===
 
 export interface OnboardingData {
@@ -148,6 +160,7 @@ export interface ApiBuildRequest {
   include_images: boolean;
   feeds: { name: string; url: string }[];
   device: string;
+  edition_date?: string;
 }
 
 export interface ApiBuildResponse {
