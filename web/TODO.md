@@ -156,7 +156,7 @@ api/
 
 ### 5.5 Deploy Next.js to Vercel
 
-- [ ] Connect GitHub repo in Vercel dashboard, root directory = `web-next` (manual)
+- [ ] Connect GitHub repo in Vercel dashboard, root directory = `web` (manual)
 - [ ] Set env vars: Supabase, FastAPI URL, Google OAuth, App URL (manual)
 - [ ] Update Supabase Auth settings: Site URL + Redirect URLs (manual)
 - [ ] Update Google OAuth redirect URI to Vercel callback URL (manual)

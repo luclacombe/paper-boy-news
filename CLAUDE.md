@@ -10,16 +10,16 @@ The project has three components:
 
 1. **Core Python library** (`src/paper_boy/`) — RSS fetching, EPUB generation, delivery backends, CLI
 2. **FastAPI backend** (`api/`) — HTTP API wrapping the core library, deployed on Railway
-3. **Next.js web app** (`web-next/`) — Full-stack web UI with Supabase auth, deployed on Vercel
+3. **Next.js web app** (`web/`) — Full-stack web UI with Supabase auth, deployed on Vercel
 
-There is also a legacy **Streamlit app** (`web/`) that is being replaced by the Next.js app and will be removed soon.
+The legacy Streamlit prototype is archived in `legacy/streamlit/` for reference.
 
 ## Architecture
 
 ```
 ┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
 │   Next.js (Vercel)  │────▶│  FastAPI (Railway)   │────▶│  Core Python lib    │
-│   web-next/         │     │  api/                │     │  src/paper_boy/     │
+│   web/         │     │  api/                │     │  src/paper_boy/     │
 │                     │     │                      │     │                     │
 │  Supabase Auth      │     │  POST /build         │     │  feedparser         │
 │  Drizzle ORM        │     │  POST /deliver       │     │  trafilatura        │
@@ -40,8 +40,8 @@ There is also a legacy **Streamlit app** (`web/`) that is being replaced by the 
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
 api/                     # FastAPI backend (see api/CLAUDE.md)
-web-next/                # Next.js web app (see web-next/CLAUDE.md)
-web/                     # Legacy Streamlit app (being replaced — do not extend)
+web/                     # Next.js web app (see web/CLAUDE.md)
+legacy/streamlit/        # Archived Streamlit prototype
 tests/                   # Python tests for core lib + API (see tests/CLAUDE.md)
 .github/workflows/       # CI + daily cron
 ```
@@ -55,8 +55,8 @@ tests/                   # Python tests for core lib + API (see tests/CLAUDE.md)
 | Web app | Next.js 16, React 19, TypeScript (strict), Tailwind CSS v4, shadcn/ui |
 | Auth | Supabase Auth (Google OAuth + email/password) |
 | Database | Supabase PostgreSQL via Drizzle ORM |
-| Package manager | pnpm (web-next), pip (Python) |
-| Testing | Vitest (web-next), pytest (Python) |
+| Package manager | pnpm (web), pip (Python) |
+| Testing | Vitest (web), pytest (Python) |
 | CI | GitHub Actions — Python tests + Next.js lint/test/build |
 
 ## Commands
@@ -73,7 +73,7 @@ pip install -r api/requirements.txt
 uvicorn api.main:app --reload     # Run API locally (port 8000)
 
 # ── Next.js web app ──
-cd web-next
+cd web
 pnpm install                      # Install dependencies
 pnpm dev                          # Dev server (port 3000)
 pnpm build                        # Production build
@@ -87,7 +87,7 @@ supabase start                    # Start local Postgres + Auth + Studio + Inbuc
 supabase stop                     # Stop local Supabase
 supabase db reset                 # Reset DB, re-run migrations + seed data
 
-# ── Dev helpers (from web-next/) ──
+# ── Dev helpers (from web/) ──
 pnpm env:local                    # Switch to local Supabase
 pnpm env:cloud                    # Switch to cloud Supabase
 pnpm dev:reset                    # Reset all users to pre-onboarding state (DB only)
@@ -103,7 +103,7 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 2. **First-time setup**:
    ```bash
    supabase start                                  # From project root — starts all services
-   cd web-next
+   cd web
    cp .env.local .env.local.cloud                  # Save cloud credentials
    cp .env.local.example .env.local.dev            # Local credentials template (pre-filled)
    pnpm env:local                                  # Activate local env
@@ -130,10 +130,10 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 
 - TypeScript strict mode, path alias `@/*` → `src/*`
 - Tailwind CSS v4 + shadcn/ui for all styling
-- Server Actions in `web-next/src/actions/` for all data mutations
+- Server Actions in `web/src/actions/` for all data mutations
 - Drizzle ORM for database access (never raw SQL in app code)
 - Supabase client via `@/lib/supabase/server.ts` (server) and `@/lib/supabase/client.ts` (browser)
-- All types in `web-next/src/types/index.ts`
+- All types in `web/src/types/index.ts`
 - Core Python library uses `paper_boy` package namespace
 - Config is YAML-based for CLI (`config.yaml`), Supabase DB for web app
 - EPUB metadata: `calibre:series` for Kobo, standard EPUB3 for all devices
@@ -144,7 +144,7 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 
 | Service | Platform | Config |
 |---------|----------|--------|
-| Web app | Vercel | `web-next/` directory, `paper-boy-news.vercel.app` |
+| Web app | Vercel | `web/` directory, `paper-boy-news.vercel.app` |
 | API | Railway | `api/Dockerfile`, `railway.toml` |
 | Database | Supabase | PostgreSQL + Auth + Storage |
 | Daily builds | GitHub Actions | `.github/workflows/daily-news.yml` (6:00 AM UTC) |
@@ -160,9 +160,9 @@ Editions use a **5 AM rollover** in the user's configured timezone (not UTC midn
 - "Get it now" = build + deliver on demand (only available after 5 AM)
 
 Key files:
-- `web-next/src/lib/edition-date.ts` — timezone-aware edition date calculation
-- `web-next/src/actions/build.ts` — `getItNow()` action with dedup guard
-- `web-next/src/components/dashboard-client.tsx` — 8-state dashboard state machine
+- `web/src/lib/edition-date.ts` — timezone-aware edition date calculation
+- `web/src/actions/build.ts` — `getItNow()` action with dedup guard
+- `web/src/components/dashboard-client.tsx` — 8-state dashboard state machine
 
 **Scheduled delivery (cron)** is designed but not yet implemented — see plan at `.claude/plans/replicated-wobbling-harp.md`.
 
@@ -173,4 +173,4 @@ Key files:
 - Settings (`/settings`) — accordion with 4 colored-border cards, batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional
-- Legacy Streamlit app (`web/`) still present, pending removal
+- Legacy Streamlit prototype archived in `legacy/streamlit/`

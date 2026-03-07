@@ -22,7 +22,6 @@ pytest -k "test_build"           # By name pattern
 - `test_main.py` — Build pipeline orchestration
 - `test_delivery.py` — Delivery backends
 - `test_cli.py` — CLI commands
-- `test_builder.py` — Builder service
 
 ### FastAPI API Tests
 - `test_api_build.py` — `POST /build` endpoint
@@ -30,17 +29,8 @@ pytest -k "test_build"           # By name pattern
 - `test_api_feeds.py` — `POST /feeds/validate` endpoint
 - `test_api_smtp.py` — `POST /smtp-test` endpoint
 
-### Web Service Tests (legacy Streamlit services)
-- `test_database.py` — JSON persistence
-- `test_feed_catalog.py` — Feed catalog loading
-- `test_github_actions.py` — GitHub Actions integration
-- `test_google_oauth.py` — Google OAuth flow
-- `test_gmail_sender.py` — Gmail API sending
-- `test_smtp_test.py` — SMTP testing
-- `test_dashboard.py` — Dashboard logic
-
 ## Notes
 
 - `conftest.py` has shared fixtures
 - API tests require `PYTHONPATH` to include both `src/` and project root (handled in CI)
-- Next.js tests are separate — they live in `web-next/src/__tests__/` and use Vitest
+- Next.js tests are separate — they live in `web/src/__tests__/` and use Vitest

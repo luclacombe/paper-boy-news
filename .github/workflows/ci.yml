@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: web-next
+        working-directory: web
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +47,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: web-next/pnpm-lock.yaml
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 
