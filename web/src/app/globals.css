@@ -139,6 +139,11 @@
   letter-spacing: 0.08em;
 }
 
+/* Punctuation looks oversized next to small-cap letters — scale it down */
+.small-caps-punct {
+  font-size: 0.75em;
+}
+
 .section-rule {
   border-top: 3px double var(--color-rule-gray);
   padding-top: 0.75rem;

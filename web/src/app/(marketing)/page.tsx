@@ -218,7 +218,7 @@ export default function LandingPage() {
           <main className="mx-auto flex w-full max-w-2xl flex-col px-0 sm:px-6">
             {/* Masthead */}
             <NewspaperMasthead
-              subtitle="Your morning newspaper, built overnight for your e-reader."
+              subtitle="Your news, compiled overnight. On your e-reader by morning."
               showDateline
             />
 
