@@ -98,10 +98,9 @@ async function main() {
       console.log(`  [ok] Deleted ${deleted.count} delivery history records`);
     }
 
-    console.log("\nDone! You can now:");
-    console.log("  1. Go to /onboarding to re-test the onboarding flow");
-    console.log("  2. Or log in at /login — you'll be redirected to onboarding");
-    console.log("  3. localStorage onboarding state will be used if present\n");
+    console.log("\nDone! Next step:");
+    console.log("  → Visit http://localhost:3000/dev/reset to clear browser state + sign out");
+    console.log("  Then log in at /login — you'll be redirected to onboarding\n");
   } catch (err) {
     console.error("Error:", err);
     process.exit(1);
