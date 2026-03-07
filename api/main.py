@@ -28,7 +28,17 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],
+    max_age=3600,
 )
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 
 app.include_router(build_router)
 app.include_router(deliver_router)

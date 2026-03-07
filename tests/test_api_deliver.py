@@ -101,7 +101,7 @@ class TestDeliverEndpoint:
         )
         data = resp.json()
         assert data["success"] is False
-        assert "upload failed" in data["message"]
+        assert "Delivery failed" in data["message"]
 
     def test_deliver_invalid_base64(self, api_client, auth_header):
         """Invalid base64 in epub_base64 returns error gracefully."""
