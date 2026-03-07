@@ -44,6 +44,7 @@ export async function proxy(request: NextRequest) {
   const isAuthRoute = pathname === "/login" || pathname === "/signup";
   const isAppRoute =
     pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/settings") ||
     pathname.startsWith("/sources") ||
     pathname.startsWith("/delivery") ||
     pathname.startsWith("/editions");

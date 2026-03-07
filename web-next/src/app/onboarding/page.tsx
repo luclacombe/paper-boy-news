@@ -59,6 +59,15 @@ export default function OnboardingPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Check if user is already signed in
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAuthenticated(!!user);
+    });
+  }, []);
 
   // Load catalog on mount
   useEffect(() => {
@@ -640,6 +649,41 @@ export default function OnboardingPage() {
   }
 
   function renderStep4() {
+    // User is already signed in — just need to save settings
+    if (isAuthenticated) {
+      return (
+        <div className="space-y-6">
+          <div className="section-rule text-center">
+            <h2 className="font-display text-2xl font-bold text-ink">
+              You&rsquo;re All Set
+            </h2>
+            <p className="mt-1 font-body text-sm italic text-caption">
+              You&rsquo;re signed in. Save your settings to start receiving your
+              newspaper.
+            </p>
+          </div>
+
+          <Button
+            onClick={() => router.push("/onboarding/complete")}
+            disabled={authLoading}
+            className="letterpress w-full bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
+          >
+            Complete Setup
+          </Button>
+
+          <div className="flex justify-start">
+            <Button
+              onClick={() => goToStep(3)}
+              variant="outline"
+              className="letterpress font-body text-sm uppercase tracking-wider"
+            >
+              Back
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <div className="section-rule text-center">
