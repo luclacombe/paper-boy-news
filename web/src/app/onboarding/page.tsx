@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
 import { createClient } from "@/lib/supabase/client";
 import { getCatalogData, getBundleFeeds } from "@/actions/feed-catalog";
 import { useOnboardingState } from "@/hooks/use-onboarding-state";
@@ -894,20 +893,15 @@ export default function OnboardingPage() {
 
           {/* Step content with animated transitions */}
           <div className="mt-8 flex-1">
-            <AnimatePresence mode="wait">
-              <motion.div
+              <div
                 key={state.step}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.25, ease: "easeInOut" }}
+                className="animate-step-in"
               >
                 {state.step === 1 && renderStep1()}
                 {state.step === 2 && renderStep2()}
                 {state.step === 3 && renderStep3()}
                 {state.step === 4 && renderStep4()}
-              </motion.div>
-            </AnimatePresence>
+              </div>
           </div>
 
           {/* Step indicator (bottom) */}

@@ -1,7 +1,6 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { motion } from "motion/react";
 import type { Device } from "@/types";
 import { DeviceIcon } from "./device-icons";
 
@@ -19,13 +18,10 @@ export function DeviceCard({
   onClick,
 }: DeviceCardProps) {
   return (
-    <motion.button
+    <button
       onClick={onClick}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      transition={{ duration: 0.15 }}
       className={cn(
-        "newsprint-card flex w-full flex-col items-center gap-3 overflow-hidden border-2 bg-card p-6 transition-colors",
+        "newsprint-card flex w-full flex-col items-center gap-3 overflow-hidden border-2 bg-card p-6 transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]",
         selected
           ? "border-edition-red shadow-md shadow-edition-red/20"
           : "border-rule-gray hover:border-caption"
@@ -35,6 +31,6 @@ export function DeviceCard({
       <span className="small-caps font-headline text-sm font-bold text-ink">
         {label}
       </span>
-    </motion.button>
+    </button>
   );
 }
