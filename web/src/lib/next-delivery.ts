@@ -18,7 +18,7 @@ const FRIENDLY_TZ: Record<string, string> = {
   "Europe/Paris": "Paris",
 };
 
-export function formatTimezone(timezone: string): string {
+function formatTimezone(timezone: string): string {
   if (FRIENDLY_TZ[timezone]) return FRIENDLY_TZ[timezone];
   const tzOption = TIMEZONES.find((t) => t.value === timezone);
   if (tzOption) return tzOption.label;
@@ -27,7 +27,7 @@ export function formatTimezone(timezone: string): string {
     : timezone;
 }
 
-export function formatTimeAndZone(
+function formatTimeAndZone(
   deliveryTime: string,
   timezone: string
 ): string {
@@ -124,8 +124,3 @@ export function getEarlyDeliveryDescription(config: UserConfig): string {
   return "It will be ready to download right away";
 }
 
-/** Scheduled time sentence — "scheduled for 6:00 AM Eastern" */
-export function getScheduledTimeSentence(config: UserConfig): string {
-  const time = formatTimeAndZone(config.deliveryTime, config.timezone);
-  return `scheduled for ${time}`;
-}
