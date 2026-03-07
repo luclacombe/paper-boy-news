@@ -7,6 +7,17 @@ interface NewspaperMastheadProps {
   className?: string;
 }
 
+/** Wrap punctuation in small-caps text so it doesn't look oversized */
+function scalePunctuation(text: string): React.ReactNode[] {
+  return text.split(/([.,;:!?])/).map((part, i) =>
+    /^[.,;:!?]$/.test(part) ? (
+      <span key={i} className="small-caps-punct">{part}</span>
+    ) : (
+      part
+    )
+  );
+}
+
 function formatDate(): string {
   const now = new Date();
   return now.toLocaleDateString("en-US", {
@@ -44,7 +55,7 @@ export function NewspaperMasthead({
       {/* Motto */}
       {subtitle && (
         <p className="small-caps -mt-2 pb-3 font-typewriter text-sm text-caption sm:-mt-3 sm:pb-4">
-          {subtitle}
+          {scalePunctuation(subtitle)}
         </p>
       )}
 
