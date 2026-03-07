@@ -90,8 +90,9 @@ supabase db reset                 # Reset DB, re-run migrations + seed data
 # ── Dev helpers (from web-next/) ──
 pnpm env:local                    # Switch to local Supabase
 pnpm env:cloud                    # Switch to cloud Supabase
-pnpm dev:reset                    # Reset all users to pre-onboarding state
+pnpm dev:reset                    # Reset all users to pre-onboarding state (DB only)
 pnpm dev:reset -- --email X       # Reset specific user by email
+# After dev:reset, visit /dev/reset in browser to clear localStorage + sign out
 ```
 
 ## Local Development (Supabase)
@@ -112,7 +113,7 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 3. **Seeded test accounts** (password: `password123`):
    - `dev@paperboy.local` — fresh user, onboarding not complete
    - `onboarded@paperboy.local` — onboarded with feeds + delivery history
-4. **Re-test onboarding**: `pnpm dev:reset` — resets users to pre-onboarding state, stay logged in
+4. **Re-test onboarding**: `pnpm dev:reset` then visit `/dev/reset` in browser (clears localStorage + signs out)
 5. **Full DB reset**: `supabase db reset` — drops everything, re-runs migrations + seed
 
 **Local services**:
@@ -148,9 +149,28 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 | Database | Supabase | PostgreSQL + Auth + Storage |
 | Daily builds | GitHub Actions | `.github/workflows/daily-news.yml` (6:00 AM UTC) |
 
+## Edition Model
+
+Editions use a **5 AM rollover** in the user's configured timezone (not UTC midnight):
+
+- Before 5 AM user-local → current edition is **yesterday's**
+- After 5 AM → current edition is **today's**
+- One edition per calendar day per user (enforced by partial unique index on `delivery_history`)
+- Delivery time (5–8 AM) = when the paper gets pushed to the user's device
+- "Get it now" = build + deliver on demand (only available after 5 AM)
+
+Key files:
+- `web-next/src/lib/edition-date.ts` — timezone-aware edition date calculation
+- `web-next/src/actions/build.ts` — `getItNow()` action with dedup guard
+- `web-next/src/components/dashboard-client.tsx` — 8-state dashboard state machine
+
+**Scheduled delivery (cron)** is designed but not yet implemented — see plan at `.claude/plans/replicated-wobbling-harp.md`.
+
 ## Current Status
 
 - Core library, API, auth, and server actions are complete
-- App pages (`/dashboard`, `/sources`, `/delivery`, `/editions`) are **stubs** — UI not yet built
+- Dashboard (`/dashboard`) — 8-state status card, build controls, past editions, schedule nudges
+- Settings (`/settings`) — accordion with 4 colored-border cards, batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`
+- Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional
 - Legacy Streamlit app (`web/`) still present, pending removal

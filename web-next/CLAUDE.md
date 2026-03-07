@@ -24,11 +24,12 @@ pnpm db:studio        # Drizzle Studio (DB browser)
 # Dev helpers
 pnpm env:local        # Switch .env.local to local Supabase
 pnpm env:cloud        # Switch .env.local to cloud Supabase
-pnpm dev:reset        # Reset all users to pre-onboarding state
+pnpm dev:reset        # Reset all users to pre-onboarding state (DB only)
 pnpm dev:reset -- --email dev@paperboy.local  # Reset specific user
 pnpm dev:reset -- --onboarding   # Only reset onboarding flag
 pnpm dev:reset -- --history      # Only clear delivery history
 pnpm dev:reset -- --feeds        # Only clear feeds
+# After dev:reset, visit /dev/reset in browser to clear localStorage + sign out
 pnpm supabase:start   # Start local Supabase (Docker required)
 pnpm supabase:stop    # Stop local Supabase
 pnpm supabase:reset   # Full DB reset (migrations + seed)
@@ -39,7 +40,7 @@ pnpm supabase:reset   # Full DB reset (migrations + seed)
 ```
 src/
 ├── actions/           # Server Actions (all data mutations)
-│   ├── build.ts       # triggerBuild() — calls FastAPI, stores result in DB
+│   ├── build.ts       # getItNow() — timezone-aware build + deliver with dedup guard
 │   ├── delivery-history.ts
 │   ├── feed-catalog.ts
 │   ├── feeds.ts       # CRUD for user_feeds table
@@ -53,16 +54,20 @@ src/
 │   ├── (auth)/        # Login/signup (Google OAuth + email/password)
 │   ├── onboarding/    # 4-step wizard + /onboarding/complete (post-OAuth)
 │   ├── (app)/         # Protected routes (requires auth + onboarding)
-│   │   ├── layout.tsx # Auth check, redirects if not onboarded
-│   │   ├── dashboard/ # STUB — needs UI
-│   │   ├── sources/   # STUB — needs UI
-│   │   ├── delivery/  # STUB — needs UI
-│   │   └── editions/  # STUB — needs UI
+│   │   ├── layout.tsx # Auth check, redirects if not onboarded (no masthead — per-page headers)
+│   │   ├── dashboard/ # Newspaper front page — status hub, build, back issues
+│   │   └── settings/  # Accordion settings (?open= deep linking from dashboard)
 │   └── api/
 │       └── auth/      # OAuth callback routes (Supabase + Google)
 ├── components/
 │   ├── ui/            # shadcn/ui primitives (button, card, input, etc.)
-│   └── *.tsx          # App components (device-card, edition-card, etc.)
+│   ├── settings/      # Settings section panels (sources, delivery, schedule, paper)
+│   ├── app-masthead.tsx      # Newspaper masthead (rendered by dashboard page, not layout)
+│   ├── dashboard-client.tsx  # Dashboard interactive UI (deep links to settings via ?open=)
+│   ├── save-toast.tsx         # Custom save toast: halftone texture, countdown progress bar, undo
+│   ├── settings-accordion.tsx # Accordion cards with colored borders, batch save + undo
+│   ├── settings-client.tsx   # Settings page: compact header (← Settings / Sign out) + accordion
+│   └── *.tsx          # Shared components (device-card, edition-card, etc.)
 ├── data/
 │   └── feed-catalog.yaml  # Curated feed catalog (40+ feeds, 7 categories)
 ├── db/
@@ -74,14 +79,17 @@ src/
 ├── lib/
 │   ├── api-client.ts  # Typed fetch wrapper for FastAPI
 │   ├── auth.ts        # getAuthUser(), getUserProfile()
-│   ├── constants.ts   # DEVICES, TIMEZONES, DELIVERY_TIMES, BUILD_MESSAGES
+│   ├── setup-status.ts # Compute delivery setup completeness
+│   ├── download-epub.ts # Browser-side EPUB download from Supabase Storage
+│   ├── constants.ts   # DEVICES, TIMEZONES, DELIVERY_TIMES, EDITION_ROLLOVER_HOUR, BUILD_MESSAGES
+│   ├── edition-date.ts # Timezone-aware edition date (5 AM rollover), cutoff checks
 │   ├── feed-catalog.ts
 │   ├── reading-time.ts
 │   ├── utils.ts       # cn() helper (clsx + tailwind-merge)
 │   └── supabase/
 │       ├── client.ts  # Browser Supabase client
 │       └── server.ts  # Server Supabase client (for Server Components + Actions)
-├── middleware.ts       # Auth routing (protect app routes, redirect auth users)
+├── proxy.ts           # Auth routing (protect app routes, redirect auth users)
 ├── types/
 │   └── index.ts       # All TypeScript types
 └── __tests__/
@@ -100,12 +108,14 @@ src/
 
 Auto-triggers: `on_auth_user_created` → creates profile row, `updated_at` auto-update.
 
+Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) WHERE status != 'failed'` — enforces one non-failed edition per user per day, allows retries after failures.
+
 ## Auth Flow
 
 1. User signs up via Google OAuth or email/password (Supabase Auth)
 2. Onboarding wizard saves state to localStorage (no auth required for `/onboarding`)
 3. Google OAuth redirect → `/onboarding/complete` saves localStorage state to DB
-4. Middleware protects `/dashboard`, `/sources`, `/delivery`, `/editions` — requires auth
+4. Proxy protects `/dashboard`, `/settings` (and legacy `/sources`, `/delivery`, `/editions`) — requires auth
 5. Google Drive/Gmail OAuth is **separate** from sign-in OAuth (scopes: drive.file, gmail.send)
 
 ## Key Patterns
@@ -115,7 +125,11 @@ Auto-triggers: `on_auth_user_created` → creates profile row, `updated_at` auto
 - **Types** centralized in `src/types/index.ts`
 - **Supabase clients**: use `server.ts` in Server Components/Actions, `client.ts` in Client Components
 - **FastAPI calls** go through `src/lib/api-client.ts` (typed fetch wrapper)
-- **Build pipeline**: `triggerBuild()` action → FastAPI `/build` → FastAPI `/deliver` → stores result in delivery_history
+- **Edition model**: editions roll over at 5 AM user-local (not midnight UTC). One per day, enforced by partial unique DB index. See `src/lib/edition-date.ts`
+- **Build pipeline**: `getItNow()` action → checks dedup → FastAPI `/build` → FastAPI `/deliver` → stores result in delivery_history
+- **Dashboard state machine**: 8 states computed from edition status, time of day, and setup completeness. Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability
+- **Settings accordion**: 4 collapsible cards with colored left borders (red/ink/amber/green). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper`. All sections use batch save — "Save changes" when dirty, auto-save on collapse. Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing
+- **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout). Settings has its own compact header with back link + sign out
 
 ## Design System
 
@@ -140,8 +154,22 @@ See `.env.example` for cloud vars, `.env.local.example` for local Supabase:
 - `.env.local.example` — local Supabase template with default keys (committed)
 - `.env.example` — cloud env template (committed)
 
+## Edition Model
+
+Editions use a **5 AM rollover** in the user's configured timezone:
+- Before 5 AM → current edition = yesterday. After 5 AM → current edition = today.
+- `getEditionDate(timezone)` in `src/lib/edition-date.ts` is the single source of truth.
+- `getItNow()` in `src/actions/build.ts` checks for existing editions before building (dedup guard).
+- FastAPI `/build` accepts optional `edition_date` param so the Next.js server controls the date.
+
+Dashboard states (in priority order): setup-incomplete → build-in-progress → build-error → fetched-early → delivered → failed → pre-build-first / pre-build → ready-first / ready.
+
+**Scheduled delivery (cron)** is designed but deferred — see `.claude/plans/replicated-wobbling-harp.md`.
+
 ## Current Status
 
 - Auth, onboarding, server actions, and API integration are complete
-- App pages (`/dashboard`, `/sources`, `/delivery`, `/editions`) are **stubs** — placeholder text only, UI needs to be built
+- Dashboard (`/dashboard`) — 8-state status card with timezone-aware edition logic, build controls, past editions, schedule nudges
+- Settings (`/settings`) — accordion with 4 cards: Sources, Delivery, Schedule, Your Paper. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via catalog checkboxes (no separate list)
+- Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Landing page and login flow are functional
