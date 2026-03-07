@@ -88,4 +88,4 @@ async def deliver_epub(req: DeliverRequest, _user_id: str = Depends(verify_token
 
     except Exception as e:
         logger.exception("Delivery failed")
-        return DeliverResponse(success=False, message=str(e))
+        return DeliverResponse(success=False, message="Delivery failed. Please check your delivery settings and try again.")

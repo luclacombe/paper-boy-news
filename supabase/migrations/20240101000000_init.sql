@@ -136,5 +136,5 @@ CREATE TRIGGER set_updated_at
 -- ══════════════════════════════════════════════════════════
 
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('editions', 'editions', false)
+VALUES ('epubs', 'epubs', false)
 ON CONFLICT (id) DO NOTHING;

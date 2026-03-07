@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import signal
 import urllib.request
 from dataclasses import dataclass, field
 from io import BytesIO
@@ -14,6 +15,7 @@ import trafilatura
 from PIL import Image
 
 from paper_boy.config import Config, FeedConfig
+from paper_boy.url_validation import is_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +104,31 @@ def fetch_feeds(config: Config) -> list[Section]:
 # --- Feed fetching ---
 
 
+_FEED_FETCH_TIMEOUT = 30  # seconds
+
+
 def _fetch_single_feed(feed_cfg: FeedConfig, config: Config) -> Section:
     """Fetch a single RSS feed and extract articles."""
     section = Section(name=feed_cfg.name)
 
-    feed = feedparser.parse(feed_cfg.url)
+    if not is_safe_url(feed_cfg.url):
+        logger.warning("Blocked unsafe feed URL: %s", feed_cfg.url)
+        return section
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError(f"Feed fetch timed out after {_FEED_FETCH_TIMEOUT}s")
+
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(_FEED_FETCH_TIMEOUT)
+    try:
+        feed = feedparser.parse(feed_cfg.url)
+    except TimeoutError:
+        logger.warning("Feed fetch timed out: %s", feed_cfg.name)
+        return section
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
     if feed.bozo and not feed.entries:
         logger.error("Failed to parse feed %s: %s", feed_cfg.name, feed.bozo_exception)
         return section
@@ -126,7 +148,7 @@ def _extract_article(entry, config: Config) -> Article | None:
     url = entry.get("link", "")
     title = entry.get("title", "Untitled")
 
-    if not url:
+    if not url or not is_safe_url(url):
         return None
 
     include_images = config.newspaper.include_images
@@ -289,6 +311,8 @@ def _should_skip_image(url: str) -> bool:
 
 def _download_image(url: str, timeout: int = 10) -> bytes | None:
     """Download an image from a URL. Returns bytes or None on failure."""
+    if not is_safe_url(url):
+        return None
     try:
         req = urllib.request.Request(
             url,

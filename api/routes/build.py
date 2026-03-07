@@ -100,4 +100,4 @@ async def build(req: BuildRequest, _user_id: str = Depends(verify_token)):
             )
     except Exception as e:
         logger.exception("Build failed")
-        return BuildResponse(success=False, error=str(e))
+        return BuildResponse(success=False, error="Newspaper build failed. Please check your feeds and try again.")

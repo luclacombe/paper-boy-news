@@ -91,4 +91,4 @@ class TestFeedValidateEndpoint:
         )
         data = resp.json()
         assert data["valid"] is False
-        assert "network error" in data["error"]
+        assert "Could not validate this feed" in data["error"]

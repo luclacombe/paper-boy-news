@@ -17,6 +17,21 @@ router = APIRouter()
 @router.post("/smtp-test", response_model=SmtpTestResponse)
 async def smtp_test(req: SmtpTestRequest, _user_id: str = Depends(verify_token)):
     """Test SMTP credentials by authenticating without sending."""
+    # Block connections to localhost/private IPs (SSRF prevention)
+    import ipaddress
+
+    try:
+        addr_info = socket.getaddrinfo(req.smtp_host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _family, _, _, _, sockaddr in addr_info:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_link_local:
+                return SmtpTestResponse(
+                    success=False,
+                    message="SMTP host resolves to a private/internal address. Use a public SMTP server.",
+                )
+    except (socket.gaierror, ValueError, OSError):
+        pass  # DNS resolution failed — let smtplib handle the error naturally
+
     try:
         if req.smtp_port == 465:
             with smtplib.SMTP_SSL(req.smtp_host, req.smtp_port, timeout=10) as server:

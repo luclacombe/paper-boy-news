@@ -3,7 +3,7 @@
 import { getUserProfile } from "@/lib/auth";
 import { db } from "@/db";
 import { userFeeds } from "@/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, and } from "drizzle-orm";
 import type { Feed } from "@/types";
 
 export async function getFeeds(): Promise<Feed[]> {
@@ -60,7 +60,7 @@ export async function removeFeed(feedId: string): Promise<void> {
 
   await db
     .delete(userFeeds)
-    .where(eq(userFeeds.id, feedId));
+    .where(and(eq(userFeeds.id, feedId), eq(userFeeds.userId, profile.id)));
 }
 
 export async function setFeeds(

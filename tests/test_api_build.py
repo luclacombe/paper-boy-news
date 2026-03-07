@@ -89,7 +89,7 @@ class TestBuildEndpoint:
         )
         data = resp.json()
         assert data["success"] is False
-        assert "No articles fetched" in data["error"]
+        assert "Newspaper build failed" in data["error"]
 
     @patch("api.routes.build.build_newspaper")
     def test_build_file_size_kb(self, mock_build, api_client, auth_header, make_article):
