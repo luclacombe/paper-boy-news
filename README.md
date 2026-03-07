@@ -1,10 +1,8 @@
 <div align="center">
 
-# Paper Boy
-
 <img src="docs/banner.webp" alt="Your news, compiled overnight. On your e-reader by morning." width="720" />
 
-Fetches news from RSS feeds, compiles a beautifully formatted EPUB, and delivers it to your Kobo, Kindle, or reMarkable before you wake up.
+Paper Boy: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, and delivers it to your Kobo, Kindle, or reMarkable before you wake up.
 
 [![CI](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml/badge.svg)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm_NC-blue.svg)](LICENSE)
