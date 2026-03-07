@@ -44,6 +44,8 @@ export const DELIVERY_TIMES = [
   { value: "08:00", label: "8:00 AM" },
 ];
 
+export const EDITION_ROLLOVER_HOUR = 5;
+
 export const BUILD_MESSAGES = [
   "Setting the type...",
   "Pulling from the wire...",

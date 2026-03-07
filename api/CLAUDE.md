@@ -49,7 +49,7 @@ api/
 
 - CORS origins: `http://localhost:3000` + `ALLOWED_ORIGINS` env var (comma-separated for Vercel preview URLs)
 - The Dockerfile sets `PYTHONPATH=/app/src:/app` so both `paper_boy` and `api` packages are importable
-- Build endpoint calls `paper_boy.main.build_newspaper()` and returns the EPUB as base64
+- Build endpoint calls `paper_boy.main.build_newspaper()` and returns the EPUB as base64. Accepts optional `edition_date` param (YYYY-MM-DD) — if provided, uses it as the issue date instead of `date.today()`. The Next.js server computes this using the user's timezone.
 - Deliver endpoint handles Google Drive (via google-api-python-client), Gmail API, and SMTP
 - Tests live in `tests/test_api_*.py` (not in this directory — see `tests/CLAUDE.md`)
 

@@ -27,6 +27,12 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+// Mock getEditionForDate (one-per-day guard)
+const mockGetEditionForDate = vi.fn().mockResolvedValue(null);
+vi.mock("@/actions/delivery-history", () => ({
+  getEditionForDate: (...args: unknown[]) => mockGetEditionForDate(...args),
+}));
+
 // Mock DB
 const mockFeedRows: unknown[] = [];
 const mockCountResult = [{ value: 0 }];
@@ -68,6 +74,7 @@ const FAKE_PROFILE = {
   emailSender: "",
   emailPassword: "",
   googleTokens: null,
+  timezone: "UTC",
 };
 
 const FAKE_BUILD_RESPONSE = {
@@ -80,17 +87,18 @@ const FAKE_BUILD_RESPONSE = {
   error: null,
 };
 
-describe("triggerBuild", () => {
+describe("getItNow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFeedRows.length = 0;
     mockCountResult[0] = { value: 0 };
+    mockGetEditionForDate.mockResolvedValue(null);
   });
 
   it("returns error when not authenticated", async () => {
     mockGetAuthUser.mockResolvedValue(null);
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
     expect(result.success).toBe(false);
     expect(result.error).toBe("Not authenticated");
   });
@@ -98,8 +106,8 @@ describe("triggerBuild", () => {
   it("returns error when profile not found", async () => {
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     mockGetUserProfile.mockResolvedValue(null);
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
     expect(result.success).toBe(false);
     expect(result.error).toBe("Profile not found");
   });
@@ -108,10 +116,30 @@ describe("triggerBuild", () => {
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
     // mockFeedRows stays empty
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
     expect(result.success).toBe(false);
     expect(result.error).toContain("No feeds");
+  });
+
+  it("returns existing edition without rebuilding", async () => {
+    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
+    mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
+    mockGetEditionForDate.mockResolvedValue({
+      status: "delivered",
+      articleCount: 10,
+      sections: [{ name: "World", headlines: ["Headline 1"] }],
+      fileSize: "1 MB",
+      fileSizeBytes: 1000000,
+      epubStoragePath: "path/to/epub",
+    });
+
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
+
+    expect(result.success).toBe(true);
+    expect(result.totalArticles).toBe(10);
+    expect(mockBuildNewspaper).not.toHaveBeenCalled();
   });
 
   it("calls buildNewspaper with correct request shape", async () => {
@@ -122,8 +150,8 @@ describe("triggerBuild", () => {
     );
     mockBuildNewspaper.mockResolvedValue(FAKE_BUILD_RESPONSE);
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     expect(result.success).toBe(true);
     expect(mockBuildNewspaper).toHaveBeenCalledWith(
@@ -131,6 +159,7 @@ describe("triggerBuild", () => {
         title: "Morning Digest",
         language: "en",
         feeds: [{ name: "Feed 1", url: "https://example.com/rss" }],
+        edition_date: expect.any(String),
       })
     );
   });
@@ -143,12 +172,11 @@ describe("triggerBuild", () => {
     );
     mockBuildNewspaper.mockRejectedValue(new Error("API unreachable"));
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("API unreachable");
-    // Delivery history should record failure
     expect(mockInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "failed",
@@ -169,8 +197,8 @@ describe("triggerBuild", () => {
       error: "No articles fetched",
     });
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("No articles fetched");
@@ -184,8 +212,8 @@ describe("triggerBuild", () => {
     );
     mockBuildNewspaper.mockResolvedValue(FAKE_BUILD_RESPONSE);
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     expect(result.success).toBe(true);
     expect(mockDeliverNewspaper).not.toHaveBeenCalled();
@@ -212,8 +240,8 @@ describe("triggerBuild", () => {
     mockBuildNewspaper.mockResolvedValue(FAKE_BUILD_RESPONSE);
     mockDeliverNewspaper.mockResolvedValue({ success: true, message: "Uploaded" });
 
-    const { triggerBuild } = await import("@/actions/build");
-    const result = await triggerBuild();
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
 
     expect(result.success).toBe(true);
     expect(mockDeliverNewspaper).toHaveBeenCalledWith(

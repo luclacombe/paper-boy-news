@@ -6,6 +6,8 @@ import { db } from "@/db";
 import { userFeeds, deliveryHistory } from "@/db/schema";
 import { eq, asc, count } from "drizzle-orm";
 import { buildNewspaper, deliverNewspaper } from "@/lib/api-client";
+import { getEditionDate } from "@/lib/edition-date";
+import { getEditionForDate } from "@/actions/delivery-history";
 import type {
   BuildResult,
   ApiBuildRequest,
@@ -14,31 +16,44 @@ import type {
   SectionSummary,
 } from "@/types";
 
-export async function triggerBuild(): Promise<BuildResult> {
+function errorResult(error: string, editionDate: string): BuildResult {
+  return {
+    success: false,
+    editionDate,
+    totalArticles: 0,
+    sections: [],
+    fileSize: "0 KB",
+    fileSizeBytes: 0,
+    epubStoragePath: null,
+    error,
+  };
+}
+
+export async function getItNow(): Promise<BuildResult> {
   const user = await getAuthUser();
-  if (!user) {
-    return {
-      success: false,
-      totalArticles: 0,
-      sections: [],
-      fileSize: "0 KB",
-      fileSizeBytes: 0,
-      epubStoragePath: null,
-      error: "Not authenticated",
-    };
-  }
+  if (!user) return errorResult("Not authenticated", "");
 
   const profile = await getUserProfile();
-  if (!profile) {
+  if (!profile) return errorResult("Profile not found", "");
+
+  const editionDate = getEditionDate(profile.timezone);
+
+  // One-per-day guard: return existing edition if already built/delivered
+  const existing = await getEditionForDate(editionDate);
+  if (existing && existing.status === "delivered") {
     return {
-      success: false,
-      totalArticles: 0,
-      sections: [],
-      fileSize: "0 KB",
-      fileSizeBytes: 0,
-      epubStoragePath: null,
-      error: "Profile not found",
+      success: true,
+      editionDate,
+      totalArticles: existing.articleCount,
+      sections: existing.sections ?? [],
+      fileSize: existing.fileSize,
+      fileSizeBytes: existing.fileSizeBytes,
+      epubStoragePath: existing.epubStoragePath,
+      error: null,
     };
+  }
+  if (existing && existing.status === "building") {
+    return errorResult("A build is already in progress", editionDate);
   }
 
   // 1. Load feeds from DB
@@ -49,15 +64,7 @@ export async function triggerBuild(): Promise<BuildResult> {
     .orderBy(asc(userFeeds.position));
 
   if (feeds.length === 0) {
-    return {
-      success: false,
-      totalArticles: 0,
-      sections: [],
-      fileSize: "0 KB",
-      fileSizeBytes: 0,
-      epubStoragePath: null,
-      error: "No feeds configured. Add sources first.",
-    };
+    return errorResult("No feeds configured. Add sources first.", editionDate);
   }
 
   // Get edition number
@@ -66,7 +73,6 @@ export async function triggerBuild(): Promise<BuildResult> {
     .from(deliveryHistory)
     .where(eq(deliveryHistory.userId, profile.id));
   const editionNumber = (editionCount?.value ?? 0) + 1;
-  const editionDate = new Date().toISOString().split("T")[0];
 
   // 2. POST to FastAPI /build
   const buildRequest: ApiBuildRequest = {
@@ -76,6 +82,7 @@ export async function triggerBuild(): Promise<BuildResult> {
     include_images: profile.includeImages,
     feeds: feeds.map((f) => ({ name: f.name, url: f.url })),
     device: profile.device,
+    edition_date: editionDate,
   };
 
   let buildResponse;
@@ -85,7 +92,6 @@ export async function triggerBuild(): Promise<BuildResult> {
     const errorMsg =
       err instanceof Error ? err.message : "Build request failed";
 
-    // Record failure
     await db.insert(deliveryHistory).values({
       userId: profile.id,
       status: "failed",
@@ -96,18 +102,12 @@ export async function triggerBuild(): Promise<BuildResult> {
       errorMessage: errorMsg,
     });
 
-    return {
-      success: false,
-      totalArticles: 0,
-      sections: [],
-      fileSize: "0 KB",
-      fileSizeBytes: 0,
-      epubStoragePath: null,
-      error: errorMsg,
-    };
+    return errorResult(errorMsg, editionDate);
   }
 
   if (!buildResponse.success || !buildResponse.epub_base64) {
+    const errorMsg = buildResponse.error ?? "Build returned no EPUB";
+
     await db.insert(deliveryHistory).values({
       userId: profile.id,
       status: "failed",
@@ -115,18 +115,10 @@ export async function triggerBuild(): Promise<BuildResult> {
       editionDate,
       sourceCount: feeds.length,
       deliveryMethod: profile.deliveryMethod,
-      errorMessage: buildResponse.error ?? "Build returned no EPUB",
+      errorMessage: errorMsg,
     });
 
-    return {
-      success: false,
-      totalArticles: 0,
-      sections: [],
-      fileSize: "0 KB",
-      fileSizeBytes: 0,
-      epubStoragePath: null,
-      error: buildResponse.error ?? "Build returned no EPUB",
-    };
+    return errorResult(errorMsg, editionDate);
   }
 
   // 3. Upload EPUB to Supabase Storage
@@ -208,6 +200,7 @@ export async function triggerBuild(): Promise<BuildResult> {
   // 6. Return result
   return {
     success: true,
+    editionDate,
     totalArticles: buildResponse.total_articles,
     sections,
     fileSize: buildResponse.file_size,
