@@ -77,15 +77,16 @@ export function StoryCard({
       rel="noopener noreferrer"
       className="block bg-newsprint px-2 py-4"
     >
-      <Image
-        src={story.src}
-        alt={story.headline}
-        width={400}
-        height={300}
-        sizes="(min-width: 1280px) 200px, (max-width: 640px) calc(100vw - 3rem), 360px"
-        className="block w-full h-auto [filter:grayscale(100%)_contrast(1.1)] [mix-blend-mode:multiply]"
-        style={{ height: "auto" }}
-      />
+      <div className="h-32 w-full" style={{ overflow: "clip" }}>
+        <Image
+          src={story.src}
+          alt={story.headline}
+          width={200}
+          height={128}
+          sizes="200px"
+          className="h-full w-full object-cover object-top [filter:grayscale(100%)_contrast(1.1)] [mix-blend-mode:multiply]"
+        />
+      </div>
       {story.headline ? (
         <h4 className="mt-2.5 whitespace-pre-line font-typewriter text-[11px] leading-snug tracking-wide text-ink">
           {story.headline}
@@ -116,6 +117,13 @@ export function StoryCard({
   );
 }
 
+// Normalise pixel position to (-halfH, 0] for seamless looping.
+const normPos = (pos: number, half: number) => {
+  pos = pos % half;
+  if (pos > 0) pos -= half;
+  return pos;
+};
+
 const DURATION_MS = 145_000;
 
 export function ArchivalColumn({
@@ -141,35 +149,31 @@ export function ArchivalColumn({
     if (!el) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
-    // Left ("scroll-up"):  translateY goes -halfH → 0  (pos increases, +1)
-    // Right ("scroll-down"): translateY goes 0 → -halfH  (pos decreases, -1)
+    // Left scrolls content upward (pos increases toward 0), right scrolls down
     const direction = side === "left" ? 1 : -1;
     const state = stateRef.current;
 
-    // Normalise pos to (-halfH, 0]
-    const norm = (pos: number, halfH: number) => {
-      pos = pos % halfH;
-      if (pos > 0) pos -= halfH;
-      return pos;
-    };
-
-    // Initialise to match SSR initial transform
-    const initHalfH = el.scrollHeight / 2;
-    state.pos = side === "left" ? -initHalfH : 0;
-    el.style.transform = `translateY(${state.pos}px)`;
+    // Don't eagerly overwrite the SSR transform — let the first rAF read the
+    // current scrollHeight and set pos atomically with the animation start.
+    // This avoids a one-frame flash if scrollHeight differs at hydration time.
+    let initialised = false;
 
     const tick = (time: number) => {
       const halfH = el.scrollHeight / 2;
+      if (!initialised) {
+        state.pos = side === "left" ? -halfH : 0;
+        initialised = true;
+      }
       if (halfH > 0 && !state.isPaused && !state.isManual) {
         if (state.lastTime !== null) {
           const delta = time - state.lastTime;
-          state.pos = norm(
+          state.pos = normPos(
             state.pos + (halfH / DURATION_MS) * direction * delta,
             halfH,
           );
-          el.style.transform = `translateY(${state.pos}px)`;
         }
         state.lastTime = time;
+        el.style.transform = `translateY(${state.pos}px)`;
       } else {
         state.lastTime = null;
       }
@@ -177,6 +181,19 @@ export function ArchivalColumn({
     };
 
     rafRef.current = requestAnimationFrame(tick);
+
+    // Pause loop when tab is hidden, restart when visible
+    const handleVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+        state.lastTime = null;
+      } else if (!rafRef.current) {
+        state.lastTime = null;
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     const aside = el.parentElement as HTMLElement;
 
@@ -191,7 +208,7 @@ export function ArchivalColumn({
 
       const halfH = el.scrollHeight / 2;
       if (halfH > 0) {
-        state.pos = norm(state.pos - e.deltaY, halfH);
+        state.pos = normPos(state.pos - e.deltaY, halfH);
         el.style.transform = `translateY(${state.pos}px)`;
       }
 
@@ -217,7 +234,7 @@ export function ArchivalColumn({
       touchStartY = e.touches[0].clientY;
       const halfH = el.scrollHeight / 2;
       if (halfH > 0) {
-        state.pos = norm(state.pos - deltaY, halfH);
+        state.pos = normPos(state.pos - deltaY, halfH);
         el.style.transform = `translateY(${state.pos}px)`;
       }
     };
@@ -237,6 +254,7 @@ export function ArchivalColumn({
     return () => {
       cancelAnimationFrame(rafRef.current);
       clearTimeout(resumeTimerRef.current);
+      document.removeEventListener("visibilitychange", handleVisibility);
       aside.removeEventListener("wheel", handleWheel);
       aside.removeEventListener("touchstart", handleTouchStart);
       aside.removeEventListener("touchmove", handleTouchMove);
@@ -252,7 +270,6 @@ export function ArchivalColumn({
       }}
       aria-hidden="true"
     >
-      {/* SSR initial transform so there's no flash before JS takes over */}
       <div
         ref={scrollRef}
         style={side === "left" ? { transform: "translateY(-50%)" } : undefined}
@@ -297,26 +314,24 @@ export function ArchivalStrip({ stories }: { stories: ArchivalStory[] }) {
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     const state = stateRef.current;
-
-    const norm = (pos: number, halfW: number) => {
-      pos = pos % halfW;
-      if (pos > 0) pos -= halfW;
-      return pos;
-    };
-
-    const initHalfW = el.scrollWidth / 2;
-    state.pos = -initHalfW;
-    el.style.transform = `translateX(${state.pos}px)`;
+    let initialised = false;
 
     const tick = (time: number) => {
       const halfW = el.scrollWidth / 2;
+      if (!initialised) {
+        state.pos = -halfW;
+        initialised = true;
+      }
       if (halfW > 0 && !state.isPaused && !state.isManual) {
         if (state.lastTime !== null) {
           const delta = time - state.lastTime;
-          state.pos = norm(state.pos + (halfW / STRIP_DURATION_MS) * delta, halfW);
-          el.style.transform = `translateX(${state.pos}px)`;
+          state.pos = normPos(
+            state.pos + (halfW / STRIP_DURATION_MS) * delta,
+            halfW,
+          );
         }
         state.lastTime = time;
+        el.style.transform = `translateX(${state.pos}px)`;
       } else {
         state.lastTime = null;
       }
@@ -324,6 +339,18 @@ export function ArchivalStrip({ stories }: { stories: ArchivalStory[] }) {
     };
 
     rafRef.current = requestAnimationFrame(tick);
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = 0;
+        state.lastTime = null;
+      } else if (!rafRef.current) {
+        state.lastTime = null;
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     const wrapper = el.parentElement as HTMLElement;
 
@@ -345,7 +372,7 @@ export function ArchivalStrip({ stories }: { stories: ArchivalStory[] }) {
       if (!isDragging) return;
       const halfW = el.scrollWidth / 2;
       if (halfW > 0) {
-        state.pos = norm(state.pos - (e.clientX - startX), halfW);
+        state.pos = normPos(state.pos - (e.clientX - startX), halfW);
         el.style.transform = `translateX(${state.pos}px)`;
       }
       startX = e.clientX;
@@ -376,7 +403,7 @@ export function ArchivalStrip({ stories }: { stories: ArchivalStory[] }) {
       touchStartX = e.touches[0].clientX;
       const halfW = el.scrollWidth / 2;
       if (halfW > 0) {
-        state.pos = norm(state.pos - deltaX, halfW);
+        state.pos = normPos(state.pos - deltaX, halfW);
         el.style.transform = `translateX(${state.pos}px)`;
       }
     };
@@ -397,6 +424,7 @@ export function ArchivalStrip({ stories }: { stories: ArchivalStory[] }) {
     return () => {
       cancelAnimationFrame(rafRef.current);
       clearTimeout(resumeTimerRef.current);
+      document.removeEventListener("visibilitychange", handleVisibility);
       wrapper.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
