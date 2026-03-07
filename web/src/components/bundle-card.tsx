@@ -1,7 +1,6 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { motion } from "motion/react";
 
 interface BundleCardProps {
   name: string;
@@ -17,13 +16,10 @@ export function BundleCard({
   onClick,
 }: BundleCardProps) {
   return (
-    <motion.button
+    <button
       onClick={onClick}
-      whileHover={{ scale: 1.01, y: -1 }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.15 }}
       className={cn(
-        "newsprint-card w-full overflow-hidden border-2 bg-card p-4 text-left transition-colors",
+        "newsprint-card w-full overflow-hidden border-2 bg-card p-4 text-left transition-all duration-150 hover:scale-[1.01] hover:-translate-y-px active:scale-[0.99]",
         selected
           ? "border-edition-red shadow-sm"
           : "border-rule-gray hover:border-caption"
@@ -33,6 +29,6 @@ export function BundleCard({
       <p className="mt-1 font-body text-xs italic text-caption">
         {description}
       </p>
-    </motion.button>
+    </button>
   );
 }

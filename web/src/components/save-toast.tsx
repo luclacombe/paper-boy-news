@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { CircleCheckIcon } from "lucide-react";
 
 const TOAST_DURATION = 3000;
-const TICK_INTERVAL = 30;
 
 interface SaveToastProps {
   id: string | number;
@@ -14,22 +13,14 @@ interface SaveToastProps {
 }
 
 export function SaveToast({ id, message, onUndo }: SaveToastProps) {
-  const [elapsed, setElapsed] = useState(0);
+  const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setElapsed((prev) => {
-        if (prev >= TOAST_DURATION) {
-          clearInterval(interval);
-          return prev;
-        }
-        return prev + TICK_INTERVAL;
-      });
-    }, TICK_INTERVAL);
-    return () => clearInterval(interval);
+    // Trigger CSS transition on next frame so browser paints initial 100% first
+    requestAnimationFrame(() => {
+      if (barRef.current) barRef.current.style.width = "0%";
+    });
   }, []);
-
-  const progress = Math.min(elapsed / TOAST_DURATION, 1);
 
   return (
     <div className="save-toast relative w-[var(--width)] overflow-hidden border border-[#4a9e6a] bg-[#5bba7c] px-4 py-3 shadow-lg">
@@ -67,8 +58,9 @@ export function SaveToast({ id, message, onUndo }: SaveToastProps) {
       {/* Progress bar — counts down to show remaining undo time */}
       <div className="absolute inset-x-0 bottom-0 h-[3px] bg-black/10">
         <div
-          className="h-full bg-white/50 transition-none"
-          style={{ width: `${(1 - progress) * 100}%` }}
+          ref={barRef}
+          className="h-full bg-white/50"
+          style={{ width: "100%", transition: `width ${TOAST_DURATION}ms linear` }}
         />
       </div>
     </div>
