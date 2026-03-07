@@ -1,0 +1,462 @@
+"use client";
+
+import { useState, useEffect, useRef, useTransition, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { ChevronRight } from "lucide-react";
+import { showSaveToast } from "@/components/save-toast";
+import { updateUserConfig } from "@/actions/user-config";
+import { setFeeds } from "@/actions/feeds";
+import { SourcesSection } from "@/components/settings/sources-section";
+import {
+  DeliverySection,
+  type DeliveryValues,
+} from "@/components/settings/delivery-section";
+import {
+  ScheduleSection,
+  type ScheduleValues,
+} from "@/components/settings/schedule-section";
+import {
+  PaperSection,
+  type PaperValues,
+} from "@/components/settings/paper-section";
+import { Button } from "@/components/ui/button";
+import { readingTimeToArticleCount } from "@/lib/reading-time";
+import { DEVICES, DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
+import type {
+  UserConfig,
+  Feed,
+  CatalogCategory,
+  CatalogBundle,
+  Device,
+  DeliveryMethod,
+} from "@/types";
+
+// ─── Types ───────────────────────────────────────────────────────
+
+export type SettingsSection = "sources" | "delivery" | "schedule" | "paper";
+
+const SECTION_TOAST: Record<SettingsSection, string> = {
+  sources: "Sources",
+  delivery: "Delivery",
+  schedule: "Schedule",
+  paper: "Your paper",
+};
+
+const SECTION_COLORS: Record<SettingsSection, string> = {
+  sources: "border-l-edition-red",
+  delivery: "border-l-ink",
+  schedule: "border-l-building",
+  paper: "border-l-delivered",
+};
+
+// ─── Summary generators (pure, exported for testing) ─────────────
+
+export function getSourcesSummary(feeds: Feed[]): string {
+  if (feeds.length === 0) return "No sources yet";
+  const categories = new Set(feeds.map((f) => f.category).filter(Boolean));
+  return `${feeds.length} source${feeds.length !== 1 ? "s" : ""} · ${categories.size} categor${categories.size !== 1 ? "ies" : "y"}`;
+}
+
+export function getDeliverySummary(
+  device: Device,
+  method: DeliveryMethod
+): string {
+  const deviceLabel =
+    DEVICES.find((d) => d.value === device)?.label ?? device;
+
+  const methodLabels: Record<string, Record<DeliveryMethod, string>> = {
+    kindle: { email: "Send-to-Kindle", local: "Download", google_drive: "Google Drive" },
+    kobo: { email: "Email", local: "Download", google_drive: "Google Drive" },
+    remarkable: { email: "Email", local: "Download", google_drive: "Google Drive" },
+    other: { email: "Email", local: "Download", google_drive: "Google Drive" },
+  };
+
+  const methodLabel = methodLabels[device]?.[method] ?? method;
+  return `${deviceLabel} · ${methodLabel}`;
+}
+
+export function getScheduleSummary(time: string, timezone: string): string {
+  const timeLabel =
+    DELIVERY_TIMES.find((t) => t.value === time)?.label ?? time;
+  const tzLabel =
+    TIMEZONES.find((tz) => tz.value === timezone)?.label ?? timezone;
+  return `${timeLabel} · ${tzLabel}`;
+}
+
+export function getPaperSummary(values: PaperValues): string {
+  const title = values.title || "Untitled";
+  const images = values.includeImages ? "Images on" : "Images off";
+  return `"${title}" · ~${values.readingTime} min · ${images}`;
+}
+
+// ─── Component ───────────────────────────────────────────────────
+
+interface SettingsAccordionProps {
+  config: UserConfig;
+  feeds: Feed[];
+  categories: CatalogCategory[];
+  bundles: CatalogBundle[];
+  hasDrive: boolean;
+  hasGmail: boolean;
+  initialOpen: SettingsSection | null;
+}
+
+export function SettingsAccordion({
+  config,
+  feeds,
+  categories,
+  bundles,
+  hasDrive,
+  hasGmail,
+  initialOpen,
+}: SettingsAccordionProps) {
+  const router = useRouter();
+  const [isSaving, startSave] = useTransition();
+  const [openSection, setOpenSection] = useState<SettingsSection | null>(
+    initialOpen
+  );
+
+  // ── Per-section state + saved snapshots for dirty tracking ──
+
+  const initDelivery: DeliveryValues = {
+    device: config.device,
+    deliveryMethod: config.deliveryMethod,
+    kindleEmail: config.kindleEmail,
+    googleDriveFolder: config.googleDriveFolder,
+    emailMethod: config.emailMethod,
+    emailSmtpHost: config.emailSmtpHost,
+    emailSmtpPort: String(config.emailSmtpPort),
+    emailSender: config.emailSender,
+    emailPassword: config.emailPassword,
+  };
+
+  const initSchedule: ScheduleValues = {
+    deliveryTime: config.deliveryTime,
+    timezone: config.timezone,
+  };
+
+  const initPaper: PaperValues = {
+    title: config.title,
+    readingTime: Number(config.readingTime) || 15,
+    includeImages: config.includeImages,
+  };
+
+  const [deliveryValues, setDeliveryValues] =
+    useState<DeliveryValues>(initDelivery);
+  const [deliverySaved, setDeliverySaved] =
+    useState<DeliveryValues>(initDelivery);
+
+  const [scheduleValues, setScheduleValues] =
+    useState<ScheduleValues>(initSchedule);
+  const [scheduleSaved, setScheduleSaved] =
+    useState<ScheduleValues>(initSchedule);
+
+  const [paperValues, setPaperValues] = useState<PaperValues>(initPaper);
+  const [paperSaved, setPaperSaved] = useState<PaperValues>(initPaper);
+
+  // ── Sources dirty state + save ref ──
+
+  const [sourcesDirty, setSourcesDirty] = useState(false);
+  const sourcesSaveRef = useRef<(() => Promise<void>) | null>(null);
+
+  const handleSourcesDirtyChange = useCallback((dirty: boolean) => {
+    setSourcesDirty(dirty);
+  }, []);
+
+  // ── Dirty checks ──
+
+  function isDirty(section: SettingsSection): boolean {
+    switch (section) {
+      case "sources":
+        return sourcesDirty;
+      case "delivery":
+        return JSON.stringify(deliveryValues) !== JSON.stringify(deliverySaved);
+      case "schedule":
+        return JSON.stringify(scheduleValues) !== JSON.stringify(scheduleSaved);
+      case "paper":
+        return JSON.stringify(paperValues) !== JSON.stringify(paperSaved);
+      default:
+        return false;
+    }
+  }
+
+  // ── Save helpers ──
+
+  function getFieldsForSection(
+    section: SettingsSection
+  ): Partial<UserConfig> {
+    switch (section) {
+      case "delivery":
+        return {
+          device: deliveryValues.device,
+          deliveryMethod: deliveryValues.deliveryMethod,
+          kindleEmail: deliveryValues.kindleEmail,
+          googleDriveFolder: deliveryValues.googleDriveFolder,
+          emailMethod: deliveryValues.emailMethod,
+          emailSmtpHost: deliveryValues.emailSmtpHost,
+          emailSmtpPort: Number(deliveryValues.emailSmtpPort) || 465,
+          emailSender: deliveryValues.emailSender,
+          emailPassword: deliveryValues.emailPassword,
+        };
+      case "schedule":
+        return {
+          deliveryTime: scheduleValues.deliveryTime,
+          timezone: scheduleValues.timezone,
+        };
+      case "paper":
+        return {
+          title: paperValues.title,
+          readingTime: String(paperValues.readingTime),
+          maxArticlesPerFeed: readingTimeToArticleCount(
+            paperValues.readingTime
+          ),
+          includeImages: paperValues.includeImages,
+        };
+      default:
+        return {};
+    }
+  }
+
+  function updateSavedSnapshot(section: SettingsSection) {
+    switch (section) {
+      case "delivery":
+        setDeliverySaved({ ...deliveryValues });
+        break;
+      case "schedule":
+        setScheduleSaved({ ...scheduleValues });
+        break;
+      case "paper":
+        setPaperSaved({ ...paperValues });
+        break;
+    }
+  }
+
+  /** Save with toast + undo (used by both explicit save and auto-save on collapse) */
+  function saveWithUndo(section: SettingsSection) {
+    // Capture pre-save snapshot for undo
+    const prevDelivery = { ...deliverySaved };
+    const prevSchedule = { ...scheduleSaved };
+    const prevPaper = { ...paperSaved };
+    // For sources: snapshot the entire server-side feed list
+    const prevFeeds = feeds.map((f) => ({
+      name: f.name,
+      url: f.url,
+      category: f.category,
+    }));
+
+    startSave(async () => {
+      try {
+        if (section === "sources") {
+          await sourcesSaveRef.current?.();
+        } else {
+          await updateUserConfig(getFieldsForSection(section));
+          updateSavedSnapshot(section);
+        }
+        router.refresh();
+        showSaveToast(`${SECTION_TOAST[section]} updated`, () =>
+          handleUndo(section, prevDelivery, prevSchedule, prevPaper, prevFeeds)
+        );
+      } catch {
+        toast.error(`Failed to save ${SECTION_TOAST[section].toLowerCase()}`);
+      }
+    });
+  }
+
+  /** Undo a save — revert to previous values and persist */
+  function handleUndo(
+    section: SettingsSection,
+    prevDelivery: DeliveryValues,
+    prevSchedule: ScheduleValues,
+    prevPaper: PaperValues,
+    prevFeeds: { name: string; url: string; category: string }[],
+  ) {
+    startSave(async () => {
+      try {
+        switch (section) {
+          case "sources":
+            await setFeeds(prevFeeds);
+            break;
+          case "delivery":
+            setDeliveryValues(prevDelivery);
+            setDeliverySaved(prevDelivery);
+            await updateUserConfig({
+              device: prevDelivery.device,
+              deliveryMethod: prevDelivery.deliveryMethod,
+              kindleEmail: prevDelivery.kindleEmail,
+              googleDriveFolder: prevDelivery.googleDriveFolder,
+              emailMethod: prevDelivery.emailMethod,
+              emailSmtpHost: prevDelivery.emailSmtpHost,
+              emailSmtpPort: Number(prevDelivery.emailSmtpPort) || 465,
+              emailSender: prevDelivery.emailSender,
+              emailPassword: prevDelivery.emailPassword,
+            });
+            break;
+          case "schedule":
+            setScheduleValues(prevSchedule);
+            setScheduleSaved(prevSchedule);
+            await updateUserConfig({
+              deliveryTime: prevSchedule.deliveryTime,
+              timezone: prevSchedule.timezone,
+            });
+            break;
+          case "paper":
+            setPaperValues(prevPaper);
+            setPaperSaved(prevPaper);
+            await updateUserConfig({
+              title: prevPaper.title,
+              readingTime: String(prevPaper.readingTime),
+              maxArticlesPerFeed: readingTimeToArticleCount(prevPaper.readingTime),
+              includeImages: prevPaper.includeImages,
+            });
+            break;
+        }
+        router.refresh();
+        showSaveToast(`${SECTION_TOAST[section]} reverted`);
+      } catch {
+        toast.error("Failed to undo");
+      }
+    });
+  }
+
+  /** Explicit save — save + toast + collapse */
+  function handleExplicitSave(section: SettingsSection) {
+    saveWithUndo(section);
+    setOpenSection(null);
+  }
+
+  // ── Section toggle (with auto-save safety net) ──
+
+  function handleToggle(section: SettingsSection) {
+    // Auto-save the currently open section if dirty
+    if (openSection && isDirty(openSection)) {
+      saveWithUndo(openSection);
+    }
+    setOpenSection((prev) => (prev === section ? null : section));
+  }
+
+  // ── Deep link scroll on mount ──
+
+  const scrollRef = useRef(false);
+  useEffect(() => {
+    if (initialOpen && !scrollRef.current) {
+      scrollRef.current = true;
+      // Small delay to ensure DOM is ready
+      requestAnimationFrame(() => {
+        const el = document.querySelector(
+          `[data-section="${initialOpen}"]`
+        );
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, [initialOpen]);
+
+  // ── Render ──
+
+  return (
+    <div className="space-y-3">
+      {renderCard(
+        "sources",
+        "Sources",
+        getSourcesSummary(feeds),
+        <SourcesSection
+          feeds={feeds}
+          categories={categories}
+          bundles={bundles}
+          onDirtyChange={handleSourcesDirtyChange}
+          saveRef={sourcesSaveRef}
+        />,
+        true
+      )}
+
+      {renderCard(
+        "delivery",
+        "Delivery",
+        getDeliverySummary(deliveryValues.device, deliveryValues.deliveryMethod),
+        <DeliverySection
+          values={deliveryValues}
+          onChange={setDeliveryValues}
+          hasDrive={hasDrive}
+          hasGmail={hasGmail}
+        />,
+        true
+      )}
+
+      {renderCard(
+        "schedule",
+        "Schedule",
+        getScheduleSummary(
+          scheduleValues.deliveryTime,
+          scheduleValues.timezone
+        ),
+        <ScheduleSection
+          values={scheduleValues}
+          onChange={setScheduleValues}
+        />,
+        true
+      )}
+
+      {renderCard(
+        "paper",
+        "Your Paper",
+        getPaperSummary(paperValues),
+        <PaperSection values={paperValues} onChange={setPaperValues} />,
+        true
+      )}
+    </div>
+  );
+
+  function renderCard(
+    section: SettingsSection,
+    title: string,
+    summary: string,
+    content: React.ReactNode,
+    showSave?: boolean
+  ) {
+    const isOpen = openSection === section;
+
+    return (
+      <div
+        key={section}
+        data-section={section}
+        className={`newsprint-card overflow-hidden border border-rule-gray border-l-[3px] bg-card ${SECTION_COLORS[section]}`}
+      >
+        {/* Header — always visible */}
+        <button
+          type="button"
+          onClick={() => handleToggle(section)}
+          className="flex w-full items-center justify-between px-5 py-4 text-left cursor-pointer hover:bg-warm-gray/30 transition-colors"
+        >
+          <h2 className="font-headline text-sm font-bold text-ink">
+            {title}
+          </h2>
+          <span className="ml-4 flex shrink-0 items-center gap-2">
+            {!isOpen && (
+              <span className="font-mono text-xs text-caption">{summary}</span>
+            )}
+            <ChevronRight
+              className={`h-3 w-3 text-caption transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
+            />
+          </span>
+        </button>
+
+        {/* Expanded content */}
+        {isOpen && (
+          <div className="border-t border-rule-gray px-5 pb-5 pt-4">
+            {content}
+
+            {showSave && isDirty(section) && (
+              <Button
+                onClick={() => handleExplicitSave(section)}
+                disabled={isSaving}
+                className="letterpress mt-5 w-full bg-ink text-sm text-newsprint hover:bg-ink/90"
+              >
+                {isSaving ? "Saving..." : "Save changes"}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+}
