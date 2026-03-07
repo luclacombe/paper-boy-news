@@ -11,7 +11,7 @@ import {
 
 const LEFT_STORIES: ArchivalStory[] = [
   {
-    src: "/archival/1.png",
+    src: "/archival/1.webp",
     headline: "EMPLOYEE OF THE MONTH:\nS. RUSSELL, KINDLE DIVISION",
     date: "May 2019",
     caption:
@@ -19,7 +19,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/pictures/resource/nclc.03574/",
   },
   {
-    src: "/archival/2.png",
+    src: "/archival/2.webp",
     headline: "FEED INTAKE CREW SCRAMBLES FOR THE MORNING URLS",
     date: "October 2021",
     caption:
@@ -27,7 +27,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/resource/ppmsca.44569/",
   },
   {
-    src: "/archival/3.png",
+    src: "/archival/3.webp",
     headline: "QA TEAM ON STANDBY, PHILADELPHIA BUREAU",
     date: "June 2017",
     caption:
@@ -35,7 +35,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2018675943/",
   },
   {
-    src: "/archival/4.png",
+    src: "/archival/4.webp",
     headline: "ALPERT CLOCKS IN FOR EVENING FEED MAINTENANCE",
     date: "January 2023",
     caption:
@@ -43,7 +43,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2018674595/",
   },
   {
-    src: "/archival/5.png",
+    src: "/archival/5.webp",
     headline: "YOUNGEST RECRUIT HANDLES THE KOBO ROUTE",
     date: "November 2020",
     caption:
@@ -51,7 +51,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2018675238/",
   },
   {
-    src: "/archival/6.png",
+    src: "/archival/6.webp",
     headline: "THE 6 A.M. BUILD: MORNING CREW REPORTS",
     date: "March 2018",
     caption:
@@ -59,7 +59,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2018675668/",
   },
   {
-    src: "/archival/7.png",
+    src: "/archival/7.webp",
     headline: "GIBSON, 13: SEVEN YEARS ON THE DELIVERY BEAT",
     date: "August 2022",
     caption:
@@ -67,7 +67,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2018675883/",
   },
   {
-    src: "/archival/8.png",
+    src: "/archival/8.webp",
     headline: "EPUB PRESS NO. 4 CLEARED FOR OVERNIGHT RUN",
     date: "February 2024",
     caption:
@@ -75,7 +75,7 @@ const LEFT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2016824489/",
   },
   {
-    src: "/archival/9.png",
+    src: "/archival/9.webp",
     headline: "BUREAU OF COVER GENERATION, NIGHT OPERATIONS",
     date: "July 2016",
     caption:
@@ -86,7 +86,7 @@ const LEFT_STORIES: ArchivalStory[] = [
 
 const RIGHT_STORIES: ArchivalStory[] = [
   {
-    src: "/archival/10.png",
+    src: "/archival/10.webp",
     headline: "THE ORIGINAL PRESS: STILL IN DAILY SERVICE",
     date: "April 2017",
     caption:
@@ -94,7 +94,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/resource/cph.3a08789/",
   },
   {
-    src: "/archival/11.png",
+    src: "/archival/11.webp",
     headline: "OVERNIGHT EPUB COMPILATION IN PROGRESS",
     date: "December 2022",
     caption:
@@ -102,7 +102,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2019676582/",
   },
   {
-    src: "/archival/12.png",
+    src: "/archival/12.webp",
     headline: "FINAL INSPECTION BEFORE MORNING DISPATCH",
     date: "September 2020",
     caption:
@@ -110,7 +110,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/item/2019676605/",
   },
   {
-    src: "/archival/13.png",
+    src: "/archival/13.webp",
     headline: "FOREMAN GOUDY INSPECTS THE FEED PIPELINE",
     date: "March 2024",
     caption:
@@ -118,7 +118,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.loc.gov/resource/agc.7a01205/",
   },
   {
-    src: "/archival/14.jpg",
+    src: "/archival/14.webp",
     headline: "\"YOUR OWN HOME NEWSPAPER\" DAILY STAR ROUTE",
     date: "July 2018",
     caption:
@@ -126,7 +126,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.wisconsinhistory.org/Records/Image/IM133266",
   },
   {
-    src: "/archival/15.jpg",
+    src: "/archival/15.webp",
     headline: "\"THE WORLD'S GREATEST NEWSPAPER\" DEPARTS FOR OVERSEAS",
     date: "November 2023",
     caption:
@@ -134,7 +134,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.wisconsinhistory.org/Records/Image/IM9644",
   },
   {
-    src: "/archival/16.jpg",
+    src: "/archival/16.webp",
     headline: "SPORTS EDITION COURIER, NEWARK EVENING ROUTE",
     date: "February 2019",
     caption:
@@ -142,7 +142,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.wisconsinhistory.org/Records/Image/IM132052",
   },
   {
-    src: "/archival/17.jpg",
+    src: "/archival/17.webp",
     headline: "PAPER BOY FLEET STANDS READY AT PIER 42",
     date: "August 2025",
     caption:
@@ -150,7 +150,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.wisconsinhistory.org/Records/Image/IM133848",
   },
   {
-    src: "/archival/18.jpg",
+    src: "/archival/18.webp",
     headline: "MORNING EDITIONS UNLOADED AT THE EASTERN DEPOT",
     date: "May 2021",
     caption:
@@ -158,7 +158,7 @@ const RIGHT_STORIES: ArchivalStory[] = [
     url: "https://www.wisconsinhistory.org/Records/Image/IM88815",
   },
   {
-    src: "/archival/19.jpg",
+    src: "/archival/19.webp",
     headline: "THE ST. LOUIS MORNING RUN",
     date: "October 2024",
     caption:
@@ -167,23 +167,24 @@ const RIGHT_STORIES: ArchivalStory[] = [
   },
 ];
 
-/* Strip stories: 1-19 randomized, then 20-21 easter eggs last */
-
-// Hard-coded shuffle of indices 0-18 into ALL_STORIES
-const STORY_SHUFFLE = [4, 11, 0, 16, 7, 13, 2, 18, 5, 9, 14, 1, 8, 17, 3, 12, 6, 15, 10];
+// All 19 main stories in one pool, shuffled with a hardcoded permutation.
+// Odd indices → left column, even indices → right column (mixed across both).
 const ALL_STORIES: ArchivalStory[] = [...LEFT_STORIES, ...RIGHT_STORIES];
+const STORY_SHUFFLE = [4, 11, 0, 16, 7, 13, 2, 18, 5, 9, 14, 1, 8, 17, 3, 12, 6, 15, 10];
 const SHUFFLED_STORIES = STORY_SHUFFLE.map((i) => ALL_STORIES[i]);
+const COLUMN_LEFT = SHUFFLED_STORIES.filter((_, i) => i % 2 === 0);
+const COLUMN_RIGHT = SHUFFLED_STORIES.filter((_, i) => i % 2 === 1);
 
 const EASTER_EGG_STORIES: ArchivalStory[] = [
   {
-    src: "/archival/20.png",
+    src: "/archival/20.webp",
     headline: "Breaking News!",
     date: "",
     caption: "There were easter egg hunts at the White House in the 20s.",
     url: "https://www.loc.gov/resource/hec.30890/",
   },
   {
-    src: "/archival/21.png",
+    src: "/archival/21.webp",
     headline: "Paper Boy gives you an egg for reaching the bottom.",
     date: "",
     caption: "",
@@ -201,8 +202,8 @@ export default function LandingPage() {
       {/* Content wrapper: clips archival columns to content height */}
       <div className="relative xl:overflow-hidden">
         {/* Desktop archival image columns (xl+) */}
-        <ArchivalColumn stories={LEFT_STORIES} side="left" />
-        <ArchivalColumn stories={RIGHT_STORIES} side="right" />
+        <ArchivalColumn stories={COLUMN_LEFT} side="left" />
+        <ArchivalColumn stories={COLUMN_RIGHT} side="right" />
 
         {/* Center content (same structure as onboarding) */}
         <div className="relative z-10 mx-auto flex max-w-4xl px-6 py-12">
