@@ -56,6 +56,7 @@ export function getDashboardState(
   if (earlyState === "done") return "fetched-early";
 
   // Current edition exists — show its status regardless of time of day
+  if (todaysEdition?.status === "building") return "build-in-progress";
   if (todaysEdition?.status === "delivered") return "delivered";
   if (todaysEdition?.status === "failed") return "failed";
 
@@ -97,14 +98,73 @@ export function DashboardClient({
   const [earlyResult, setEarlyResult] = useState<BuildResult | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
 
-  // Advance progress step while fetching
+  // Advance progress step while fetching (async: slower pace, more steps)
   useEffect(() => {
     if (earlyState !== "fetching") return;
     const interval = setInterval(() => {
-      setEarlyStep((s) => (s < 4 ? s + 1 : s));
-    }, 3000);
+      setEarlyStep((s) => (s < 9 ? s + 1 : s));
+    }, earlyStep < 5 ? 3000 : 8000);
     return () => clearInterval(interval);
-  }, [earlyState]);
+  }, [earlyState, earlyStep]);
+
+  // Poll for build completion when in async building state
+  useEffect(() => {
+    if (earlyState !== "fetching") return;
+    const interval = setInterval(() => {
+      router.refresh();
+    }, 5000);
+    // Timeout after 3 minutes
+    const timeout = setTimeout(() => {
+      setEarlyState("error");
+      setEarlyResult({
+        success: false,
+        editionDate,
+        totalArticles: 0,
+        sections: [],
+        fileSize: "0 KB",
+        fileSizeBytes: 0,
+        epubStoragePath: null,
+        error: "Taking longer than expected. Check back shortly.",
+      });
+    }, 180_000);
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [earlyState, router, editionDate]);
+
+  // Detect when server data changes from "building" to "delivered" or "failed"
+  useEffect(() => {
+    if (earlyState !== "fetching") return;
+    if (todaysEdition?.status === "delivered") {
+      setEarlyState("done");
+      setEarlyResult({
+        success: true,
+        editionDate,
+        totalArticles: todaysEdition.articleCount,
+        sections: todaysEdition.sections ?? [],
+        fileSize: todaysEdition.fileSize,
+        fileSizeBytes: todaysEdition.fileSizeBytes,
+        epubStoragePath: todaysEdition.epubStoragePath,
+        error: null,
+      });
+      setFetchedAt(new Date());
+      toast.success("Your paper is ready");
+    } else if (todaysEdition?.status === "failed") {
+      setEarlyState("error");
+      setEarlyResult({
+        success: false,
+        editionDate,
+        totalArticles: 0,
+        sections: [],
+        fileSize: "0 KB",
+        fileSizeBytes: 0,
+        epubStoragePath: null,
+        error: todaysEdition.errorMessage ?? "Something went wrong",
+      });
+      toast.error(todaysEdition.errorMessage ?? "Something went wrong");
+    }
+  }, [earlyState, todaysEdition, editionDate]);
 
   const handleGetItNow = useCallback(async () => {
     setEarlyState("fetching");
@@ -113,6 +173,10 @@ export function DashboardClient({
 
     try {
       const result = await getItNow();
+      if (result.building) {
+        // Async build started — stay in fetching state, polling will detect completion
+        return;
+      }
       setEarlyResult(result);
       if (result.success) {
         setEarlyState("done");
@@ -383,7 +447,7 @@ export function DashboardClient({
           </p>
         </div>
         <div className="px-5 pb-5">
-          <BuildProgress step={earlyStep} />
+          <BuildProgress step={earlyStep} async />
         </div>
       </div>
     );

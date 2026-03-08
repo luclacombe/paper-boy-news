@@ -1,16 +1,19 @@
 "use client";
 
 import { Progress } from "@/components/ui/progress";
-import { BUILD_MESSAGES } from "@/lib/constants";
+import { BUILD_MESSAGES, BUILD_MESSAGES_ASYNC } from "@/lib/constants";
 
 interface BuildProgressProps {
-  step: number; // 0-4 (index into BUILD_MESSAGES)
-  totalSteps?: number;
+  step: number;
+  async?: boolean;
 }
 
-export function BuildProgress({ step, totalSteps = 5 }: BuildProgressProps) {
-  const progress = ((step + 1) / totalSteps) * 100;
-  const message = BUILD_MESSAGES[step] ?? BUILD_MESSAGES[0];
+export function BuildProgress({ step, async: isAsync }: BuildProgressProps) {
+  const messages = isAsync ? BUILD_MESSAGES_ASYNC : BUILD_MESSAGES;
+  const totalSteps = messages.length;
+  const clampedStep = Math.min(step, totalSteps - 1);
+  const progress = ((clampedStep + 1) / totalSteps) * 100;
+  const message = messages[clampedStep] ?? messages[0];
 
   return (
     <div className="space-y-3 py-4">
