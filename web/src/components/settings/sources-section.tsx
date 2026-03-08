@@ -180,8 +180,7 @@ export function SourcesSection({
 
     setValidating(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_FASTAPI_URL;
-      const res = await fetch(`${apiUrl}/feeds/validate`, {
+      const res = await fetch("/api/feeds/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: trimmed }),
