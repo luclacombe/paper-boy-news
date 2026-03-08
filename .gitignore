@@ -28,9 +28,13 @@ token.pickle
 # Research notes
 RESEARCH.md
 RESEARCH-EBOOK-GENERATION.md
+EBOOK-REVAMP*.md
 design-spec.md
 web-product-research.md
 README-FUTURE.md
+
+# Test output files
+*.opf
 
 # IDE
 .vscode/

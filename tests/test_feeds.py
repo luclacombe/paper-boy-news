@@ -10,6 +10,7 @@ import pytest
 from paper_boy.cache import ContentCache
 from paper_boy.feeds import (
     _count_words,
+    _downgrade_body_headings,
     _download_image,
     _extract_article,
     _extract_article_content,
@@ -820,14 +821,15 @@ class TestStripDuplicateTitleIntegration:
         "paper_boy.feeds._extract_article_content",
         return_value="<h1>Different Heading</h1><p>Body.</p>",
     )
-    def test_extract_article_preserves_non_matching_heading(
+    def test_extract_article_downgrades_non_matching_heading(
         self, mock_extract, local_config
     ):
-        """Non-matching heading is preserved in the extracted article."""
+        """Non-matching <h1> is downgraded to <h2> (epub.py owns the <h1>)."""
         entry = _make_feed_entry(title="Test Article")
         article = _extract_article(entry, local_config)
         assert article is not None
-        assert "<h1>Different Heading</h1>" in article.html_content
+        assert "<h2>Different Heading</h2>" in article.html_content
+        assert "<h1>" not in article.html_content
 
 
 # --- TestBrowserUAFallback ---
@@ -1031,3 +1033,48 @@ class TestHNSelfPostHandling:
         )
         article = _extract_article(entry, local_config)
         mock_extract.assert_called_once()
+
+
+# --- TestDowngradeBodyHeadings ---
+
+
+class TestDowngradeBodyHeadings:
+    def test_downgrades_h1_to_h2(self):
+        """Single <h1> is downgraded to <h2>."""
+        html = "<h1>Subheading</h1><p>Body text.</p>"
+        result = _downgrade_body_headings(html)
+        assert "<h2>Subheading</h2>" in result
+        assert "<h1>" not in result
+
+    def test_downgrades_multiple_h1s(self):
+        """Multiple <h1> tags are all downgraded."""
+        html = "<h1>First</h1><p>Text.</p><h1>Second</h1><p>More.</p>"
+        result = _downgrade_body_headings(html)
+        assert result.count("<h2") == 2
+        assert result.count("</h2>") == 2
+        assert "<h1" not in result
+
+    def test_preserves_h2_and_h3(self):
+        """Existing <h2> and <h3> tags are not modified."""
+        html = "<h2>Existing H2</h2><h3>Existing H3</h3>"
+        result = _downgrade_body_headings(html)
+        assert result == html
+
+    def test_handles_h1_with_attributes(self):
+        """<h1> tags with attributes are downgraded correctly."""
+        html = '<h1 class="title" id="main">Heading</h1>'
+        result = _downgrade_body_headings(html)
+        assert '<h2 class="title" id="main">Heading</h2>' in result
+        assert "<h1" not in result
+
+    def test_case_insensitive(self):
+        """Handles uppercase <H1> tags."""
+        html = "<H1>Heading</H1>"
+        result = _downgrade_body_headings(html)
+        assert "<h2>Heading</h2>" in result
+
+    def test_no_h1_returns_unchanged(self):
+        """HTML without <h1> is returned unchanged."""
+        html = "<p>Just a paragraph.</p>"
+        result = _downgrade_body_headings(html)
+        assert result == html
