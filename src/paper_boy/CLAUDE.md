@@ -1,6 +1,6 @@
 # src/paper_boy — Core Python Library
 
-The core library that fetches RSS feeds, extracts articles, generates EPUBs, and handles delivery. Used by both the CLI and the FastAPI backend.
+The core library that fetches RSS feeds, extracts articles, generates EPUBs, and handles delivery. Used by both the CLI and the GitHub Actions build runner.
 
 ## Stack
 
@@ -32,7 +32,8 @@ paper-boy -v build                       # Verbose logging
 
 ```
 src/paper_boy/
-├── __init__.py       # Package init (__version__)
+├── __init__.py       # Package init (__version__, ContentCache export)
+├── cache.py          # In-memory content cache (ContentCache, CacheStats)
 ├── cli.py            # Click CLI entry point (build, deliver commands)
 ├── config.py         # YAML config loading + validation (Config, DeliveryConfig, EmailConfig)
 ├── feeds.py          # RSS fetching, article text extraction, image optimization
@@ -44,13 +45,13 @@ src/paper_boy/
 
 ## Key Functions
 
-- `main.build_newspaper(config) → BuildResult` — Main pipeline: fetch feeds → build EPUB → return result
-- `main.deliver_newspaper(config, epub_path)` — Deliver EPUB via configured method
-- `feeds.fetch_feeds(config) → list[Section]` — Fetch all configured feeds, extract articles
-- `epub.create_epub(sections, config) → path` — Generate EPUB file
-- `cover.create_cover(title, date) → bytes` — Generate cover image
-- `delivery.deliver_to_google_drive(path, config)` — Upload to Google Drive
-- `delivery.deliver_via_email(path, config)` — Send via SMTP
+- `main.build_newspaper(config, cache=None) → BuildResult` — Main pipeline: fetch feeds → build EPUB → return result
+- `main.build_and_deliver(config, cache=None) → BuildResult` — Build + deliver EPUB
+- `feeds.fetch_feeds(config, cache=None) → list[Section]` — Fetch all configured feeds, extract articles
+- `cache.ContentCache` — In-memory cache for feed entries, article HTML, and image bytes
+- `epub.build_epub(sections, config) → path` — Generate EPUB file
+- `cover.generate_cover(sections, config) → bytes` — Generate cover image
+- `delivery.deliver(path, config)` — Deliver via configured method (Google Drive, email, local)
 
 ## Config Format
 
@@ -70,6 +71,23 @@ delivery:
   keep_days: 7
 ```
 
+## Content Cache
+
+`ContentCache` (`cache.py`) deduplicates network I/O when multiple users share the same RSS feeds during a scheduled build run. Three cache layers:
+
+| Layer | Key | Value | Saves |
+|-------|-----|-------|-------|
+| Feed | `feed_url` | full `feed.entries` list | HTTP + XML parse |
+| Article | `(article_url, include_images)` | trafilatura HTML or `None` | HTTP + NLP extraction |
+| Image | `image_url` | raw downloaded bytes or `None` | HTTP download |
+
+- In-memory only, scoped to a single `run_scheduled()` invocation
+- All functions accept an optional `cache` param (default `None`) — backward compatible
+- Article key includes `include_images` because trafilatura output differs based on this flag
+- Image cache stores raw bytes (pre-optimization) since optimization settings may vary per user
+- Failed extractions/downloads are cached as `None` to prevent retries
+- `cache.log_stats()` logs hit/miss summary after each scheduled run
+
 ## Design Decisions
 
 - EPUB3 format for universal e-reader support
@@ -77,4 +95,4 @@ delivery:
 - trafilatura for full article extraction with RSS content as fallback
 - Image optimization: resize + JPEG compression for e-reader screens
 - Google Drive auto-cleanup of old issues (`keep_days` config)
-- Google credentials: `GOOGLE_CREDENTIALS` env var (CI) or `credentials.json` file (local)
+- Google credentials: OAuth tokens from web app DB (CI) or `credentials.json` file (local CLI)
