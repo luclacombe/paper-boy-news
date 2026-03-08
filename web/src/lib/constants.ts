@@ -53,3 +53,16 @@ export const BUILD_MESSAGES = [
   "Folding and bundling...",
   "Out for delivery...",
 ];
+
+export const BUILD_MESSAGES_ASYNC = [
+  "Setting the type...",
+  "Pulling from the wire...",
+  "Running the press...",
+  "Folding and bundling...",
+  "Inking the pages...",
+  "Still gathering articles...",
+  "Assembling your paper...",
+  "Checking the headlines...",
+  "Proofreading...",
+  "Almost there...",
+];

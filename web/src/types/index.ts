@@ -82,6 +82,7 @@ export interface SectionSummary {
 
 export interface BuildResult {
   success: boolean;
+  building?: boolean;
   editionDate: string;
   totalArticles: number;
   sections: SectionSummary[];
@@ -151,53 +152,7 @@ export interface OnboardingData {
   emailMethod: EmailMethod;
 }
 
-// === API Types (FastAPI request/response) ===
-
-export interface ApiBuildRequest {
-  title: string;
-  language: string;
-  max_articles_per_feed: number;
-  include_images: boolean;
-  feeds: { name: string; url: string }[];
-  device: string;
-  edition_date?: string;
-}
-
-export interface ApiBuildResponse {
-  success: boolean;
-  epub_base64: string | null;
-  total_articles: number;
-  sections: { name: string; headlines: string[] }[];
-  file_size: string;
-  file_size_bytes: number;
-  error: string | null;
-}
-
-export interface ApiDeliverRequest {
-  epub_base64: string;
-  title: string;
-  device: string;
-  delivery_method: string;
-  google_drive_folder: string;
-  google_tokens: Record<string, unknown> | null;
-  kindle_email: string;
-  email_smtp_host: string;
-  email_smtp_port: number;
-  email_sender: string;
-  email_password: string;
-}
-
-export interface ApiDeliverResponse {
-  success: boolean;
-  message: string;
-}
-
-export interface ApiSmtpTestRequest {
-  smtp_host: string;
-  smtp_port: number;
-  sender: string;
-  password: string;
-}
+// === API Types (Next.js API route responses) ===
 
 export interface ApiSmtpTestResponse {
   success: boolean;

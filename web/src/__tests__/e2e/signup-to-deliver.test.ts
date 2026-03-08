@@ -1,7 +1,7 @@
 /**
  * E2E integration test: signup → onboarding → build → deliver.
  *
- * Exercises the full server-action sequence with mocked DB and API layers.
+ * Exercises the full server-action sequence with mocked DB and GitHub dispatch.
  * Validates the action orchestration logic, not browser UI.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -20,12 +20,10 @@ vi.mock("@/lib/auth", () => ({
   getUserProfile: (...args: unknown[]) => mockGetUserProfile(...args),
 }));
 
-// Mock API client
-const mockBuildNewspaper = vi.fn();
-const mockDeliverNewspaper = vi.fn();
-vi.mock("@/lib/api-client", () => ({
-  buildNewspaper: (...args: unknown[]) => mockBuildNewspaper(...args),
-  deliverNewspaper: (...args: unknown[]) => mockDeliverNewspaper(...args),
+// Mock GitHub dispatch
+const mockDispatchBuild = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/github-dispatch", () => ({
+  dispatchBuild: (...args: unknown[]) => mockDispatchBuild(...args),
 }));
 
 // Mock getEditionForDate (one-per-day guard)
@@ -77,12 +75,16 @@ const mockDb: any = {
       // Track inserts for feeds and history
       if (Array.isArray(data)) {
         feedRows.push(...data);
+        return { returning: vi.fn().mockReturnValue(data.map((d, i) => ({ ...d, id: `id-${i}` }))) };
       } else if (data && typeof data === "object" && "status" in (data as Record<string, unknown>)) {
-        historyRows.push(data as Record<string, unknown>);
+        const record = { ...(data as Record<string, unknown>), id: `record-${historyRows.length}` };
+        historyRows.push(record);
+        return { returning: vi.fn().mockReturnValue([record]) };
       } else if (data && typeof data === "object") {
         feedRows.push(data as Record<string, unknown>);
+        return { returning: vi.fn().mockReturnValue([{ ...(data as Record<string, unknown>), id: `feed-${feedRows.length}` }]) };
       }
-      return Promise.resolve(undefined);
+      return { returning: vi.fn().mockReturnValue([]) };
     }),
   })),
   delete: vi.fn().mockReturnValue({
@@ -109,7 +111,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
     historyRows = [];
   });
 
-  it("completes the full user journey", async () => {
+  it("completes the full user journey (async build)", async () => {
     // 1. User is authenticated
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     mockGetUserProfile.mockImplementation(() => Promise.resolve(profileRow));
@@ -138,18 +140,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
     expect(profileRow!.device).toBe("kobo");
     expect(feedRows.length).toBeGreaterThanOrEqual(1);
 
-    // 3. Build newspaper
-    mockBuildNewspaper.mockResolvedValue({
-      success: true,
-      epub_base64: "UEsDBBQ=",
-      total_articles: 5,
-      sections: [{ name: "Technology", headlines: ["New chip announced"] }],
-      file_size: "22 KB",
-      file_size_bytes: 22000,
-      error: null,
-    });
-
-    // Ensure profile now has all needed fields for build
+    // 3. Trigger async build
     Object.assign(profileRow!, {
       title: "My Paper",
       language: "en",
@@ -169,23 +160,17 @@ describe("E2E: signup → onboarding → build → deliver", () => {
     const { getItNow } = await import("@/actions/build");
     const result = await getItNow();
 
-    // 4. Verify build succeeded
+    // 4. Verify async build was dispatched
     expect(result.success).toBe(true);
-    expect(result.totalArticles).toBe(5);
-    expect(result.sections).toHaveLength(1);
-    expect(result.fileSize).toBe("22 KB");
+    expect(result.building).toBe(true);
+    expect(mockDispatchBuild).toHaveBeenCalled();
 
-    // 5. Verify delivery history was recorded
-    expect(historyRows.length).toBeGreaterThanOrEqual(1);
-    const lastRecord = historyRows[historyRows.length - 1];
-    expect(lastRecord.status).toBe("delivered");
-    expect(lastRecord.articleCount).toBe(5);
-
-    // 6. Local delivery → deliverNewspaper should NOT have been called
-    expect(mockDeliverNewspaper).not.toHaveBeenCalled();
+    // 5. Verify a "building" record was created
+    const buildingRecords = historyRows.filter((r) => r.status === "building");
+    expect(buildingRecords.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("handles build failure gracefully", async () => {
+  it("handles dispatch failure gracefully", async () => {
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     Object.assign(profileRow!, {
       title: "My Paper",
@@ -208,16 +193,12 @@ describe("E2E: signup → onboarding → build → deliver", () => {
     // Add a feed so the build proceeds
     feedRows.push({ id: "f1", userId: "profile-1", name: "Feed", url: "https://example.com/rss", category: "News", position: 0 });
 
-    mockBuildNewspaper.mockRejectedValue(new Error("API down"));
+    mockDispatchBuild.mockRejectedValue(new Error("GitHub PAT invalid"));
 
     const { getItNow } = await import("@/actions/build");
     const result = await getItNow();
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("API down");
-
-    // History should record the failure
-    expect(historyRows.length).toBeGreaterThanOrEqual(1);
-    expect(historyRows[historyRows.length - 1].status).toBe("failed");
+    expect(result.error).toBe("GitHub PAT invalid");
   });
 });

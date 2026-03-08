@@ -111,4 +111,24 @@ describe("getDashboardState", () => {
     expect(getDashboardState(CONFIGURED, "fetching", false, false, DELIVERED_EDITION, 3))
       .toBe("build-in-progress");
   });
+
+  it("returns build-in-progress when today's edition is building (from DB)", () => {
+    const BUILDING_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "building",
+      articleCount: 0,
+    };
+    expect(getDashboardState(CONFIGURED, "idle", false, false, BUILDING_EDITION, 3))
+      .toBe("build-in-progress");
+  });
+
+  it("returns build-in-progress for building even before cutoff", () => {
+    const BUILDING_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "building",
+      articleCount: 0,
+    };
+    expect(getDashboardState(CONFIGURED, "idle", true, true, BUILDING_EDITION, 3))
+      .toBe("build-in-progress");
+  });
 });

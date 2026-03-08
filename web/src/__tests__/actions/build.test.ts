@@ -8,23 +8,10 @@ vi.mock("@/lib/auth", () => ({
   getUserProfile: (...args: unknown[]) => mockGetUserProfile(...args),
 }));
 
-// Mock API client
-const mockBuildNewspaper = vi.fn();
-const mockDeliverNewspaper = vi.fn();
-vi.mock("@/lib/api-client", () => ({
-  buildNewspaper: (...args: unknown[]) => mockBuildNewspaper(...args),
-  deliverNewspaper: (...args: unknown[]) => mockDeliverNewspaper(...args),
-}));
-
-// Mock Supabase client (for storage upload)
-const mockUpload = vi.fn().mockResolvedValue({ error: null });
-vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn().mockResolvedValue({
-    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "auth-1" } } }) },
-    storage: {
-      from: vi.fn().mockReturnValue({ upload: mockUpload }),
-    },
-  }),
+// Mock GitHub dispatch
+const mockDispatchBuild = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/github-dispatch", () => ({
+  dispatchBuild: (...args: unknown[]) => mockDispatchBuild(...args),
 }));
 
 // Mock getEditionForDate (one-per-day guard)
@@ -36,7 +23,10 @@ vi.mock("@/actions/delivery-history", () => ({
 // Mock DB
 const mockFeedRows: unknown[] = [];
 const mockCountResult = [{ value: 0 }];
-const mockInsertValues = vi.fn().mockResolvedValue(undefined);
+const mockInsertReturning = vi.fn().mockImplementation(() => [{ id: "record-1" }]);
+const mockUpdateSet = vi.fn().mockReturnValue({
+  where: vi.fn().mockResolvedValue(undefined),
+});
 
 vi.mock("@/db", () => ({
   db: {
@@ -53,7 +43,12 @@ vi.mock("@/db", () => ({
       }),
     })),
     insert: vi.fn().mockReturnValue({
-      values: mockInsertValues,
+      values: vi.fn().mockReturnValue({
+        returning: mockInsertReturning,
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      set: mockUpdateSet,
     }),
   },
 }));
@@ -77,22 +72,14 @@ const FAKE_PROFILE = {
   timezone: "UTC",
 };
 
-const FAKE_BUILD_RESPONSE = {
-  success: true,
-  epub_base64: "UEsDBBQAAAA=", // minimal base64
-  total_articles: 5,
-  sections: [{ name: "Tech", headlines: ["Article 1", "Article 2"] }],
-  file_size: "22 KB",
-  file_size_bytes: 22000,
-  error: null,
-};
-
 describe("getItNow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFeedRows.length = 0;
     mockCountResult[0] = { value: 0 };
     mockGetEditionForDate.mockResolvedValue(null);
+    mockDispatchBuild.mockResolvedValue(undefined);
+    mockInsertReturning.mockReturnValue([{ id: "record-1" }]);
   });
 
   it("returns error when not authenticated", async () => {
@@ -139,114 +126,61 @@ describe("getItNow", () => {
 
     expect(result.success).toBe(true);
     expect(result.totalArticles).toBe(10);
-    expect(mockBuildNewspaper).not.toHaveBeenCalled();
+    expect(mockDispatchBuild).not.toHaveBeenCalled();
   });
 
-  it("calls buildNewspaper with correct request shape", async () => {
+  it("returns building=true when edition is already building", async () => {
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
-    mockFeedRows.push(
-      { id: "f1", userId: "profile-1", name: "Feed 1", url: "https://example.com/rss", category: "News", position: 0 }
-    );
-    mockBuildNewspaper.mockResolvedValue(FAKE_BUILD_RESPONSE);
+    mockGetEditionForDate.mockResolvedValue({
+      status: "building",
+      articleCount: 0,
+      sections: null,
+      fileSize: "0 KB",
+      fileSizeBytes: 0,
+      epubStoragePath: null,
+    });
 
     const { getItNow } = await import("@/actions/build");
     const result = await getItNow();
 
     expect(result.success).toBe(true);
-    expect(mockBuildNewspaper).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: "Morning Digest",
-        language: "en",
-        feeds: [{ name: "Feed 1", url: "https://example.com/rss" }],
-        edition_date: expect.any(String),
-      })
-    );
+    expect(result.building).toBe(true);
+    expect(mockDispatchBuild).not.toHaveBeenCalled();
   });
 
-  it("records failure when build API throws", async () => {
+  it("creates building record and dispatches to GitHub Actions", async () => {
     mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
     mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
     mockFeedRows.push(
       { id: "f1", userId: "profile-1", name: "Feed 1", url: "https://example.com/rss", category: "News", position: 0 }
     );
-    mockBuildNewspaper.mockRejectedValue(new Error("API unreachable"));
+
+    const { getItNow } = await import("@/actions/build");
+    const result = await getItNow();
+
+    expect(result.success).toBe(true);
+    expect(result.building).toBe(true);
+    expect(mockDispatchBuild).toHaveBeenCalledWith("record-1");
+  });
+
+  it("marks record as failed when GitHub dispatch fails", async () => {
+    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
+    mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
+    mockFeedRows.push(
+      { id: "f1", userId: "profile-1", name: "Feed 1", url: "https://example.com/rss", category: "News", position: 0 }
+    );
+    mockDispatchBuild.mockRejectedValue(new Error("GitHub dispatch not configured"));
 
     const { getItNow } = await import("@/actions/build");
     const result = await getItNow();
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("API unreachable");
-    expect(mockInsertValues).toHaveBeenCalledWith(
+    expect(result.error).toBe("GitHub dispatch not configured");
+    expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "failed",
-        errorMessage: "API unreachable",
-      })
-    );
-  });
-
-  it("records failure when build returns success=false", async () => {
-    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
-    mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
-    mockFeedRows.push(
-      { id: "f1", userId: "profile-1", name: "Feed 1", url: "https://example.com/rss", category: "News", position: 0 }
-    );
-    mockBuildNewspaper.mockResolvedValue({
-      success: false,
-      epub_base64: null,
-      error: "No articles fetched",
-    });
-
-    const { getItNow } = await import("@/actions/build");
-    const result = await getItNow();
-
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("No articles fetched");
-  });
-
-  it("skips deliver when method is local", async () => {
-    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
-    mockGetUserProfile.mockResolvedValue({ ...FAKE_PROFILE, deliveryMethod: "local" });
-    mockFeedRows.push(
-      { id: "f1", userId: "profile-1", name: "Feed 1", url: "https://example.com/rss", category: "News", position: 0 }
-    );
-    mockBuildNewspaper.mockResolvedValue(FAKE_BUILD_RESPONSE);
-
-    const { getItNow } = await import("@/actions/build");
-    const result = await getItNow();
-
-    expect(result.success).toBe(true);
-    expect(mockDeliverNewspaper).not.toHaveBeenCalled();
-  });
-
-  it("calls deliverNewspaper when method is not local", async () => {
-    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
-    mockGetUserProfile.mockResolvedValue({
-      ...FAKE_PROFILE,
-      deliveryMethod: "google_drive",
-      googleTokens: {
-        token: "t",
-        refreshToken: "r",
-        tokenUri: "https://oauth2.googleapis.com/token",
-        clientId: "cid",
-        clientSecret: "cs",
-        scopes: ["https://www.googleapis.com/auth/drive.file"],
-        expiry: null,
-      },
-    });
-    mockFeedRows.push(
-      { id: "f1", userId: "profile-1", name: "Feed 1", url: "https://example.com/rss", category: "News", position: 0 }
-    );
-    mockBuildNewspaper.mockResolvedValue(FAKE_BUILD_RESPONSE);
-    mockDeliverNewspaper.mockResolvedValue({ success: true, message: "Uploaded" });
-
-    const { getItNow } = await import("@/actions/build");
-    const result = await getItNow();
-
-    expect(result.success).toBe(true);
-    expect(mockDeliverNewspaper).toHaveBeenCalledWith(
-      expect.objectContaining({
-        delivery_method: "google_drive",
+        errorMessage: "GitHub dispatch not configured",
       })
     );
   });
