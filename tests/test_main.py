@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
+from paper_boy.cache import ContentCache
 from paper_boy.main import BuildResult, build_and_deliver, build_newspaper
 
 
@@ -57,7 +58,7 @@ class TestBuildNewspaper:
         mock_epub.return_value = Path("/tmp/test.epub")
 
         build_newspaper(local_config)
-        mock_fetch.assert_called_once_with(local_config)
+        mock_fetch.assert_called_once_with(local_config, cache=None)
 
     @patch("paper_boy.main.build_epub")
     @patch("paper_boy.main.fetch_feeds")
@@ -119,6 +120,19 @@ class TestBuildNewspaper:
 
         result = build_newspaper(local_config)
         assert result.total_articles == 12
+
+    @patch("paper_boy.main.build_epub")
+    @patch("paper_boy.main.fetch_feeds")
+    def test_passes_cache_to_fetch_feeds(
+        self, mock_fetch, mock_epub, local_config, make_sections
+    ):
+        """Cache object is forwarded to fetch_feeds."""
+        mock_fetch.return_value = make_sections()
+        mock_epub.return_value = Path("/tmp/test.epub")
+        cache = ContentCache()
+
+        build_newspaper(local_config, cache=cache)
+        mock_fetch.assert_called_once_with(local_config, cache=cache)
 
 
 class TestBuildAndDeliver:

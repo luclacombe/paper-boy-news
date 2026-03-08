@@ -14,6 +14,7 @@ import feedparser
 import trafilatura
 from PIL import Image
 
+from paper_boy.cache import ContentCache
 from paper_boy.config import Config, FeedConfig
 from paper_boy.url_validation import is_safe_url
 
@@ -86,11 +87,11 @@ class Section:
 # --- Public API ---
 
 
-def fetch_feeds(config: Config) -> list[Section]:
+def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Section]:
     """Fetch all configured feeds and extract article content."""
     sections = []
     for feed_cfg in config.feeds:
-        section = _fetch_single_feed(feed_cfg, config)
+        section = _fetch_single_feed(feed_cfg, config, cache=cache)
         if section.articles:
             sections.append(section)
             logger.info(
@@ -107,7 +108,9 @@ def fetch_feeds(config: Config) -> list[Section]:
 _FEED_FETCH_TIMEOUT = 30  # seconds
 
 
-def _fetch_single_feed(feed_cfg: FeedConfig, config: Config) -> Section:
+def _fetch_single_feed(
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+) -> Section:
     """Fetch a single RSS feed and extract articles."""
     section = Section(name=feed_cfg.name)
 
@@ -115,35 +118,46 @@ def _fetch_single_feed(feed_cfg: FeedConfig, config: Config) -> Section:
         logger.warning("Blocked unsafe feed URL: %s", feed_cfg.url)
         return section
 
-    def _timeout_handler(signum, frame):
-        raise TimeoutError(f"Feed fetch timed out after {_FEED_FETCH_TIMEOUT}s")
+    # Check cache for parsed feed entries
+    cached_entries = cache.get_feed(feed_cfg.url) if cache else None
+    if cached_entries is not None:
+        entries = cached_entries[: config.newspaper.max_articles_per_feed]
+    else:
+        def _timeout_handler(signum, frame):
+            raise TimeoutError(f"Feed fetch timed out after {_FEED_FETCH_TIMEOUT}s")
 
-    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(_FEED_FETCH_TIMEOUT)
-    try:
-        feed = feedparser.parse(feed_cfg.url)
-    except TimeoutError:
-        logger.warning("Feed fetch timed out: %s", feed_cfg.name)
-        return section
-    finally:
-        signal.alarm(0)
-        signal.signal(signal.SIGALRM, old_handler)
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        signal.alarm(_FEED_FETCH_TIMEOUT)
+        try:
+            feed = feedparser.parse(feed_cfg.url)
+        except TimeoutError:
+            logger.warning("Feed fetch timed out: %s", feed_cfg.name)
+            return section
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
 
-    if feed.bozo and not feed.entries:
-        logger.error("Failed to parse feed %s: %s", feed_cfg.name, feed.bozo_exception)
-        return section
+        if feed.bozo and not feed.entries:
+            logger.error("Failed to parse feed %s: %s", feed_cfg.name, feed.bozo_exception)
+            return section
 
-    entries = feed.entries[: config.newspaper.max_articles_per_feed]
+        # Cache the full entries list so users with higher limits still benefit
+        if cache:
+            cache.set_feed(feed_cfg.url, feed.entries)
+
+        entries = feed.entries[: config.newspaper.max_articles_per_feed]
 
     for entry in entries:
-        article = _extract_article(entry, config)
+        article = _extract_article(entry, config, cache=cache)
         if article:
             section.articles.append(article)
 
     return section
 
 
-def _extract_article(entry, config: Config) -> Article | None:
+def _extract_article(
+    entry, config: Config, cache: ContentCache | None = None
+) -> Article | None:
     """Extract full article content from a feed entry."""
     url = entry.get("link", "")
     title = entry.get("title", "Untitled")
@@ -153,21 +167,16 @@ def _extract_article(entry, config: Config) -> Article | None:
 
     include_images = config.newspaper.include_images
 
-    # Try to extract full article text from the URL
-    try:
-        downloaded = trafilatura.fetch_url(url)
-        if downloaded:
-            html_content = trafilatura.extract(
-                downloaded,
-                include_images=include_images,
-                include_links=False,
-                output_format="html",
-            )
+    # Check cache for previously extracted article HTML
+    if cache:
+        found, cached_html = cache.get_article(url, include_images)
+        if found:
+            html_content = cached_html
         else:
-            html_content = None
-    except Exception:
-        logger.warning("Failed to extract article: %s", url, exc_info=True)
-        html_content = None
+            html_content = _trafilatura_extract(url, include_images)
+            cache.set_article(url, include_images, html_content)
+    else:
+        html_content = _trafilatura_extract(url, include_images)
 
     # Fall back to RSS feed content if extraction fails
     if not html_content:
@@ -180,7 +189,7 @@ def _extract_article(entry, config: Config) -> Article | None:
     # Process images: download, optimize, rewrite HTML
     images: list[ArticleImage] = []
     if include_images and html_content:
-        html_content, images = _process_article_images(html_content, config)
+        html_content, images = _process_article_images(html_content, config, cache=cache)
 
     # Extract author
     author = entry.get("author")
@@ -198,6 +207,23 @@ def _extract_article(entry, config: Config) -> Article | None:
         html_content=html_content,
         images=images,
     )
+
+
+def _trafilatura_extract(url: str, include_images: bool) -> str | None:
+    """Download and extract article content via trafilatura."""
+    try:
+        downloaded = trafilatura.fetch_url(url)
+        if downloaded:
+            return trafilatura.extract(
+                downloaded,
+                include_images=include_images,
+                include_links=False,
+                output_format="html",
+            )
+        return None
+    except Exception:
+        logger.warning("Failed to extract article: %s", url, exc_info=True)
+        return None
 
 
 def _get_feed_content(entry) -> str | None:
@@ -222,6 +248,7 @@ def _get_feed_content(entry) -> str | None:
 def _process_article_images(
     html: str,
     config: Config,
+    cache: ContentCache | None = None,
 ) -> tuple[str, list[ArticleImage]]:
     """Download images from article HTML, optimize them, replace src with placeholders.
 
@@ -241,7 +268,7 @@ def _process_article_images(
         if not src or _should_skip_image(src):
             return ""
 
-        image_data = _download_image(src)
+        image_data = _download_image(src, cache=cache)
         if image_data is None:
             return ""
 
@@ -309,19 +336,33 @@ def _should_skip_image(url: str) -> bool:
     return False
 
 
-def _download_image(url: str, timeout: int = 10) -> bytes | None:
+def _download_image(
+    url: str, timeout: int = 10, cache: ContentCache | None = None
+) -> bytes | None:
     """Download an image from a URL. Returns bytes or None on failure."""
     if not is_safe_url(url):
         return None
+
+    # Check cache for previously downloaded image
+    if cache:
+        found, cached_data = cache.get_image(url)
+        if found:
+            return cached_data
+
     try:
         req = urllib.request.Request(
             url,
             headers={"User-Agent": "Mozilla/5.0 (compatible; PaperBoy/1.0)"},
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read()
+            data = resp.read()
+        if cache:
+            cache.set_image(url, data)
+        return data
     except Exception:
         logger.debug("Failed to download image: %s", url, exc_info=True)
+        if cache:
+            cache.set_image(url, None)
         return None
 
 

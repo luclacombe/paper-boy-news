@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from io import BytesIO
-from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -16,7 +15,7 @@ from paper_boy.config import (
     GoogleDriveConfig,
     NewspaperConfig,
 )
-from paper_boy.feeds import Article, ArticleImage, Section
+from paper_boy.feeds import Article, Section
 
 
 # --- Image helper ---

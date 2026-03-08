@@ -8,6 +8,7 @@ from datetime import date
 from pathlib import Path
 from typing import List
 
+from paper_boy.cache import ContentCache
 from paper_boy.config import Config
 from paper_boy.delivery import deliver
 from paper_boy.epub import build_epub
@@ -29,6 +30,7 @@ def build_newspaper(
     config: Config,
     output_path: str | Path | None = None,
     issue_date: date | None = None,
+    cache: ContentCache | None = None,
 ) -> BuildResult:
     """Fetch feeds and build the newspaper EPUB.
 
@@ -41,7 +43,7 @@ def build_newspaper(
 
     # Fetch all feeds
     logger.info("Fetching %d feed(s)...", len(config.feeds))
-    sections = fetch_feeds(config)
+    sections = fetch_feeds(config, cache=cache)
 
     total_articles = sum(len(s.articles) for s in sections)
     if total_articles == 0:
@@ -68,9 +70,10 @@ def build_and_deliver(
     config: Config,
     output_path: str | Path | None = None,
     issue_date: date | None = None,
+    cache: ContentCache | None = None,
 ) -> BuildResult:
     """Build the newspaper and deliver it."""
-    result = build_newspaper(config, output_path, issue_date)
+    result = build_newspaper(config, output_path, issue_date, cache=cache)
 
     # Deliver
     deliver(result.epub_path, config)

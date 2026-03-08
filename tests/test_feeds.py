@@ -6,9 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from paper_boy.cache import ContentCache
 from paper_boy.feeds import (
     _download_image,
     _extract_article,
+    _fetch_single_feed,
     _get_feed_content,
     _should_skip_image,
     fetch_feeds,
@@ -372,3 +374,83 @@ class TestShouldSkipImageFeeds:
     def test_allows_normal_images(self, url):
         """Normal article image URLs pass through."""
         assert _should_skip_image(url) is False
+
+
+# --- TestFetchFeedsWithCache ---
+
+
+class TestFetchFeedsWithCache:
+    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
+    @patch("paper_boy.feeds.feedparser.parse")
+    def test_cache_prevents_duplicate_feed_parse(
+        self, mock_parse, mock_fetch_url, mock_extract, local_config
+    ):
+        """Second call with same feed URL uses cache, feedparser.parse called once."""
+        entries = [_make_feed_entry()]
+        mock_parse.return_value = _make_parsed_feed(entries=entries)
+
+        cache = ContentCache()
+        feed_cfg = local_config.feeds[0]
+
+        _fetch_single_feed(feed_cfg, local_config, cache=cache)
+        _fetch_single_feed(feed_cfg, local_config, cache=cache)
+
+        mock_parse.assert_called_once()
+        assert cache.stats.feed_hits == 1
+        assert cache.stats.feed_misses == 1
+
+    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
+    def test_cache_prevents_duplicate_article_extraction(
+        self, mock_fetch_url, mock_extract, local_config
+    ):
+        """Second call with same article URL uses cache, trafilatura called once."""
+        cache = ContentCache()
+        entry = _make_feed_entry()
+
+        _extract_article(entry, local_config, cache=cache)
+        _extract_article(entry, local_config, cache=cache)
+
+        mock_fetch_url.assert_called_once()
+        assert cache.stats.article_hits == 1
+        assert cache.stats.article_misses == 1
+
+    @patch("paper_boy.feeds.urllib.request.urlopen")
+    def test_cache_prevents_duplicate_image_download(self, mock_urlopen):
+        """Second call with same image URL uses cache, urlopen called once."""
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = b"image data"
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        cache = ContentCache()
+
+        result1 = _download_image("https://example.com/img.jpg", cache=cache)
+        result2 = _download_image("https://example.com/img.jpg", cache=cache)
+
+        mock_urlopen.assert_called_once()
+        assert result1 == b"image data"
+        assert result2 == b"image data"
+        assert cache.stats.image_hits == 1
+        assert cache.stats.image_misses == 1
+
+    @patch("paper_boy.feeds.trafilatura.extract")
+    @patch("paper_boy.feeds.trafilatura.fetch_url")
+    def test_cached_failure_prevents_retry(
+        self, mock_fetch_url, mock_extract, local_config
+    ):
+        """Cached None (failed extraction) prevents re-calling trafilatura."""
+        mock_fetch_url.return_value = None
+        mock_extract.return_value = None
+
+        cache = ContentCache()
+        entry = _make_feed_entry(summary="short")  # No fallback content either
+
+        _extract_article(entry, local_config, cache=cache)
+        _extract_article(entry, local_config, cache=cache)
+
+        # trafilatura.fetch_url called only once — second time served from cache
+        mock_fetch_url.assert_called_once()
+        assert cache.stats.article_hits == 1
