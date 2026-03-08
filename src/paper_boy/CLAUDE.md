@@ -96,9 +96,13 @@ delivery:
 - EPUB3 format for universal e-reader support
 - `calibre:series` metadata for Kobo series grouping, standard EPUB3 series for all devices
 - Multi-strategy article extraction with fallback chain (`_extract_article_content`):
-  1. Standard trafilatura (default UA)
-  2. Re-fetch with bot UA (`archive.org_bot`) → trafilatura
+  0. Domain-specific: Bloomberg mobile API (`_extract_bloomberg_article`)
+  1. Standard trafilatura (default UA) + Ars Technica pagination
+  1.5. Re-fetch with browser UA (`_BROWSER_USER_AGENT`) — bypasses interstitials (e.g. Nature)
+  2. Re-fetch with bot UA (`outbrain` crawler) → trafilatura
   3. JSON-LD structured data extraction (`articleBody` / `text` fields)
+  4. Archive.today proxy (`_extract_via_archive`) — soft-paywalled sites
+  - HN self-posts (`news.ycombinator.com/item`) use RSS feed content directly
   - `MIN_ARTICLE_WORDS = 150` threshold to detect truncated/paywalled content
   - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts)
   - Falls back to RSS feed content if all strategies fail
