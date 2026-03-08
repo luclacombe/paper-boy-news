@@ -4,7 +4,9 @@ on:
   repository_dispatch:
     types: [build-newspaper]
   schedule:
-    # Every 30 min for scheduled delivery windows
+    # Daily build at 5 AM UTC — builds all users' papers
+    - cron: "0 5 * * *"
+    # Delivery checks every 30 min — delivers pre-built papers at each user's time
     - cron: "0,30 * * * *"
   workflow_dispatch: # Manual debug trigger
 
@@ -37,6 +39,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           BUILD_RECORD_ID: ${{ github.event.client_payload.record_id }}
+          BUILD_MODE: ${{ github.event.schedule == '0 5 * * *' && 'build' || (github.event_name == 'schedule' && 'deliver' || '') }}
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         run: python scripts/build_for_users.py > /dev/null 2>&1
 

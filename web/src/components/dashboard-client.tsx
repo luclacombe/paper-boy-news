@@ -24,7 +24,7 @@ import {
 } from "@/lib/next-delivery";
 import { BuildProgress } from "@/components/build-progress";
 import { Button } from "@/components/ui/button";
-import { DEVICES } from "@/lib/constants";
+import { DEVICES, DELIVERY_TIMES } from "@/lib/constants";
 import type {
   UserConfig,
   Feed,
@@ -39,6 +39,7 @@ export type DashboardState =
   | "setup-incomplete"
   | "build-in-progress"
   | "build-error"
+  | "awaiting-delivery"
   | "pre-build-first"
   | "pre-build"
   | "ready-first"
@@ -64,6 +65,7 @@ export function getDashboardState(
 
   // Current edition exists — show its status regardless of time of day
   if (todaysEdition?.status === "building") return "build-in-progress";
+  if (todaysEdition?.status === "built") return "awaiting-delivery";
   if (todaysEdition?.status === "delivered") return "delivered";
   if (todaysEdition?.status === "failed") return "failed";
 
@@ -157,10 +159,10 @@ export function DashboardClient({
     };
   }, [earlyState, router, editionDate]);
 
-  // Detect when server data changes from "building" to "delivered" or "failed"
+  // Detect when server data changes from "building" to "delivered", "built", or "failed"
   useEffect(() => {
     if (earlyState !== "fetching") return;
-    if (todaysEdition?.status === "delivered") {
+    if (todaysEdition?.status === "delivered" || todaysEdition?.status === "built") {
       setEarlyState("done");
       setEarlyResult({
         success: true,
@@ -173,7 +175,11 @@ export function DashboardClient({
         error: null,
       });
       setFetchedAt(new Date());
-      toast.success("Your paper is ready");
+      toast.success(
+        todaysEdition.status === "delivered"
+          ? "Your paper is ready"
+          : "Your paper was delivered"
+      );
     } else if (todaysEdition?.status === "failed") {
       setEarlyState("error");
       setEarlyResult({
@@ -352,20 +358,24 @@ export function DashboardClient({
                         ? "text-delivered"
                         : record.status === "failed"
                           ? "text-edition-red"
-                          : "text-building"
+                          : record.status === "built"
+                            ? "text-building"
+                            : "text-building"
                     }`}
                   >
                     {record.status === "delivered"
                       ? "Delivered"
                       : record.status === "failed"
                         ? "Failed"
-                        : "Building"}
+                        : record.status === "built"
+                          ? "Ready"
+                          : "Building"}
                   </span>
                   <span className="font-mono text-[10px] text-caption">
                     {record.articleCount} articles
                   </span>
                 </div>
-                {record.epubStoragePath && record.status === "delivered" && (
+                {record.epubStoragePath && (record.status === "delivered" || record.status === "built") && (
                   deviceFolderName ? (
                     <button
                       onClick={() =>
@@ -406,6 +416,8 @@ export function DashboardClient({
         return renderBuildInProgress();
       case "build-error":
         return renderBuildError();
+      case "awaiting-delivery":
+        return renderAwaitingDelivery();
       case "pre-build-first":
         return renderPreBuild(true);
       case "pre-build":
@@ -550,7 +562,83 @@ export function DashboardClient({
     );
   }
 
-  // ─── State 4: Pre-build (before 5 AM) ─────────────────────────
+  // ─── State 4: Awaiting delivery (built but not yet delivered) ──
+
+  function renderAwaitingDelivery() {
+    const edition = todaysEdition!;
+    const timeLabel =
+      DELIVERY_TIMES.find((t) => t.value === config.deliveryTime)?.label ??
+      config.deliveryTime;
+    const deviceLabel =
+      DEVICES.find((d) => d.value === config.device)?.label ?? config.device;
+
+    let deliveryDesc = `will be ready at ${timeLabel}`;
+    if (config.deliveryMethod === "google_drive") {
+      deliveryDesc = `will be delivered to your ${deviceLabel} via Google Drive at ${timeLabel}`;
+    } else if (config.deliveryMethod === "email") {
+      deliveryDesc = `will be emailed to your ${deviceLabel} at ${timeLabel}`;
+    }
+
+    return (
+      <div className="newsprint-card overflow-hidden border border-rule-gray border-l-4 border-l-building bg-card">
+        <div className="px-5 pt-5 pb-4">
+          <p className="font-headline text-lg font-bold text-ink">
+            Your paper has been prepared
+          </p>
+          <p className="mt-1 font-body text-sm text-caption">
+            {edition.articleCount} articles from {edition.sourceCount} sources
+            &middot;{" "}
+            {new Date(edition.editionDate).toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+          <p className="mt-2 font-body text-sm text-caption">
+            It {deliveryDesc}.
+          </p>
+        </div>
+        <div className="border-t border-rule-gray px-5 py-3">
+          <div className="flex items-center gap-3">
+            <Button
+              onClick={handleGetItNow}
+              size="sm"
+              className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
+            >
+              Deliver now
+            </Button>
+            {edition.epubStoragePath && (
+              deviceFolderName ? (
+                <button
+                  onClick={() =>
+                    handleSendToDevice(
+                      edition.epubStoragePath!,
+                      edition.editionDate
+                    )
+                  }
+                  className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
+                >
+                  <Usb className="h-3.5 w-3.5" />
+                  Send to device
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleDownload(edition)}
+                  className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download
+                </button>
+              )
+            )}
+          </div>
+        </div>
+        {renderScheduleFooter()}
+      </div>
+    );
+  }
+
+  // ─── State 5: Pre-build (before 5 AM) ─────────────────────────
 
   function renderPreBuild(isFirst: boolean) {
     const description = getPreBuildSentence(config, isFirst);
