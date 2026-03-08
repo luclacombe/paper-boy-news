@@ -15,6 +15,7 @@ from paper_boy.feeds import (
     Article,
     ArticleImage,
     Section,
+    _convert_graphics_to_imgs,
     _process_article_images,
     _should_skip_image,
     optimize_image,
@@ -117,6 +118,65 @@ class TestShouldSkipImage:
         assert not _should_skip_image("https://cdn.example.com/2026/03/protest.jpg")
 
 
+# --- _convert_graphics_to_imgs tests ---
+
+
+class TestConvertGraphicsToImgs:
+    def test_converts_self_closing_graphic(self):
+        html = '<graphic src="https://ichef.bbci.co.uk/news/480/photo.jpg" alt="A protest"/>'
+        result = _convert_graphics_to_imgs(html)
+        assert "<graphic" not in result
+        assert '<img src="https://ichef.bbci.co.uk/news/480/photo.jpg" alt="A protest"/>' in result
+
+    def test_converts_non_self_closing_graphic(self):
+        html = '<graphic src="https://example.com/img.jpg" alt="desc">'
+        result = _convert_graphics_to_imgs(html)
+        assert "<graphic" not in result
+        assert '<img src="https://example.com/img.jpg" alt="desc"/>' in result
+
+    def test_preserves_existing_img_tags(self):
+        html = '<img src="https://example.com/photo.jpg" alt="ok" />'
+        result = _convert_graphics_to_imgs(html)
+        assert result == html
+
+    def test_handles_mixed_img_and_graphic(self):
+        html = (
+            '<img src="https://a.com/1.jpg" />'
+            '<graphic src="https://b.com/2.jpg" alt="two"/>'
+            '<img src="https://c.com/3.jpg" />'
+        )
+        result = _convert_graphics_to_imgs(html)
+        assert "<graphic" not in result
+        assert 'src="https://a.com/1.jpg"' in result
+        assert 'src="https://b.com/2.jpg"' in result
+        assert 'src="https://c.com/3.jpg"' in result
+
+    def test_graphic_with_no_attributes(self):
+        html = "<graphic/>"
+        result = _convert_graphics_to_imgs(html)
+        assert result == "<img/>"
+
+    def test_multiple_graphics(self):
+        html = (
+            '<p>Text</p><graphic src="https://x.com/1.jpg" alt="one"/>'
+            '<p>More</p><graphic src="https://x.com/2.jpg" alt="two"/>'
+        )
+        result = _convert_graphics_to_imgs(html)
+        assert result.count("<img") == 2
+        assert "<graphic" not in result
+
+    def test_case_insensitive(self):
+        html = '<GRAPHIC src="https://example.com/img.jpg" ALT="test"/>'
+        result = _convert_graphics_to_imgs(html)
+        assert "<GRAPHIC" not in result
+        assert "<img" in result
+
+    def test_no_graphics_returns_unchanged(self):
+        html = "<p>No images here at all.</p>"
+        result = _convert_graphics_to_imgs(html)
+        assert result == html
+
+
 # --- _process_article_images tests ---
 
 
@@ -137,6 +197,30 @@ class TestProcessArticleImages:
         new_html, images = _process_article_images(html, config)
         assert len(images) == 0
         assert "<img" not in new_html
+
+    def test_converts_graphic_tags_before_processing(self):
+        """<graphic> tags from trafilatura are converted then processed like <img>."""
+        # Use an ad-domain URL so the image gets filtered (no download needed)
+        html = '<p>Text</p><graphic src="https://ads.example.com/pixel.gif" alt="ad"/><p>More</p>'
+        config = _make_config()
+        new_html, images = _process_article_images(html, config)
+        assert "<graphic" not in new_html
+        assert len(images) == 0
+
+    def test_graphic_with_normal_url_gets_download_attempt(self):
+        """<graphic> with a non-filtered URL triggers the download path."""
+        from unittest.mock import patch
+
+        html = '<graphic src="https://cdn.example.com/photos/hero.jpg" alt="Hero"/>'
+        config = _make_config()
+
+        # Mock _download_image to return None (simulates download failure)
+        with patch("paper_boy.feeds._download_image", return_value=None):
+            new_html, images = _process_article_images(html, config)
+
+        # graphic tag should be gone (converted to img, then removed since download failed)
+        assert "<graphic" not in new_html
+        assert len(images) == 0
 
 
 # --- EPUB with embedded images tests ---

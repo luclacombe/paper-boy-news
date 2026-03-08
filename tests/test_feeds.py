@@ -8,11 +8,16 @@ import pytest
 
 from paper_boy.cache import ContentCache
 from paper_boy.feeds import (
+    _count_words,
     _download_image,
     _extract_article,
+    _extract_article_content,
+    _extract_from_json_ld,
     _fetch_single_feed,
     _get_feed_content,
+    _normalize_html,
     _should_skip_image,
+    _strip_duplicate_title,
     fetch_feeds,
 )
 
@@ -454,3 +459,352 @@ class TestFetchFeedsWithCache:
         # trafilatura.fetch_url called only once — second time served from cache
         mock_fetch_url.assert_called_once()
         assert cache.stats.article_hits == 1
+
+
+# --- TestCountWords ---
+
+
+class TestCountWords:
+    def test_counts_words_in_plain_text(self):
+        assert _count_words("hello world foo bar") == 4
+
+    def test_counts_words_stripping_html(self):
+        assert _count_words("<p>Hello <b>world</b> here.</p>") == 3
+
+    def test_empty_string(self):
+        assert _count_words("") == 0
+
+    def test_only_tags(self):
+        assert _count_words("<p></p><div></div>") == 0
+
+
+# --- TestExtractArticleContent ---
+
+
+class TestExtractArticleContent:
+    @patch("paper_boy.feeds._fetch_page", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract")
+    def test_returns_strategy1_when_sufficient(self, mock_traf, mock_fetch):
+        """Strategy 1 (standard trafilatura) succeeds with enough words."""
+        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_traf.return_value = long_html
+
+        result = _extract_article_content("https://example.com/article", True)
+        assert result is not None
+        assert "word" in result
+        # Should not attempt bot UA fetch
+        mock_fetch.assert_not_called()
+
+    @patch("paper_boy.feeds._extract_from_json_ld", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    @patch("paper_boy.feeds._trafilatura_extract")
+    def test_falls_back_to_bot_ua(
+        self, mock_traf, mock_fetch, mock_traf_html, mock_json_ld
+    ):
+        """Strategy 2 fires when strategy 1 returns short content."""
+        mock_traf.return_value = "<p>Short paywall text.</p>"  # < 150 words
+        mock_fetch.return_value = "<html>full page</html>"
+        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_traf_html.return_value = long_html
+
+        result = _extract_article_content("https://example.com/paywalled", True)
+        assert result is not None
+        assert "word" in result
+        mock_fetch.assert_called_once()
+
+    @patch("paper_boy.feeds._trafilatura_extract_from_html", return_value=None)
+    @patch("paper_boy.feeds._fetch_page")
+    @patch("paper_boy.feeds._trafilatura_extract", return_value=None)
+    def test_falls_back_to_json_ld(self, mock_traf, mock_fetch, mock_traf_html):
+        """Strategy 3 (JSON-LD) fires when strategies 1 and 2 fail."""
+        body_text = " ".join(["word"] * 200)
+        page_html = (
+            '<html><head><script type="application/ld+json">'
+            + '{"@type":"Article","articleBody":"' + body_text + '"}'
+            + "</script></head></html>"
+        )
+        mock_fetch.return_value = page_html
+
+        result = _extract_article_content("https://example.com/paywalled", False)
+        assert result is not None
+        assert "word" in result
+
+    @patch("paper_boy.feeds._fetch_page", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract", return_value=None)
+    def test_returns_none_when_all_strategies_fail(self, mock_traf, mock_fetch):
+        """Returns None when no strategy produces content."""
+        result = _extract_article_content("https://example.com/broken", True)
+        assert result is None
+
+    @patch("paper_boy.feeds._fetch_page", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract")
+    def test_returns_short_result_normalized_when_no_better(
+        self, mock_traf, mock_fetch
+    ):
+        """Short result from strategy 1 is returned (normalized) if no other succeeds."""
+        mock_traf.return_value = '<p style="color:red">Short but real.</p>'
+
+        result = _extract_article_content("https://example.com/short", True)
+        assert result is not None
+        assert "Short but real." in result
+        # Inline style should be stripped by normalization
+        assert 'style="' not in result
+
+
+# --- TestExtractFromJsonLd ---
+
+
+class TestExtractFromJsonLd:
+    def test_extracts_article_body(self):
+        body = " ".join(["word"] * 200)
+        html = (
+            '<script type="application/ld+json">'
+            '{"@type":"NewsArticle","articleBody":"' + body + '"}'
+            "</script>"
+        )
+        result = _extract_from_json_ld(html)
+        assert result is not None
+        assert "<p>" in result
+        assert "word" in result
+
+    def test_extracts_from_graph_array(self):
+        body = " ".join(["word"] * 200)
+        html = (
+            '<script type="application/ld+json">'
+            '{"@graph":[{"@type":"Article","articleBody":"' + body + '"}]}'
+            "</script>"
+        )
+        result = _extract_from_json_ld(html)
+        assert result is not None
+
+    def test_extracts_text_field(self):
+        """Falls back to 'text' field when 'articleBody' is absent."""
+        body = " ".join(["word"] * 200)
+        html = (
+            '<script type="application/ld+json">'
+            '{"@type":"Article","text":"' + body + '"}'
+            "</script>"
+        )
+        result = _extract_from_json_ld(html)
+        assert result is not None
+
+    def test_returns_none_for_no_json_ld(self):
+        assert _extract_from_json_ld("<html><body>No JSON-LD</body></html>") is None
+
+    def test_returns_none_for_invalid_json(self):
+        html = '<script type="application/ld+json">{invalid json}</script>'
+        assert _extract_from_json_ld(html) is None
+
+    def test_returns_none_for_short_body(self):
+        html = (
+            '<script type="application/ld+json">'
+            '{"@type":"Article","articleBody":"Too short."}'
+            "</script>"
+        )
+        assert _extract_from_json_ld(html) is None
+
+    def test_splits_paragraphs_on_double_newline(self):
+        body = "First paragraph.\\n\\nSecond paragraph.\\n\\nThird paragraph."
+        # Make it long enough (>100 chars)
+        body = body + " " + " ".join(["padding"] * 20)
+        html = (
+            '<script type="application/ld+json">'
+            '{"@type":"Article","articleBody":"' + body + '"}'
+            "</script>"
+        )
+        result = _extract_from_json_ld(html)
+        assert result is not None
+        assert result.count("<p>") >= 1
+
+    def test_handles_list_format(self):
+        body = " ".join(["word"] * 200)
+        html = (
+            '<script type="application/ld+json">'
+            '[{"@type":"Article","articleBody":"' + body + '"}]'
+            "</script>"
+        )
+        result = _extract_from_json_ld(html)
+        assert result is not None
+
+
+# --- TestNormalizeHtml ---
+
+
+class TestNormalizeHtml:
+    def test_removes_empty_tags(self):
+        assert _normalize_html("<p></p><p>Real content.</p>") == "<p>Real content.</p>"
+
+    def test_removes_empty_div(self):
+        assert _normalize_html("<div></div><p>Text.</p>") == "<p>Text.</p>"
+
+    def test_removes_empty_span(self):
+        assert _normalize_html("<span></span><p>Text.</p>") == "<p>Text.</p>"
+
+    def test_strips_inline_styles(self):
+        result = _normalize_html('<p style="color:red; font-size:14px">Hello</p>')
+        assert result == "<p>Hello</p>"
+
+    def test_removes_hide_caption(self):
+        result = _normalize_html("<p>Image text hide caption more text</p>")
+        assert "hide caption" not in result
+
+    def test_removes_toggle_caption(self):
+        result = _normalize_html("<p>toggle caption</p>")
+        assert "toggle caption" not in result
+
+    def test_removes_enlarge_this_image(self):
+        result = _normalize_html("<p>Enlarge this image</p>")
+        assert "Enlarge this image" not in result
+
+    def test_strips_whitespace(self):
+        assert _normalize_html("  <p>Text.</p>  ") == "<p>Text.</p>"
+
+    def test_passthrough_clean_html(self):
+        html = "<p>Already clean content.</p>"
+        assert _normalize_html(html) == html
+
+
+# --- TestVideoUrlFilter ---
+
+
+class TestVideoUrlFilter:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://www.aljazeera.com/video/2026/3/8/some-video",
+            "https://www.aljazeera.com/program/talk-to-al-jazeera/2026/3/8/ep",
+            "https://example.com/podcasts/episode-42",
+            "https://example.com/live/breaking-news",
+        ],
+    )
+    @patch("paper_boy.feeds._extract_article_content", return_value="<p>Content.</p>")
+    def test_skips_non_article_urls(self, mock_extract, url, local_config):
+        """Non-article URLs (video, program, podcasts, live) are skipped."""
+        entry = _make_feed_entry(link=url)
+        article = _extract_article(entry, local_config)
+        assert article is None
+        mock_extract.assert_not_called()
+
+    @patch("paper_boy.feeds._extract_article_content", return_value="<p>Content.</p>")
+    def test_allows_normal_article_urls(self, mock_extract, local_config):
+        """Normal article URLs are not filtered."""
+        entry = _make_feed_entry(
+            link="https://www.aljazeera.com/news/2026/3/8/article"
+        )
+        article = _extract_article(entry, local_config)
+        assert article is not None
+
+
+# --- TestStripDuplicateTitle ---
+
+
+class TestStripDuplicateTitle:
+    def test_removes_exact_match_h1(self):
+        """Leading <h1> that exactly matches the title is removed."""
+        html = "<h1>Breaking News Today</h1><p>Article body here.</p>"
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h1>" not in result
+        assert "<p>Article body here.</p>" in result
+
+    def test_removes_exact_match_h2(self):
+        """Leading <h2> matching the title is also removed."""
+        html = "<h2>Breaking News Today</h2><p>Article body here.</p>"
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h2>" not in result
+        assert "<p>Article body here.</p>" in result
+
+    def test_case_insensitive_match(self):
+        """Matching is case-insensitive."""
+        html = "<h1>BREAKING NEWS TODAY</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h1>" not in result
+
+    def test_strips_punctuation_for_match(self):
+        """Punctuation differences don't prevent matching."""
+        html = '<h1>"Breaking News" Today!</h1><p>Body.</p>'
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h1>" not in result
+
+    def test_containment_match_heading_in_title(self):
+        """Heading text contained in title matches (title may be longer)."""
+        html = "<h1>Breaking News</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News: A Major Story")
+        assert "<h1>" not in result
+
+    def test_containment_match_title_in_heading(self):
+        """Title contained in heading matches (heading may have extra text)."""
+        html = "<h1>Breaking News: A Major Story Unfolds</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News")
+        assert "<h1>" not in result
+
+    def test_no_match_preserves_heading(self):
+        """Non-matching heading is preserved."""
+        html = "<h1>Completely Different Heading</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h1>Completely Different Heading</h1>" in result
+
+    def test_no_heading_returns_unchanged(self):
+        """HTML without any heading is returned unchanged."""
+        html = "<p>Just a paragraph.</p><p>Another one.</p>"
+        result = _strip_duplicate_title(html, "Some Title")
+        assert result == html
+
+    def test_non_leading_heading_preserved(self):
+        """Only the FIRST heading is checked — later headings are preserved."""
+        html = "<p>Intro.</p><h1>Breaking News Today</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h1>Breaking News Today</h1>" in result
+
+    def test_heading_with_inner_tags(self):
+        """Heading containing inline HTML (e.g. <em>) still matches."""
+        html = "<h1><em>Breaking</em> News Today</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News Today")
+        assert "<h1>" not in result
+
+    def test_whitespace_around_heading(self):
+        """Leading whitespace before the heading doesn't prevent matching."""
+        html = "  \n  <h1>Breaking News</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "Breaking News")
+        assert "<h1>" not in result
+
+    def test_empty_html(self):
+        """Empty HTML returns empty string."""
+        result = _strip_duplicate_title("", "Some Title")
+        assert result == ""
+
+    def test_empty_title(self):
+        """Empty title doesn't remove any heading."""
+        html = "<h1>Some Heading</h1><p>Body.</p>"
+        result = _strip_duplicate_title(html, "")
+        assert "<h1>Some Heading</h1>" in result
+
+
+# --- TestStripDuplicateTitleIntegration ---
+
+
+class TestStripDuplicateTitleIntegration:
+    @patch(
+        "paper_boy.feeds._extract_article_content",
+        return_value="<h1>Test Article</h1><p>Full body text.</p>",
+    )
+    def test_extract_article_strips_duplicate_title(self, mock_extract, local_config):
+        """_extract_article removes duplicate <h1> matching the entry title."""
+        entry = _make_feed_entry(title="Test Article")
+        article = _extract_article(entry, local_config)
+        assert article is not None
+        assert "<h1>" not in article.html_content
+        assert "<p>Full body text.</p>" in article.html_content
+
+    @patch(
+        "paper_boy.feeds._extract_article_content",
+        return_value="<h1>Different Heading</h1><p>Body.</p>",
+    )
+    def test_extract_article_preserves_non_matching_heading(
+        self, mock_extract, local_config
+    ):
+        """Non-matching heading is preserved in the extracted article."""
+        entry = _make_feed_entry(title="Test Article")
+        article = _extract_article(entry, local_config)
+        assert article is not None
+        assert "<h1>Different Heading</h1>" in article.html_content
