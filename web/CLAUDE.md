@@ -82,7 +82,7 @@ src/
 │   ├── github-dispatch.ts # GitHub Actions repository_dispatch for builds
 │   ├── auth.ts        # getAuthUser(), getUserProfile()
 │   ├── setup-status.ts # Compute delivery setup completeness
-│   ├── download-epub.ts # Browser-side EPUB download from Supabase Storage
+│   ├── download-epub.ts # EPUB download + File System Access API (send to device via USB)
 │   ├── constants.ts   # DEVICES, TIMEZONES, DELIVERY_TIMES, EDITION_ROLLOVER_HOUR, BUILD_MESSAGES
 │   ├── edition-date.ts # Timezone-aware edition date (5 AM rollover), cutoff checks
 │   ├── feed-catalog.ts
@@ -93,7 +93,8 @@ src/
 │       └── server.ts  # Server Supabase client (for Server Components + Actions)
 ├── proxy.ts           # Auth routing (protect app routes, redirect auth users)
 ├── types/
-│   └── index.ts       # All TypeScript types
+│   ├── index.ts       # All TypeScript types
+│   └── file-system-access.d.ts  # Chromium File System Access API declarations
 └── __tests__/
     ├── setup.ts       # Global test setup (vi.mock for next/headers)
     ├── actions/       # Unit tests for server actions
@@ -132,6 +133,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Dashboard state machine**: 8 states computed from edition status, time of day, and setup completeness. Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability
 - **Settings accordion**: 4 collapsible cards with colored left borders (red/ink/amber/green). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper`. All sections use batch save — "Save changes" when dirty, auto-save on collapse. Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing
 - **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout). Settings has its own compact header with back link + sign out
+- **Send to device**: File System Access API (`showDirectoryPicker`) lets Chrome/Edge users save EPUBs directly to a USB-mounted e-reader folder. Handle persisted in IndexedDB. Falls back to regular download on unsupported browsers. See `src/lib/download-epub.ts`
 
 ## Design System
 

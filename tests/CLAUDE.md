@@ -14,12 +14,13 @@ pytest -k "test_build"           # By name pattern
 ## Organization
 
 ### Core Library Tests
+- `test_cache.py` — In-memory content cache (ContentCache)
 - `test_config.py` — YAML config loading + validation
 - `test_cover.py` — Cover image generation
 - `test_epub.py` — EPUB creation + metadata
-- `test_feeds.py` — RSS fetching + article extraction
+- `test_feeds.py` — RSS fetching + article extraction + cache integration
 - `test_images.py` — Image optimization
-- `test_main.py` — Build pipeline orchestration
+- `test_main.py` — Build pipeline orchestration + cache threading
 - `test_delivery.py` — Delivery backends
 - `test_cli.py` — CLI commands
 

@@ -49,11 +49,13 @@ Legacy code is archived in `legacy/` (Streamlit prototype and former FastAPI bac
 Scheduled delivery:
 - GitHub Actions cron runs every 30 min
 - `build_for_users.py` scans all onboarded users, builds for those within ±15 min of their delivery window
+- A shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users within the same scheduled run
 
 ## Project Structure
 
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
+  cache.py               # In-memory content cache (feeds, articles, images)
 web/                     # Next.js web app (see web/CLAUDE.md)
 scripts/                 # Build script for GitHub Actions
 legacy/streamlit/        # Archived Streamlit prototype
@@ -179,7 +181,7 @@ Key files:
 ## Current Status
 
 - Core library, auth, and server actions are complete
-- Dashboard (`/dashboard`) — 8-state status card, async build with polling, past editions, schedule nudges
+- Dashboard (`/dashboard`) — 8-state status card, async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge)
 - Settings (`/settings`) — accordion with 4 colored-border cards, batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`

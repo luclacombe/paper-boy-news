@@ -128,14 +128,15 @@ paper-boy deliver                      # build + deliver
 ### GitHub Actions (Daily Delivery)
 
 1. Fork this repo
-2. Set up Google Drive credentials (see Configuration below) and add `GOOGLE_CREDENTIALS` secret
-3. The workflow runs daily at 6 AM UTC, or trigger manually from the Actions tab
+2. Enable **Google Drive API** (and **Gmail API** if using email delivery) in Google Cloud Console
+3. Add required GitHub Secrets — see [SETUP-GUIDE.md](SETUP-GUIDE.md) for details
+4. The workflow runs every 30 minutes for scheduled delivery, or on-demand from the dashboard
 
 ## Project Structure
 
 ```
 src/paper_boy/           Core Python library + CLI
-api/                     FastAPI backend (Railway)
+legacy/api/              Archived FastAPI backend (replaced by GitHub Actions)
 web/                     Next.js web app (Vercel)
   src/
     actions/             Server Actions (data mutations)
@@ -186,11 +187,10 @@ delivery:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a project and enable the **Google Drive API**
-3. Create a **Service Account** (IAM & Admin > Service Accounts)
-4. Create a JSON key for the service account
-5. **Share your Google Drive folder** (e.g., "Rakuten Kobo") with the service account email
-6. For GitHub Actions: add the JSON key as `GOOGLE_CREDENTIALS` repo secret
-7. For local use: save as `credentials.json` in the project root
+3. Set up an **OAuth 2.0 Client ID** (APIs & Services > Credentials)
+4. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` as GitHub Secrets
+5. Connect Google Drive from the web app's Settings > Delivery page
+6. For CLI/local use: save a service account key as `credentials.json` in the project root
 
 </details>
 
