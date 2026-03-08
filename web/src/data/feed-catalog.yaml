@@ -23,8 +23,7 @@ bundles:
       - "reuters-business"
       - "axios"
       - "morning-brew"
-      - "bloomberg-free"
-      - "ft-free"
+      - "dw-business"
 
 categories:
   - name: "World News"
@@ -98,6 +97,10 @@ categories:
         name: "New Scientist"
         url: "https://www.newscientist.com/section/news/feed/"
         description: "Science and technology news"
+      - id: "science-daily"
+        name: "Science Daily"
+        url: "https://www.sciencedaily.com/rss/all.xml"
+        description: "Latest science research and discoveries"
 
   - name: "Politics"
     feeds:
@@ -105,10 +108,10 @@ categories:
         name: "Politico"
         url: "https://rss.politico.com/politics-news.xml"
         description: "US politics and policy"
-      - id: "the-hill"
-        name: "The Hill"
-        url: "https://thehill.com/feed/"
-        description: "Political news and analysis"
+      - id: "propublica"
+        name: "ProPublica"
+        url: "https://feeds.propublica.org/propublica/main"
+        description: "Investigative journalism in the public interest"
       - id: "fivethirtyeight"
         name: "FiveThirtyEight"
         url: "https://fivethirtyeight.com/features/feed/"
@@ -128,6 +131,10 @@ categories:
         name: "Project Syndicate"
         url: "https://www.project-syndicate.org/rss"
         description: "Global commentary from leading thinkers"
+      - id: "foreign-policy"
+        name: "Foreign Policy"
+        url: "https://foreignpolicy.com/feed/"
+        description: "Global affairs analysis and commentary"
 
   - name: "Business & Finance"
     feeds:
@@ -151,3 +158,7 @@ categories:
         name: "Morning Brew"
         url: "https://www.morningbrew.com/daily/rss"
         description: "Daily business news digest"
+      - id: "dw-business"
+        name: "DW Business"
+        url: "https://rss.dw.com/rdf/rss-en-bus"
+        description: "International business from Deutsche Welle"
