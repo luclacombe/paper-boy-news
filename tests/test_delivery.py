@@ -16,7 +16,6 @@ from paper_boy.delivery import (
     deliver,
     deliver_email,
     deliver_gmail_api,
-    deliver_google_drive,
 )
 
 

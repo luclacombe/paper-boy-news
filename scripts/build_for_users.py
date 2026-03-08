@@ -35,6 +35,7 @@ from paper_boy.config import (
     GoogleDriveConfig,
     NewspaperConfig,
 )
+from paper_boy.cache import ContentCache
 from paper_boy.delivery import deliver
 from paper_boy.main import build_newspaper
 
@@ -132,7 +133,9 @@ def get_token_data(profile: dict) -> dict | None:
     }
 
 
-def build_and_deliver_for_record(record_id: str) -> None:
+def build_and_deliver_for_record(
+    record_id: str, cache: ContentCache | None = None
+) -> None:
     """On-demand mode: build for a specific delivery_history record."""
     sb = get_supabase()
 
@@ -183,7 +186,7 @@ def build_and_deliver_for_record(record_id: str) -> None:
                 tmp_dir, f"paper-boy-{edition_date.isoformat()}.epub"
             )
 
-            result = build_newspaper(config, output_path=output_path, issue_date=edition_date)
+            result = build_newspaper(config, output_path=output_path, issue_date=edition_date, cache=cache)
 
             # Read EPUB for size + storage upload
             epub_bytes = Path(result.epub_path).read_bytes()
@@ -295,6 +298,7 @@ def run_scheduled() -> None:
         logger.info("No onboarded users found")
         return
 
+    cache = ContentCache()
     now_utc = datetime.now(ZoneInfo("UTC"))
 
     for prof in users.data:
@@ -371,7 +375,9 @@ def run_scheduled() -> None:
 
         if record.data:
             record_id = record.data[0]["id"]
-            build_and_deliver_for_record(record_id)
+            build_and_deliver_for_record(record_id, cache=cache)
+
+    cache.log_stats()
 
 
 def main():
