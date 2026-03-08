@@ -246,6 +246,41 @@ export function DeliverySection({
               placeholder="Paper Boy"
             />
           </div>
+          {values.device === "kobo" && (
+            <div className="border-l-2 border-rule-gray/50 pl-3">
+              <p className="font-headline text-xs font-bold text-ink">
+                Kobo setup
+              </p>
+              <p className="mt-1 font-body text-xs text-caption">
+                Google Drive sync is supported on{" "}
+                <strong>Kobo Forma, Sage, Elipsa, Elipsa 2E, and Libra Colour</strong>{" "}
+                (firmware 4.37+). Clara models and older devices don&apos;t
+                support it &mdash; choose Download instead.
+              </p>
+              <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+                <li>
+                  On your Kobo, tap{" "}
+                  <strong>More &rarr; My Google Drive &rarr; Get Started</strong>
+                </li>
+                <li>Note the code shown on screen</li>
+                <li>
+                  On a computer or phone, visit{" "}
+                  <strong>kobo.com/googledrive</strong> and enter the code
+                </li>
+                <li>
+                  Authorize Kobo to access the same Google account you connected
+                  above
+                </li>
+                <li>
+                  Paper Boy will place your newspaper in the{" "}
+                  <strong>
+                    {values.googleDriveFolder || "Rakuten Kobo"}
+                  </strong>{" "}
+                  folder &mdash; sync your Kobo over Wi-Fi to download it
+                </li>
+              </ol>
+            </div>
+          )}
         </div>
       )}
 
@@ -253,16 +288,45 @@ export function DeliverySection({
       {values.deliveryMethod === "email" && (
         <div className="space-y-3">
           {values.device === "kindle" && (
-            <div className="space-y-1.5">
-              <Label className="font-headline text-sm text-ink">
-                Kindle email address
-              </Label>
-              <Input
-                type="email"
-                value={values.kindleEmail}
-                onChange={(e) => update({ kindleEmail: e.target.value })}
-                placeholder="your-kindle@kindle.com"
-              />
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="font-headline text-sm text-ink">
+                  Kindle email address
+                </Label>
+                <Input
+                  type="email"
+                  value={values.kindleEmail}
+                  onChange={(e) => update({ kindleEmail: e.target.value })}
+                  placeholder="your-kindle@kindle.com"
+                />
+              </div>
+              <div className="border-l-2 border-rule-gray/50 pl-3">
+                <p className="font-headline text-xs font-bold text-ink">
+                  Kindle setup
+                </p>
+                <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+                  <li>
+                    Find your Kindle email: on your Kindle, go to{" "}
+                    <strong>Settings &rarr; Your Account</strong> &mdash;
+                    it ends in <strong>@kindle.com</strong>
+                  </li>
+                  <li>
+                    Approve the sender: go to{" "}
+                    <strong>
+                      amazon.com &rarr; Manage Your Content and Devices &rarr;
+                      Preferences &rarr; Personal Document Settings
+                    </strong>
+                  </li>
+                  <li>
+                    Add the email address Paper Boy sends from to your{" "}
+                    <strong>Approved Personal Document E-mail List</strong>
+                  </li>
+                </ol>
+                <p className="mt-1.5 font-body text-xs text-caption">
+                  Works with all Kindle devices and the Kindle app. EPUB files
+                  are converted automatically.
+                </p>
+              </div>
             </div>
           )}
 
