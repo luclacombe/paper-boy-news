@@ -4,10 +4,17 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Settings, ChevronRight, ChevronDown, Download } from "lucide-react";
+import { Settings, ChevronRight, ChevronDown, Download, Usb } from "lucide-react";
 import { getItNow } from "@/actions/build";
 import { getGoogleAuthUrl } from "@/actions/google-oauth";
-import { downloadEpub } from "@/lib/download-epub";
+import {
+  downloadEpub,
+  sendToDevice,
+  supportsDirectoryPicker,
+  pickDeviceFolder,
+  getDeviceFolderName,
+  clearDeviceFolder,
+} from "@/lib/download-epub";
 import {
   getDeliveryPastTense,
   getNextDeliverySentence,
@@ -97,6 +104,14 @@ export function DashboardClient({
   const [earlyStep, setEarlyStep] = useState(0);
   const [earlyResult, setEarlyResult] = useState<BuildResult | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  const [deviceFolderName, setDeviceFolderName] = useState<string | null>(null);
+  const supportsDevice = supportsDirectoryPicker();
+
+  // Load saved device folder name on mount
+  useEffect(() => {
+    if (!supportsDevice) return;
+    getDeviceFolderName().then(setDeviceFolderName);
+  }, [supportsDevice]);
 
   // Advance progress step while fetching (async: slower pace, more steps)
   useEffect(() => {
@@ -213,6 +228,36 @@ export function DashboardClient({
     }
   }
 
+  async function handleSendToDevice(
+    storagePath: string,
+    editionDate: string
+  ) {
+    try {
+      const filename = `${config.title.replace(/\s+/g, "-")}-${editionDate}.epub`;
+      await sendToDevice(storagePath, filename);
+      toast.success("Sent to device");
+    } catch {
+      toast.error("Failed to send — try downloading instead");
+    }
+  }
+
+  async function handlePickFolder() {
+    try {
+      await pickDeviceFolder();
+      const name = await getDeviceFolderName();
+      setDeviceFolderName(name);
+      toast.success(`Device folder set: ${name}`);
+    } catch {
+      // User cancelled picker — do nothing
+    }
+  }
+
+  async function handleForgetDevice() {
+    await clearDeviceFolder();
+    setDeviceFolderName(null);
+    toast.success("Device folder removed");
+  }
+
   async function handleGoogleConnect() {
     try {
       const url = await getGoogleAuthUrl();
@@ -312,12 +357,27 @@ export function DashboardClient({
                   </span>
                 </div>
                 {record.epubStoragePath && record.status === "delivered" && (
-                  <button
-                    onClick={() => handleDownload(record)}
-                    className="text-caption hover:text-ink"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
+                  deviceFolderName ? (
+                    <button
+                      onClick={() =>
+                        handleSendToDevice(
+                          record.epubStoragePath!,
+                          record.editionDate
+                        )
+                      }
+                      className="flex items-center gap-1 text-caption hover:text-ink"
+                      title="Send to device"
+                    >
+                      <Usb className="h-3.5 w-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleDownload(record)}
+                      className="text-caption hover:text-ink"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                  )
                 )}
               </div>
             ))}
@@ -596,17 +656,40 @@ export function DashboardClient({
           <div className="border-t border-rule-gray px-5 py-4">
             {earlyResult.epubStoragePath ? (
               <>
-                <Button
-                  onClick={() => handleDownloadResult(earlyResult)}
-                  className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Download EPUB
-                </Button>
-                <p className="mt-2 font-body text-xs text-caption">
-                  Transfer this file to your e-reader via USB or your reading
-                  app.
-                </p>
+                {deviceFolderName ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() =>
+                        handleSendToDevice(
+                          earlyResult.epubStoragePath!,
+                          earlyResult.editionDate
+                        )
+                      }
+                      className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
+                    >
+                      <Usb className="mr-2 h-4 w-4" />
+                      Send to device
+                    </Button>
+                    <Button
+                      onClick={() => handleDownloadResult(earlyResult)}
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      title="Download file"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => handleDownloadResult(earlyResult)}
+                    className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download EPUB
+                  </Button>
+                )}
+                {renderDeviceFolderInfo()}
               </>
             ) : (
               <p className="font-body text-sm text-caption">
@@ -634,13 +717,28 @@ export function DashboardClient({
         </div>
         {earlyResult.epubStoragePath && (
           <div className="border-t border-rule-gray px-5 py-3">
-            <button
-              onClick={() => handleDownloadResult(earlyResult)}
-              className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Download a copy
-            </button>
+            {deviceFolderName ? (
+              <button
+                onClick={() =>
+                  handleSendToDevice(
+                    earlyResult.epubStoragePath!,
+                    earlyResult.editionDate
+                  )
+                }
+                className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
+              >
+                <Usb className="h-3.5 w-3.5" />
+                Send to device
+              </button>
+            ) : (
+              <button
+                onClick={() => handleDownloadResult(earlyResult)}
+                className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download a copy
+              </button>
+            )}
           </div>
         )}
         {showScheduleNudge && (
@@ -687,17 +785,40 @@ export function DashboardClient({
           <div className="border-t border-rule-gray px-5 py-4">
             {edition.epubStoragePath ? (
               <>
-                <Button
-                  onClick={() => handleDownload(edition)}
-                  className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  Download EPUB
-                </Button>
-                <p className="mt-2 font-body text-xs text-caption">
-                  Transfer this file to your e-reader via USB or your reading
-                  app.
-                </p>
+                {deviceFolderName ? (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={() =>
+                        handleSendToDevice(
+                          edition.epubStoragePath!,
+                          edition.editionDate
+                        )
+                      }
+                      className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
+                    >
+                      <Usb className="mr-2 h-4 w-4" />
+                      Send to device
+                    </Button>
+                    <Button
+                      onClick={() => handleDownload(edition)}
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      title="Download file"
+                    >
+                      <Download className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    onClick={() => handleDownload(edition)}
+                    className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download EPUB
+                  </Button>
+                )}
+                {renderDeviceFolderInfo()}
               </>
             ) : (
               <p className="font-body text-sm text-caption">
@@ -731,13 +852,28 @@ export function DashboardClient({
 
         {edition.epubStoragePath && (
           <div className="border-t border-rule-gray px-5 py-3">
-            <button
-              onClick={() => handleDownload(edition)}
-              className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Download a copy
-            </button>
+            {deviceFolderName ? (
+              <button
+                onClick={() =>
+                  handleSendToDevice(
+                    edition.epubStoragePath!,
+                    edition.editionDate
+                  )
+                }
+                className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
+              >
+                <Usb className="h-3.5 w-3.5" />
+                Send to device
+              </button>
+            ) : (
+              <button
+                onClick={() => handleDownload(edition)}
+                className="flex items-center gap-1.5 font-body text-xs text-caption hover:text-ink"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download a copy
+              </button>
+            )}
           </div>
         )}
 
@@ -775,6 +911,52 @@ export function DashboardClient({
         </div>
         {renderScheduleFooter()}
       </div>
+    );
+  }
+
+  // ─── Device folder info (shown under primary download buttons) ──
+
+  function renderDeviceFolderInfo() {
+    if (deviceFolderName) {
+      return (
+        <p className="mt-2 font-body text-xs text-caption">
+          Saving to <span className="font-semibold text-ink">{deviceFolderName}</span>
+          <span className="mx-1">&middot;</span>
+          <button
+            onClick={handlePickFolder}
+            className="text-ink underline hover:text-caption"
+          >
+            Change folder
+          </button>
+          <span className="mx-1">&middot;</span>
+          <button
+            onClick={handleForgetDevice}
+            className="text-ink underline hover:text-caption"
+          >
+            Forget device
+          </button>
+        </p>
+      );
+    }
+
+    if (supportsDevice) {
+      return (
+        <p className="mt-2 font-body text-xs text-caption">
+          Transfer via USB or your reading app.{" "}
+          <button
+            onClick={handlePickFolder}
+            className="font-semibold text-ink underline hover:text-caption"
+          >
+            Set up one-click transfer
+          </button>
+        </p>
+      );
+    }
+
+    return (
+      <p className="mt-2 font-body text-xs text-caption">
+        Transfer this file to your e-reader via USB or your reading app.
+      </p>
     );
   }
 
