@@ -35,10 +35,10 @@ src/paper_boy/
 ├── __init__.py       # Package init (__version__, ContentCache export)
 ├── cache.py          # In-memory content cache (ContentCache, CacheStats)
 ├── cli.py            # Click CLI entry point (build, deliver commands)
-├── config.py         # YAML config loading + validation (Config, DeliveryConfig, EmailConfig)
-├── feeds.py          # RSS fetching, article text extraction, image optimization
-├── epub.py           # EPUB generation with metadata + embedded CSS
-├── cover.py          # Cover image generation (600x900px)
+├── config.py         # YAML config loading + validation (Config, FeedConfig w/ category, DeliveryConfig, EmailConfig)
+├── feeds.py          # RSS fetching, article text extraction, image optimization, Section w/ category
+├── epub.py           # EPUB generation with category grouping, dividers, landmarks
+├── cover.py          # Cover image generation (600x900px, category-aware labels)
 ├── delivery.py       # Delivery backends: Google Drive, email (SMTP/Send-to-Kindle), local
 └── main.py           # Orchestration: fetch → build → deliver (returns BuildResult)
 ```
@@ -65,6 +65,7 @@ include_images: true
 feeds:
   - name: "The Guardian"
     url: "https://www.theguardian.com/world/rss"
+    category: "World News"       # Optional — enables category grouping in EPUB
 delivery:
   method: google_drive           # google_drive | email | local
   google_drive_folder: "Rakuten Kobo"
@@ -81,7 +82,7 @@ delivery:
 | Article | `(article_url, include_images)` | trafilatura HTML or `None` | HTTP + NLP extraction |
 | Image | `image_url` | raw downloaded bytes or `None` | HTTP download |
 
-- In-memory only, scoped to a single `run_scheduled()` invocation
+- In-memory only, scoped to a single `run_build_all()` invocation (or `run_scheduled()` legacy)
 - All functions accept an optional `cache` param (default `None`) — backward compatible
 - Article key includes `include_images` because trafilatura output differs based on this flag
 - Image cache stores raw bytes (pre-optimization) since optimization settings may vary per user
@@ -91,8 +92,9 @@ delivery:
 ## Design Decisions
 
 - **Bundled font**: Playfair Display (OFL-licensed variable TTF) in `src/paper_boy/fonts/`. Supports Regular through Black weights via `set_variation_by_name()`. Guarantees consistent cover rendering on all platforms including CI (no bitmap fallback). ~300KB, included as package data in `pyproject.toml`.
-- **Cover layout**: Newspaper broadsheet style — double-rule masthead with auto-scaling title, red-accented lead headline, secondary headlines grouped by section with thin rules. Masthead font scales down automatically for long titles.
-- **EPUB CSS**: Optimized for e-ink displays — paragraph indent (except first), justified text, larger body font (1.05em), improved line-height (1.7). Avoids CSS Grid/Flexbox (unsupported on most e-readers).
+- **Cover layout**: Newspaper broadsheet style — double-rule masthead with auto-scaling title, red-accented lead headline, secondary headlines grouped by category (when available, else by feed name with deduplication). Masthead font scales down automatically for long titles.
+- **EPUB structure**: Category-grouped layout when feeds have categories (web app builds), flat layout when no categories (CLI mode). Spine order: cover page → front page TOC → [category divider → [feed divider → articles]*]*. Guide landmarks point to cover + TOC for proper opening behavior in Apple Books and other readers.
+- **EPUB CSS**: Optimized for e-ink displays — paragraph indent (except first), justified text, larger body font (1.05em), improved line-height (1.7). Avoids CSS Grid/Flexbox (unsupported on most e-readers). Includes styles for category dividers (`.category-divider`, `.category-name`, `.category-sources`) and categorized TOC (`.toc-category`).
 - EPUB3 format for universal e-reader support
 - `calibre:series` metadata for Kobo series grouping, standard EPUB3 series for all devices
 - Multi-strategy article extraction with fallback chain (`_extract_article_content`):
@@ -108,6 +110,7 @@ delivery:
   - Falls back to RSS feed content if all strategies fail
 - `_convert_graphics_to_imgs()` normalises TEI XML `<graphic>` tags to `<img>` before the image pipeline runs (trafilatura emits `<graphic>` instead of `<img>` with `output_format="html"`)
 - `_strip_duplicate_title()` removes leading `<h1>`/`<h2>` from extracted HTML when it matches the article title (fuzzy: case-insensitive, punctuation-stripped, containment check) — prevents double headings since `epub.py` adds its own `<h1>` from `Article.title`
+- `_downgrade_body_headings()` converts all remaining `<h1>` to `<h2>` in article body — epub.py owns the `<h1>` via `Article.title`, so body `<h1>` tags would create duplicate top-level headings
 - Video/podcast/live URL segments are filtered out before extraction (Al Jazeera `/video/` etc.)
 - Image optimization: resize + JPEG compression for e-reader screens
 - Google Drive auto-cleanup of old issues (`keep_days` config)

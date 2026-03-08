@@ -12,6 +12,7 @@ import yaml
 class FeedConfig:
     name: str
     url: str
+    category: str = ""
 
 
 @dataclass
@@ -86,7 +87,10 @@ def load_config(path: str | Path) -> Config:
     feeds_raw = raw.get("feeds", [])
     if not feeds_raw:
         raise ValueError("No feeds configured")
-    feeds = [FeedConfig(name=f["name"], url=f["url"]) for f in feeds_raw]
+    feeds = [
+        FeedConfig(name=f["name"], url=f["url"], category=f.get("category", ""))
+        for f in feeds_raw
+    ]
 
     # Parse delivery
     del_raw = raw.get("delivery", {})

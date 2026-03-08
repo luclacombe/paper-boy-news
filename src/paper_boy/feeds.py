@@ -136,6 +136,7 @@ class Article:
 @dataclass
 class Section:
     name: str
+    category: str = ""
     articles: list[Article] = field(default_factory=list)
 
 
@@ -167,7 +168,7 @@ def _fetch_single_feed(
     feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
 ) -> Section:
     """Fetch a single RSS feed and extract articles."""
-    section = Section(name=feed_cfg.name)
+    section = Section(name=feed_cfg.name, category=feed_cfg.category)
 
     if not is_safe_url(feed_cfg.url):
         logger.warning("Blocked unsafe feed URL: %s", feed_cfg.url)
@@ -264,6 +265,9 @@ def _extract_article(
     # Strip duplicate title heading from extracted content
     # (epub.py adds its own <h1> from Article.title)
     html_content = _strip_duplicate_title(html_content, title)
+
+    # Downgrade any remaining <h1> to <h2> — epub.py adds its own <h1>
+    html_content = _downgrade_body_headings(html_content)
 
     # Process images: download, optimize, rewrite HTML
     images: list[ArticleImage] = []
@@ -574,6 +578,17 @@ def _strip_duplicate_title(html: str, title: str) -> str:
     if norm_heading == norm_title or norm_heading in norm_title or norm_title in norm_heading:
         return html[match.end():]
 
+    return html
+
+
+def _downgrade_body_headings(html: str) -> str:
+    """Downgrade all <h1> tags to <h2> in article body HTML.
+
+    epub.py adds its own <h1> from Article.title, so any <h1> in the
+    extracted body would create duplicate top-level headings.
+    """
+    html = re.sub(r"<h1\b", "<h2", html, flags=re.IGNORECASE)
+    html = re.sub(r"</h1>", "</h2>", html, flags=re.IGNORECASE)
     return html
 
 

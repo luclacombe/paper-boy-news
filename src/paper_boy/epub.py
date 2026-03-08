@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import OrderedDict
 from datetime import date
 from pathlib import Path
 
@@ -70,6 +71,16 @@ p {
     text-transform: uppercase;
     letter-spacing: 0.1em;
 }
+.toc-category {
+    margin: 1.5em 0 0.3em 0;
+    font-weight: bold;
+    font-size: 1.2em;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #1a1a1a;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 0.2em;
+}
 .toc-section {
     margin: 1em 0 0.3em 0;
     font-weight: bold;
@@ -79,11 +90,38 @@ p {
     color: #333;
 }
 .toc-article {
-    margin: 0.2em 0 0.2em 1em;
+    margin: 0.15em 0 0.15em 1.2em;
+    text-indent: -0.8em;
+    padding-left: 0.8em;
 }
 .toc-article a {
     text-decoration: none;
     color: #1a1a1a;
+}
+.category-divider {
+    margin-top: 35%;
+    text-align: center;
+}
+.category-rule-top {
+    border-top: 2px solid #333;
+    width: 60%;
+    margin: 0 auto 0.6em;
+}
+.category-rule-bottom {
+    border-top: 1px solid #999;
+    width: 60%;
+    margin: 0.3em auto;
+}
+.category-name {
+    font-size: 1.8em;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: bold;
+}
+.category-sources {
+    font-size: 0.8em;
+    color: #888;
+    margin-top: 1em;
 }
 img {
     max-width: 100%;
@@ -118,6 +156,40 @@ blockquote {
     color: #333;
 }
 """
+
+
+def _group_sections_by_category(
+    sections: list[Section],
+) -> list[tuple[str, list[Section]]]:
+    """Group sections by category, preserving insertion order.
+
+    Empty or "Custom" categories are grouped under "Other" at the end.
+    If ALL sections have empty category (CLI mode), returns a single
+    group with empty string key — callers skip category dividers.
+    """
+    # Check if any section has a category
+    has_categories = any(
+        s.category and s.category != "Custom" for s in sections if s.articles
+    )
+    if not has_categories:
+        return [("", [s for s in sections if s.articles])]
+
+    groups: OrderedDict[str, list[Section]] = OrderedDict()
+    other: list[Section] = []
+
+    for section in sections:
+        if not section.articles:
+            continue
+        cat = section.category
+        if not cat or cat == "Custom":
+            other.append(section)
+        else:
+            groups.setdefault(cat, []).append(section)
+
+    if other:
+        groups["Other"] = groups.get("Other", []) + other
+
+    return list(groups.items())
 
 
 def build_epub(
@@ -198,66 +270,105 @@ def build_epub(
     )
     book.add_item(css)
 
+    # --- Group sections by category ---
+    category_groups = _group_sections_by_category(sections)
+    has_categories = len(category_groups) > 1 or (
+        len(category_groups) == 1 and category_groups[0][0] != ""
+    )
+
+    # --- Cover page (explicit, for proper opening behavior) ---
+    cover_page = epub.EpubHtml(
+        title="Cover",
+        file_name="cover_page.xhtml",
+        lang=config.newspaper.language,
+    )
+    cover_page.content = (
+        '<div style="text-align:center; margin:0; padding:0;">'
+        '<img src="cover.jpg" alt="Cover" style="max-width:100%; height:auto;" />'
+        '</div>'
+    ).encode("utf-8")
+    cover_page.add_item(css)
+    book.add_item(cover_page)
+
     # --- Build chapters ---
-    spine_items: list[str | epub.EpubHtml] = []
-    toc_sections = []
-    all_chapters = []
+    spine_items: list[str | epub.EpubHtml] = [cover_page]
+    toc_entries = []
     article_index = 0
+    category_divider_idx = 0
 
     # Front page / custom TOC page
-    front_page = _build_front_page(sections, issue_date, config)
+    front_page = _build_front_page(sections, issue_date, config, category_groups, has_categories)
     front_page.add_item(css)
     book.add_item(front_page)
     spine_items.append(front_page)
 
-    for section_idx, section in enumerate(sections):
-        if not section.articles:
-            continue
+    for cat_name, cat_sections in category_groups:
+        # Category divider page (skip when no categories)
+        if has_categories:
+            cat_divider = _build_category_divider(cat_name, category_divider_idx, cat_sections)
+            cat_divider.add_item(css)
+            book.add_item(cat_divider)
+            spine_items.append(cat_divider)
+            category_divider_idx += 1
 
-        # Section divider page
-        divider = _build_section_divider(section, section_idx)
-        divider.add_item(css)
-        book.add_item(divider)
-        spine_items.append(divider)
+        cat_toc_children = []
 
-        section_chapters = []
+        for section in cat_sections:
+            if not section.articles:
+                continue
 
-        for article in section.articles:
-            article_index += 1
-            chapter = _build_article_chapter(article, article_index, section.name)
-            chapter.add_item(css)
+            # Per-feed section divider
+            divider = _build_section_divider(section, article_index)
+            divider.add_item(css)
+            book.add_item(divider)
+            spine_items.append(divider)
 
-            # Embed article images into the EPUB
-            for img_idx, img in enumerate(article.images):
-                filename = f"images/article_{article_index:03d}_{img_idx + 1:02d}.jpg"
-                uid = f"article_{article_index:03d}_img_{img_idx + 1:02d}"
+            section_chapters = []
 
-                epub_img = epub.EpubImage(
-                    uid=uid,
-                    file_name=filename,
-                    media_type="image/jpeg",
-                    content=img.data,
+            for article in section.articles:
+                article_index += 1
+                chapter = _build_article_chapter(article, article_index, section.name)
+                chapter.add_item(css)
+
+                # Embed article images into the EPUB
+                for img_idx, img in enumerate(article.images):
+                    filename = f"images/article_{article_index:03d}_{img_idx + 1:02d}.jpg"
+                    img_uid = f"article_{article_index:03d}_img_{img_idx + 1:02d}"
+
+                    epub_img = epub.EpubImage(
+                        uid=img_uid,
+                        file_name=filename,
+                        media_type="image/jpeg",
+                        content=img.data,
+                    )
+                    book.add_item(epub_img)
+
+                    # Replace placeholder in chapter HTML with actual EPUB path
+                    placeholder = f"{IMG_PLACEHOLDER_PREFIX}{img_idx}__"
+                    chapter.content = chapter.content.replace(
+                        placeholder.encode("utf-8"), filename.encode("utf-8")
+                    )
+
+                book.add_item(chapter)
+                spine_items.append(chapter)
+                section_chapters.append(chapter)
+
+            # Build TOC entry for this feed section
+            if section_chapters:
+                cat_toc_children.append(
+                    (epub.Section(section.name), section_chapters)
                 )
-                book.add_item(epub_img)
 
-                # Replace placeholder in chapter HTML with actual EPUB path
-                placeholder = f"{IMG_PLACEHOLDER_PREFIX}{img_idx}__"
-                chapter.content = chapter.content.replace(
-                    placeholder.encode("utf-8"), filename.encode("utf-8")
-                )
-
-            book.add_item(chapter)
-            spine_items.append(chapter)
-            section_chapters.append(chapter)
-            all_chapters.append(chapter)
-
-        # Add section to TOC with nested articles
-        toc_sections.append(
-            (epub.Section(section.name), section_chapters)
-        )
+        # Nest feed sections under category in TOC
+        if has_categories and cat_toc_children:
+            toc_entries.append(
+                (epub.Section(cat_name), [item for pair in cat_toc_children for item in ([pair[0]] if not isinstance(pair, tuple) else [pair])])
+            )
+        else:
+            toc_entries.extend(cat_toc_children)
 
     # --- Table of Contents ---
-    book.toc = toc_sections
+    book.toc = toc_entries
 
     # --- Navigation files ---
     book.add_item(epub.EpubNcx())
@@ -266,13 +377,23 @@ def build_epub(
     # --- Spine (reading order) ---
     book.spine = spine_items
 
+    # --- Guide / Landmarks ---
+    book.guide = [
+        {"type": "cover", "title": "Cover", "href": "cover_page.xhtml"},
+        {"type": "toc", "title": "Table of Contents", "href": "front_page.xhtml"},
+    ]
+
     # --- Write ---
     epub.write_epub(str(output_path), book)
     return output_path
 
 
 def _build_front_page(
-    sections: list[Section], issue_date: date, config: Config
+    sections: list[Section],
+    issue_date: date,
+    config: Config,
+    category_groups: list[tuple[str, list[Section]]],
+    has_categories: bool,
 ) -> epub.EpubHtml:
     """Build a front page with a table of contents listing."""
     date_str = issue_date.strftime("%A, %B %d, %Y")
@@ -285,17 +406,21 @@ def _build_front_page(
     ]
 
     article_index = 0
-    for section in sections:
-        if not section.articles:
-            continue
-        html_parts.append(f'<p class="toc-section">{section.name}</p>')
-        for article in section.articles:
-            article_index += 1
-            html_parts.append(
-                f'<p class="toc-article">'
-                f'<a href="article_{article_index:03d}.xhtml">{article.title}</a>'
-                f"</p>"
-            )
+    for cat_name, cat_sections in category_groups:
+        if has_categories:
+            html_parts.append(f'<p class="toc-category">{cat_name}</p>')
+
+        for section in cat_sections:
+            if not section.articles:
+                continue
+            html_parts.append(f'<p class="toc-section">{section.name}</p>')
+            for article in section.articles:
+                article_index += 1
+                html_parts.append(
+                    f'<p class="toc-article">'
+                    f'\u25b8 <a href="article_{article_index:03d}.xhtml">{article.title}</a>'
+                    f"</p>"
+                )
 
     front = epub.EpubHtml(
         title="Front Page",
@@ -304,6 +429,28 @@ def _build_front_page(
     )
     front.content = "\n".join(html_parts).encode("utf-8")
     return front
+
+
+def _build_category_divider(
+    category_name: str, idx: int, cat_sections: list[Section]
+) -> epub.EpubHtml:
+    """Build a category divider page with centered minimal style."""
+    feed_names = " \u00b7 ".join(s.name for s in cat_sections if s.articles)
+    html = (
+        '<div class="category-divider">'
+        '<div class="category-rule-top"></div>'
+        f'<div class="category-name">{category_name.upper()}</div>'
+        '<div class="category-rule-bottom"></div>'
+        f'<p class="category-sources">{feed_names}</p>'
+        '</div>'
+    )
+
+    divider = epub.EpubHtml(
+        title=category_name,
+        file_name=f"category_{idx:02d}.xhtml",
+    )
+    divider.content = html.encode("utf-8")
+    return divider
 
 
 def _build_section_divider(section: Section, section_idx: int) -> epub.EpubHtml:

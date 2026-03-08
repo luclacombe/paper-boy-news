@@ -193,11 +193,21 @@ def generate_cover(
     y += 20
 
     # === Lead headline (first article from first section) ===
-    all_articles = [
-        (section.name, article)
-        for section in sections
-        for article in section.articles[:1]
-    ]
+    # Use category name as label when available; deduplicate by category
+    has_categories = any(
+        s.category and s.category != "Custom" for s in sections if s.articles
+    )
+    all_articles = []
+    seen_categories: set[str] = set()
+    for section in sections:
+        if not section.articles:
+            continue
+        label = section.category if has_categories and section.category else section.name
+        if has_categories and label in seen_categories:
+            continue
+        if has_categories:
+            seen_categories.add(label)
+        all_articles.append((label, section.articles[0]))
 
     if all_articles:
         lead_section, lead_article = all_articles[0]
