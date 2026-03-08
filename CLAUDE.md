@@ -39,17 +39,27 @@ Legacy code is archived in `legacy/` (Streamlit prototype and former FastAPI bac
 
 ## Build Pipeline
 
-"Get it now" flow:
-1. Next.js server action creates `delivery_history` record with `status: "building"`
-2. Fires `repository_dispatch` to GitHub Actions with `{ record_id }` (no PII)
-3. Returns immediately — dashboard polls Supabase every 5s for completion
-4. GitHub Actions runs `scripts/build_for_users.py` which builds EPUB, delivers, and updates the DB record
-5. Dashboard detects `status: "delivered"` or `status: "failed"` and transitions state
+Two-phase scheduled pipeline (build at 5 AM UTC, deliver at each user's time):
 
-Scheduled delivery:
-- GitHub Actions cron runs every 30 min
-- `build_for_users.py` scans all onboarded users, builds for those within ±15 min of their delivery window
-- A shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users within the same scheduled run
+**Build phase** (daily, 5 AM UTC):
+1. GitHub Actions cron triggers `BUILD_MODE=build`
+2. `build_for_users.py` builds ALL onboarded users' papers in one run
+3. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across all users
+4. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
+
+**Deliver phase** (every 30 min):
+1. GitHub Actions cron triggers `BUILD_MODE=deliver`
+2. `build_for_users.py` scans for `status: "built"` records within ±15 min of each user's delivery window
+3. Downloads EPUB from Storage, delivers via Google Drive/email/Gmail, updates to `status: "delivered"`
+
+**"Get it now" flow** (on-demand):
+1. Next.js server action creates `delivery_history` record with `status: "building"`
+2. If a `"built"` record already exists, dispatches delivery-only instead of rebuilding
+3. Fires `repository_dispatch` to GitHub Actions with `{ record_id }` (no PII)
+4. Returns immediately — dashboard polls Supabase every 5s for completion
+5. Dashboard detects `status: "delivered"`, `"built"`, or `"failed"` and transitions state
+
+**Status lifecycle:** `building → built → delivered` (or `→ failed` at any step)
 
 ## Project Structure
 
@@ -151,7 +161,8 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 - Core Python library uses `paper_boy` package namespace
 - Config is YAML-based for CLI (`config.yaml`), Supabase DB for web app
 - EPUB metadata: `calibre:series` for Kobo, standard EPUB3 for all devices
-- Cover images: 600x900px, generated with Pillow
+- EPUB structure: category-grouped when feeds have categories (web app), flat when no categories (CLI). Cover page first in spine with guide landmarks for proper opening behavior
+- Cover images: 600x900px, generated with Pillow, category-aware labels
 - Secrets: never commit `.env.local`, use env vars in CI/deployment
 
 ## Deployment
@@ -169,19 +180,20 @@ Editions use a **5 AM rollover** in the user's configured timezone (not UTC midn
 - Before 5 AM user-local → current edition is **yesterday's**
 - After 5 AM → current edition is **today's**
 - One edition per calendar day per user (enforced by partial unique index on `delivery_history`)
-- Delivery time (5–8 AM) = when the paper gets pushed to the user's device
-- "Get it now" = async build via GitHub Actions (dashboard polls for completion)
+- Build time = 5 AM UTC (all users built in one run with shared cache)
+- Delivery time (5–8 AM user-local) = when the paper gets pushed to the user's device
+- "Get it now" = async build (or delivery-only if already built) via GitHub Actions
 
 Key files:
 - `web/src/lib/edition-date.ts` — timezone-aware edition date calculation
 - `web/src/actions/build.ts` — `getItNow()` action with dedup guard + GitHub dispatch
-- `web/src/components/dashboard-client.tsx` — 8-state dashboard state machine with polling
-- `scripts/build_for_users.py` — build runner for GitHub Actions
+- `web/src/components/dashboard-client.tsx` — 9-state dashboard state machine with polling
+- `scripts/build_for_users.py` — build runner for GitHub Actions (3 modes: build, deliver, on-demand)
 
 ## Current Status
 
 - Core library, auth, and server actions are complete
-- Dashboard (`/dashboard`) — 8-state status card, async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge)
+- Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge)
 - Settings (`/settings`) — accordion with 4 colored-border cards, batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`

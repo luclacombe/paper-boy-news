@@ -131,4 +131,31 @@ describe("getDashboardState", () => {
     expect(getDashboardState(CONFIGURED, "idle", true, true, BUILDING_EDITION, 3))
       .toBe("build-in-progress");
   });
+
+  it("returns awaiting-delivery when today's edition is built", () => {
+    const BUILT_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "built",
+    };
+    expect(getDashboardState(CONFIGURED, "idle", false, false, BUILT_EDITION, 3))
+      .toBe("awaiting-delivery");
+  });
+
+  it("returns awaiting-delivery for built even before cutoff", () => {
+    const BUILT_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "built",
+    };
+    expect(getDashboardState(CONFIGURED, "idle", true, true, BUILT_EDITION, 3))
+      .toBe("awaiting-delivery");
+  });
+
+  it("prioritizes fetching over built edition", () => {
+    const BUILT_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "built",
+    };
+    expect(getDashboardState(CONFIGURED, "fetching", false, false, BUILT_EDITION, 3))
+      .toBe("build-in-progress");
+  });
 });

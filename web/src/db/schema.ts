@@ -77,7 +77,7 @@ export const deliveryHistory = pgTable("delivery_history", {
     .notNull()
     .references(() => userProfiles.id, { onDelete: "cascade" }),
 
-  status: text("status").notNull(), // delivered | failed | building
+  status: text("status").notNull(), // building | built | delivered | failed
   editionNumber: integer("edition_number"),
   editionDate: text("edition_date").notNull(),
   articleCount: integer("article_count").default(0),

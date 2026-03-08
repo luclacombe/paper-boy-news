@@ -58,6 +58,27 @@ export async function getItNow(): Promise<BuildResult> {
       error: null,
     };
   }
+  // EPUB already built but not yet delivered — dispatch delivery-only
+  if (existing && existing.status === "built") {
+    try {
+      await dispatchBuild(existing.id);
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : "Failed to start delivery";
+      return errorResult(errorMsg, editionDate);
+    }
+    return {
+      success: true,
+      building: true,
+      editionDate,
+      totalArticles: existing.articleCount,
+      sections: existing.sections ?? [],
+      fileSize: existing.fileSize,
+      fileSizeBytes: existing.fileSizeBytes,
+      epubStoragePath: existing.epubStoragePath,
+      error: null,
+    };
+  }
 
   // 1. Load feeds from DB
   const feeds = await db
