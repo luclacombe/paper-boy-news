@@ -1,0 +1,51 @@
+name: Build Newspaper
+
+on:
+  repository_dispatch:
+    types: [build-newspaper]
+  schedule:
+    # Every 30 min for scheduled delivery windows
+    - cron: "0,30 * * * *"
+  workflow_dispatch: # Manual debug trigger
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -e . > /dev/null 2>&1
+          pip install -r scripts/requirements.txt > /dev/null 2>&1
+
+      - name: Build newspaper
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          BUILD_RECORD_ID: ${{ github.event.client_payload.record_id }}
+          PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
+        run: python scripts/build_for_users.py > /dev/null 2>&1
+
+      - name: Delete workflow logs
+        if: always()
+        run: |
+          curl -s -X DELETE \
+            -H "Authorization: token ${{ secrets.GH_PAT }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/logs" \
+            > /dev/null 2>&1 || true
