@@ -288,6 +288,21 @@ export default function LandingPage() {
                   Sign in
                 </Link>
               </p>
+              <p className="mt-4 font-body text-xs text-caption/60">
+                <Link
+                  href="/privacy"
+                  className="underline hover:no-underline"
+                >
+                  Privacy
+                </Link>
+                {" · "}
+                <Link
+                  href="/terms"
+                  className="underline hover:no-underline"
+                >
+                  Terms
+                </Link>
+              </p>
             </section>
           </main>
 
