@@ -36,7 +36,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           BUILD_RECORD_ID: ${{ github.event.client_payload.record_id }}
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         run: python scripts/build_for_users.py > /dev/null 2>&1
