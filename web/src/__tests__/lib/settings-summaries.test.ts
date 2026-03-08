@@ -46,6 +46,20 @@ describe("getSourcesSummary", () => {
     ];
     expect(getSourcesSummary(feeds)).toBe("2 sources · 1 category");
   });
+
+  it("uses override counts when provided", () => {
+    const feeds = [makeFeed({ category: "Tech" })];
+    expect(getSourcesSummary(feeds, { count: 5, categoryCount: 3 })).toBe(
+      "5 sources · 3 categories"
+    );
+  });
+
+  it("returns 'No sources yet' when override count is 0", () => {
+    const feeds = [makeFeed({ category: "Tech" })];
+    expect(getSourcesSummary(feeds, { count: 0, categoryCount: 0 })).toBe(
+      "No sources yet"
+    );
+  });
 });
 
 describe("getDeliverySummary", () => {

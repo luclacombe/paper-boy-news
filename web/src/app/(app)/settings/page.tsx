@@ -1,5 +1,5 @@
 import { getUserConfig } from "@/actions/user-config";
-import { getFeeds } from "@/actions/feeds";
+import { getFeeds, cleanOrphanedFeeds } from "@/actions/feeds";
 import { getCatalogData } from "@/actions/feed-catalog";
 import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
 import { SettingsClient } from "@/components/settings-client";
@@ -27,6 +27,9 @@ export default async function SettingsPage({
       hasGmailScope(),
       searchParams,
     ]);
+
+  // Clean up feeds from sources removed from the catalog
+  await cleanOrphanedFeeds();
 
   if (!config) redirect("/login");
 

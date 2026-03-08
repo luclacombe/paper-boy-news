@@ -52,10 +52,16 @@ const SECTION_COLORS: Record<SettingsSection, string> = {
 
 // ─── Summary generators (pure, exported for testing) ─────────────
 
-export function getSourcesSummary(feeds: Feed[]): string {
-  if (feeds.length === 0) return "No sources yet";
-  const categories = new Set(feeds.map((f) => f.category).filter(Boolean));
-  return `${feeds.length} source${feeds.length !== 1 ? "s" : ""} · ${categories.size} categor${categories.size !== 1 ? "ies" : "y"}`;
+export function getSourcesSummary(
+  feeds: Feed[],
+  overrideCounts?: { count: number; categoryCount: number }
+): string {
+  const count = overrideCounts?.count ?? feeds.length;
+  const categoryCount =
+    overrideCounts?.categoryCount ??
+    new Set(feeds.map((f) => f.category).filter(Boolean)).size;
+  if (count === 0) return "No sources yet";
+  return `${count} source${count !== 1 ? "s" : ""} · ${categoryCount} categor${categoryCount !== 1 ? "ies" : "y"}`;
 }
 
 export function getDeliverySummary(
@@ -159,10 +165,21 @@ export function SettingsAccordion({
 
   const [sourcesDirty, setSourcesDirty] = useState(false);
   const sourcesSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const [effectiveCounts, setEffectiveCounts] = useState<{
+    count: number;
+    categoryCount: number;
+  } | null>(null);
 
   const handleSourcesDirtyChange = useCallback((dirty: boolean) => {
     setSourcesDirty(dirty);
   }, []);
+
+  const handleEffectiveCountChange = useCallback(
+    (count: number, categoryCount: number) => {
+      setEffectiveCounts({ count, categoryCount });
+    },
+    []
+  );
 
   // ── Dirty checks ──
 
@@ -358,12 +375,13 @@ export function SettingsAccordion({
       {renderCard(
         "sources",
         "Sources",
-        getSourcesSummary(feeds),
+        getSourcesSummary(feeds, effectiveCounts ?? undefined),
         <SourcesSection
           feeds={feeds}
           categories={categories}
           bundles={bundles}
           onDirtyChange={handleSourcesDirtyChange}
+          onEffectiveCountChange={handleEffectiveCountChange}
           saveRef={sourcesSaveRef}
         />,
         true

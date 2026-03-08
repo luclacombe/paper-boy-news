@@ -84,3 +84,28 @@ export async function setFeeds(
     }))
   );
 }
+
+export async function cleanOrphanedFeeds(): Promise<number> {
+  const profile = await getUserProfile();
+  if (!profile) return 0;
+
+  const { getAllCatalogFeedUrls } = await import("@/lib/feed-catalog");
+  const catalogUrls = getAllCatalogFeedUrls();
+
+  const rows = await db
+    .select()
+    .from(userFeeds)
+    .where(eq(userFeeds.userId, profile.id));
+
+  const orphans = rows.filter(
+    (row) => !catalogUrls.has(row.url) && row.category !== "Custom"
+  );
+
+  for (const orphan of orphans) {
+    await db
+      .delete(userFeeds)
+      .where(and(eq(userFeeds.id, orphan.id), eq(userFeeds.userId, profile.id)));
+  }
+
+  return orphans.length;
+}
