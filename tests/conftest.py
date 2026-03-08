@@ -179,25 +179,6 @@ def make_sections(make_section):
     return _make
 
 
-# --- API test fixtures ---
-
-
-@pytest.fixture
-def api_client():
-    """Synchronous TestClient for the FastAPI app (dev mode, no auth required)."""
-    from starlette.testclient import TestClient
-
-    from api.main import app
-
-    return TestClient(app)
-
-
-@pytest.fixture
-def auth_header():
-    """Authorization header for API tests (dev mode accepts any token)."""
-    return {"Authorization": "Bearer dev-token"}
-
-
 # --- Web app fixtures ---
 
 

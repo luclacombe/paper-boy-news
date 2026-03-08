@@ -58,7 +58,9 @@ src/
 │   │   ├── dashboard/ # Newspaper front page — status hub, build, back issues
 │   │   └── settings/  # Accordion settings (?open= deep linking from dashboard)
 │   └── api/
-│       └── auth/      # OAuth callback routes (Supabase + Google)
+│       ├── auth/      # OAuth callback routes (Supabase + Google)
+│       ├── feeds/validate/ # RSS feed URL validation (replaces FastAPI)
+│       └── smtp-test/ # SMTP connection test (replaces FastAPI)
 ├── components/
 │   ├── ui/            # shadcn/ui primitives (button, card, input, etc.)
 │   ├── settings/      # Settings section panels (sources, delivery, schedule, paper)
@@ -77,7 +79,7 @@ src/
 ├── hooks/
 │   └── use-onboarding-state.ts  # localStorage persistence for wizard
 ├── lib/
-│   ├── api-client.ts  # Typed fetch wrapper for FastAPI
+│   ├── github-dispatch.ts # GitHub Actions repository_dispatch for builds
 │   ├── auth.ts        # getAuthUser(), getUserProfile()
 │   ├── setup-status.ts # Compute delivery setup completeness
 │   ├── download-epub.ts # Browser-side EPUB download from Supabase Storage
@@ -124,9 +126,9 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Path alias** `@/*` maps to `src/*`
 - **Types** centralized in `src/types/index.ts`
 - **Supabase clients**: use `server.ts` in Server Components/Actions, `client.ts` in Client Components
-- **FastAPI calls** go through `src/lib/api-client.ts` (typed fetch wrapper)
+- **Feed validation + SMTP test** run as Next.js API routes (`/api/feeds/validate`, `/api/smtp-test`)
 - **Edition model**: editions roll over at 5 AM user-local (not midnight UTC). One per day, enforced by partial unique DB index. See `src/lib/edition-date.ts`
-- **Build pipeline**: `getItNow()` action → checks dedup → FastAPI `/build` → FastAPI `/deliver` → stores result in delivery_history
+- **Build pipeline**: `getItNow()` action → checks dedup → creates "building" record → fires GitHub Actions `repository_dispatch` → returns immediately. Dashboard polls Supabase every 5s. GitHub Actions runs `scripts/build_for_users.py` which builds EPUB, delivers, and updates the DB record
 - **Dashboard state machine**: 8 states computed from edition status, time of day, and setup completeness. Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability
 - **Settings accordion**: 4 collapsible cards with colored left borders (red/ink/amber/green). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper`. All sections use batch save — "Save changes" when dirty, auto-save on collapse. Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing
 - **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout). Settings has its own compact header with back link + sign out
@@ -143,9 +145,9 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 See `.env.example` for cloud vars, `.env.local.example` for local Supabase:
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - `DATABASE_URL` (Supabase PostgreSQL connection string)
-- `NEXT_PUBLIC_FASTAPI_URL` (Railway API URL)
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for Drive/Gmail OAuth)
 - `NEXT_PUBLIC_APP_URL` (for OAuth redirects)
+- `GITHUB_PAT`, `GITHUB_REPO` (server-side only, for build dispatch)
 
 **Env file strategy**:
 - `.env.local` — active env (used by Next.js, gitignored)
@@ -159,17 +161,16 @@ See `.env.example` for cloud vars, `.env.local.example` for local Supabase:
 Editions use a **5 AM rollover** in the user's configured timezone:
 - Before 5 AM → current edition = yesterday. After 5 AM → current edition = today.
 - `getEditionDate(timezone)` in `src/lib/edition-date.ts` is the single source of truth.
-- `getItNow()` in `src/actions/build.ts` checks for existing editions before building (dedup guard).
-- FastAPI `/build` accepts optional `edition_date` param so the Next.js server controls the date.
+- `getItNow()` in `src/actions/build.ts` checks for existing editions before building (dedup guard), then dispatches async build to GitHub Actions.
 
-Dashboard states (in priority order): setup-incomplete → build-in-progress → build-error → fetched-early → delivered → failed → pre-build-first / pre-build → ready-first / ready.
+Dashboard states (in priority order): setup-incomplete → build-in-progress (client or DB "building") → build-error → fetched-early → delivered → failed → pre-build-first / pre-build → ready-first / ready.
 
-**Scheduled delivery (cron)** is designed but deferred — see `.claude/plans/replicated-wobbling-harp.md`.
+**Scheduled delivery**: GitHub Actions cron runs every 30 min, `scripts/build_for_users.py` scans users and builds within ±15 min of their delivery window.
 
 ## Current Status
 
-- Auth, onboarding, server actions, and API integration are complete
-- Dashboard (`/dashboard`) — 8-state status card with timezone-aware edition logic, build controls, past editions, schedule nudges
+- Auth, onboarding, and server actions are complete
+- Dashboard (`/dashboard`) — 8-state status card with timezone-aware edition logic, async build with polling, past editions, schedule nudges
 - Settings (`/settings`) — accordion with 4 cards: Sources, Delivery, Schedule, Your Paper. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via catalog checkboxes (no separate list)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Landing page and login flow are functional

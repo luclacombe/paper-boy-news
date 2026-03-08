@@ -6,44 +6,60 @@ Automated morning newspaper generator for e-readers (Kobo, Kindle, reMarkable).
 
 Paper Boy fetches news from RSS feeds, compiles them into a well-formatted EPUB, and delivers it to e-readers via Google Drive (Kobo), email (Kindle Send-to-Kindle), or direct download.
 
-The project has three components:
+The project has two main components:
 
 1. **Core Python library** (`src/paper_boy/`) — RSS fetching, EPUB generation, delivery backends, CLI
-2. **FastAPI backend** (`api/`) — HTTP API wrapping the core library, deployed on Railway
-3. **Next.js web app** (`web/`) — Full-stack web UI with Supabase auth, deployed on Vercel
+2. **Next.js web app** (`web/`) — Full-stack web UI with Supabase auth, deployed on Vercel
 
-The legacy Streamlit prototype is archived in `legacy/streamlit/` for reference.
+EPUB builds run in **GitHub Actions** via `repository_dispatch` (on-demand) and cron (scheduled delivery).
+
+Legacy code is archived in `legacy/` (Streamlit prototype and former FastAPI backend).
 
 ## Architecture
 
 ```
 ┌─────────────────────┐     ┌─────────────────────┐     ┌─────────────────────┐
-│   Next.js (Vercel)  │────▶│  FastAPI (Railway)   │────▶│  Core Python lib    │
-│   web/         │     │  api/                │     │  src/paper_boy/     │
+│   Next.js (Vercel)  │     │  GitHub Actions      │     │  Core Python lib    │
+│   web/              │     │  .github/workflows/  │     │  src/paper_boy/     │
 │                     │     │                      │     │                     │
-│  Supabase Auth      │     │  POST /build         │     │  feedparser         │
-│  Drizzle ORM        │     │  POST /deliver       │     │  trafilatura        │
-│  Server Actions     │     │  POST /feeds/validate│     │  ebooklib           │
-│  App Router         │     │  POST /smtp-test     │     │  Pillow (covers)    │
+│  Supabase Auth      │     │  repository_dispatch │     │  feedparser         │
+│  Drizzle ORM        │────▶│  (on-demand builds)  │────▶│  trafilatura        │
+│  Server Actions     │     │                      │     │  ebooklib           │
+│  API Routes         │     │  cron (scheduled)    │     │  Pillow (covers)    │
+│  App Router         │     │                      │     │                     │
 └─────────────────────┘     └─────────────────────┘     └─────────────────────┘
-         │                                                        │
-         ▼                                                        ▼
-┌─────────────────────┐                               ┌─────────────────────┐
-│  Supabase           │                               │  CLI (paper-boy)    │
-│  PostgreSQL + Auth  │                               │  GitHub Actions     │
-│  Storage (EPUBs)    │                               │  Daily cron builds  │
-└─────────────────────┘                               └─────────────────────┘
+         │                           │                            │
+         ▼                           ▼                            ▼
+┌─────────────────────┐     ┌─────────────────────┐   ┌─────────────────────┐
+│  Supabase           │     │  scripts/            │   │  CLI (paper-boy)    │
+│  PostgreSQL + Auth  │◀────│  build_for_users.py  │   │  Local dev/testing  │
+│  Storage (EPUBs)    │     │  (reads/writes DB)   │   │                     │
+└─────────────────────┘     └─────────────────────┘   └─────────────────────┘
 ```
+
+## Build Pipeline
+
+"Get it now" flow:
+1. Next.js server action creates `delivery_history` record with `status: "building"`
+2. Fires `repository_dispatch` to GitHub Actions with `{ record_id }` (no PII)
+3. Returns immediately — dashboard polls Supabase every 5s for completion
+4. GitHub Actions runs `scripts/build_for_users.py` which builds EPUB, delivers, and updates the DB record
+5. Dashboard detects `status: "delivered"` or `status: "failed"` and transitions state
+
+Scheduled delivery:
+- GitHub Actions cron runs every 30 min
+- `build_for_users.py` scans all onboarded users, builds for those within ±15 min of their delivery window
 
 ## Project Structure
 
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
-api/                     # FastAPI backend (see api/CLAUDE.md)
 web/                     # Next.js web app (see web/CLAUDE.md)
+scripts/                 # Build script for GitHub Actions
 legacy/streamlit/        # Archived Streamlit prototype
-tests/                   # Python tests for core lib + API (see tests/CLAUDE.md)
-.github/workflows/       # CI + daily cron
+legacy/api/              # Archived FastAPI backend (replaced by GitHub Actions)
+tests/                   # Python tests for core lib
+.github/workflows/       # CI + build-newspaper
 ```
 
 ## Tech Stack
@@ -51,7 +67,7 @@ tests/                   # Python tests for core lib + API (see tests/CLAUDE.md)
 | Component | Stack |
 |-----------|-------|
 | Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, click |
-| API | FastAPI, uvicorn, deployed on Railway (Docker) |
+| Build runner | GitHub Actions, `scripts/build_for_users.py`, Supabase Python client |
 | Web app | Next.js 16, React 19, TypeScript (strict), Tailwind CSS v4, shadcn/ui |
 | Auth | Supabase Auth (Google OAuth + email/password) |
 | Database | Supabase PostgreSQL via Drizzle ORM |
@@ -67,10 +83,6 @@ pip install -e ".[dev]"           # Install in dev mode
 paper-boy build                   # CLI: build newspaper
 paper-boy deliver                 # CLI: build + deliver
 pytest                            # Run Python tests
-
-# ── FastAPI backend ──
-pip install -r api/requirements.txt
-uvicorn api.main:app --reload     # Run API locally (port 8000)
 
 # ── Next.js web app ──
 cd web
@@ -145,9 +157,8 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 | Service | Platform | Config |
 |---------|----------|--------|
 | Web app | Vercel | `web/` directory, `paper-boy-news.vercel.app` |
-| API | Railway | `api/Dockerfile`, `railway.toml` |
+| EPUB builds | GitHub Actions | `.github/workflows/build-newspaper.yml` |
 | Database | Supabase | PostgreSQL + Auth + Storage |
-| Daily builds | GitHub Actions | `.github/workflows/daily-news.yml` (6:00 AM UTC) |
 
 ## Edition Model
 
@@ -157,20 +168,21 @@ Editions use a **5 AM rollover** in the user's configured timezone (not UTC midn
 - After 5 AM → current edition is **today's**
 - One edition per calendar day per user (enforced by partial unique index on `delivery_history`)
 - Delivery time (5–8 AM) = when the paper gets pushed to the user's device
-- "Get it now" = build + deliver on demand (only available after 5 AM)
+- "Get it now" = async build via GitHub Actions (dashboard polls for completion)
 
 Key files:
 - `web/src/lib/edition-date.ts` — timezone-aware edition date calculation
-- `web/src/actions/build.ts` — `getItNow()` action with dedup guard
-- `web/src/components/dashboard-client.tsx` — 8-state dashboard state machine
-
-**Scheduled delivery (cron)** is designed but not yet implemented — see plan at `.claude/plans/replicated-wobbling-harp.md`.
+- `web/src/actions/build.ts` — `getItNow()` action with dedup guard + GitHub dispatch
+- `web/src/components/dashboard-client.tsx` — 8-state dashboard state machine with polling
+- `scripts/build_for_users.py` — build runner for GitHub Actions
 
 ## Current Status
 
-- Core library, API, auth, and server actions are complete
-- Dashboard (`/dashboard`) — 8-state status card, build controls, past editions, schedule nudges
+- Core library, auth, and server actions are complete
+- Dashboard (`/dashboard`) — 8-state status card, async build with polling, past editions, schedule nudges
 - Settings (`/settings`) — accordion with 4 colored-border cards, batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`
+- Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional
 - Legacy Streamlit prototype archived in `legacy/streamlit/`
+- Legacy FastAPI backend archived in `legacy/api/`
