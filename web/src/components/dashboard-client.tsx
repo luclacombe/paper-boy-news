@@ -117,8 +117,8 @@ export function DashboardClient({
   useEffect(() => {
     if (earlyState !== "fetching") return;
     const interval = setInterval(() => {
-      setEarlyStep((s) => (s < 9 ? s + 1 : s));
-    }, earlyStep < 5 ? 3000 : 8000);
+      setEarlyStep((s) => (s < 19 ? s + 1 : s));
+    }, earlyStep < 5 ? 3000 : 18000);
     return () => clearInterval(interval);
   }, [earlyState, earlyStep]);
 
@@ -128,20 +128,29 @@ export function DashboardClient({
     const interval = setInterval(() => {
       router.refresh();
     }, 5000);
-    // Timeout after 3 minutes
+    // Timeout after 5 minutes — do one final refresh before showing error,
+    // since the build may have completed while polling was in-flight
     const timeout = setTimeout(() => {
-      setEarlyState("error");
-      setEarlyResult({
-        success: false,
-        editionDate,
-        totalArticles: 0,
-        sections: [],
-        fileSize: "0 KB",
-        fileSizeBytes: 0,
-        epubStoragePath: null,
-        error: "Taking longer than expected. Check back shortly.",
-      });
-    }, 180_000);
+      router.refresh();
+      // Give the refresh a moment to propagate, then check if still building
+      setTimeout(() => {
+        setEarlyState((current) => {
+          if (current !== "fetching") return current; // already resolved
+          setEarlyResult({
+            success: false,
+            editionDate,
+            totalArticles: 0,
+            sections: [],
+            fileSize: "0 KB",
+            fileSizeBytes: 0,
+            epubStoragePath: null,
+            error:
+              "Taking longer than expected. The build may still be running — try again to check.",
+          });
+          return "error";
+        });
+      }, 3000);
+    }, 300_000);
     return () => {
       clearInterval(interval);
       clearTimeout(timeout);
