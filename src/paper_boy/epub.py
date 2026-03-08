@@ -12,11 +12,13 @@ from paper_boy.config import Config
 from paper_boy.cover import generate_cover
 from paper_boy.feeds import IMG_PLACEHOLDER_PREFIX, Section
 
-# CSS optimized for e-reader displays
+# CSS optimized for e-reader displays (Kobo, Kindle, reMarkable)
+# Avoids CSS Grid/Flexbox, complex selectors, and custom fonts (poorly supported)
 STYLESHEET = """
 body {
     font-family: serif;
-    line-height: 1.6;
+    font-size: 1.05em;
+    line-height: 1.7;
     margin: 1em;
     color: #1a1a1a;
 }
@@ -33,6 +35,14 @@ p {
     margin: 0.6em 0;
     text-align: justify;
 }
+.article-body > p:first-child {
+    text-indent: 0;
+}
+.article-body > p {
+    text-indent: 1.5em;
+    margin-top: 0.2em;
+    margin-bottom: 0.2em;
+}
 .article-meta {
     font-size: 0.85em;
     color: #666;
@@ -44,9 +54,9 @@ p {
     font-style: normal;
 }
 .article-source {
-    font-size: 0.8em;
-    color: #888;
-    margin-top: 1.5em;
+    font-size: 0.75em;
+    color: #999;
+    margin-top: 2em;
     padding-top: 0.5em;
     border-top: 1px solid #ddd;
 }
@@ -93,7 +103,7 @@ figure img {
     height: auto;
 }
 figcaption {
-    font-size: 0.85em;
+    font-size: 0.8em;
     color: #666;
     font-style: italic;
     margin-top: 0.3em;
@@ -101,10 +111,11 @@ figcaption {
     padding: 0 1em;
 }
 blockquote {
-    margin: 1em 2em;
+    margin: 1em 1.5em;
     font-style: italic;
     border-left: 3px solid #ccc;
     padding-left: 1em;
+    color: #333;
 }
 """
 
