@@ -50,7 +50,7 @@ src/paper_boy/
 - `feeds.fetch_feeds(config, cache=None) → list[Section]` — Fetch all configured feeds, extract articles
 - `cache.ContentCache` — In-memory cache for feed entries, article HTML, and image bytes
 - `epub.build_epub(sections, config) → path` — Generate EPUB file
-- `cover.generate_cover(sections, config) → bytes` — Generate cover image
+- `cover.generate_cover(title, sections, issue_date) → bytes` — Generate newspaper-style cover image (600x900 JPEG)
 - `delivery.deliver(path, config)` — Deliver via configured method (Google Drive, email, local)
 
 ## Config Format
@@ -90,9 +90,21 @@ delivery:
 
 ## Design Decisions
 
+- **Bundled font**: Playfair Display (OFL-licensed variable TTF) in `src/paper_boy/fonts/`. Supports Regular through Black weights via `set_variation_by_name()`. Guarantees consistent cover rendering on all platforms including CI (no bitmap fallback). ~300KB, included as package data in `pyproject.toml`.
+- **Cover layout**: Newspaper broadsheet style — double-rule masthead with auto-scaling title, red-accented lead headline, secondary headlines grouped by section with thin rules. Masthead font scales down automatically for long titles.
+- **EPUB CSS**: Optimized for e-ink displays — paragraph indent (except first), justified text, larger body font (1.05em), improved line-height (1.7). Avoids CSS Grid/Flexbox (unsupported on most e-readers).
 - EPUB3 format for universal e-reader support
 - `calibre:series` metadata for Kobo series grouping, standard EPUB3 series for all devices
-- trafilatura for full article extraction with RSS content as fallback
+- Multi-strategy article extraction with fallback chain (`_extract_article_content`):
+  1. Standard trafilatura (default UA)
+  2. Re-fetch with bot UA (`archive.org_bot`) → trafilatura
+  3. JSON-LD structured data extraction (`articleBody` / `text` fields)
+  - `MIN_ARTICLE_WORDS = 150` threshold to detect truncated/paywalled content
+  - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts)
+  - Falls back to RSS feed content if all strategies fail
+- `_convert_graphics_to_imgs()` normalises TEI XML `<graphic>` tags to `<img>` before the image pipeline runs (trafilatura emits `<graphic>` instead of `<img>` with `output_format="html"`)
+- `_strip_duplicate_title()` removes leading `<h1>`/`<h2>` from extracted HTML when it matches the article title (fuzzy: case-insensitive, punctuation-stripped, containment check) — prevents double headings since `epub.py` adds its own `<h1>` from `Article.title`
+- Video/podcast/live URL segments are filtered out before extraction (Al Jazeera `/video/` etc.)
 - Image optimization: resize + JPEG compression for e-reader screens
 - Google Drive auto-cleanup of old issues (`keep_days` config)
 - Google credentials: OAuth tokens from web app DB (CI) or `credentials.json` file (local CLI)
