@@ -79,3 +79,14 @@ export function getFeedsForBundle(bundleName: string): CatalogFeed[] {
     .filter((f): f is CatalogFeed => f !== undefined);
 }
 
+export function getAllCatalogFeedUrls(): Set<string> {
+  const data = loadCatalog();
+  const urls = new Set<string>();
+  for (const category of data.categories) {
+    for (const feed of category.feeds) {
+      urls.add(feed.url);
+    }
+  }
+  return urls;
+}
+
