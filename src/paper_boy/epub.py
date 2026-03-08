@@ -199,7 +199,7 @@ def build_epub(
     book.add_item(css)
 
     # --- Build chapters ---
-    spine_items: list[str | epub.EpubHtml] = ["nav"]
+    spine_items: list[str | epub.EpubHtml] = []
     toc_sections = []
     all_chapters = []
     article_index = 0

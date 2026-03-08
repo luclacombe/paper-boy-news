@@ -128,3 +128,16 @@ def test_build_epub_default_output_name():
             assert result.exists()
         finally:
             os.chdir(original)
+
+
+def test_build_epub_nav_not_in_spine():
+    """Nav document should not appear in the reading spine."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output = Path(tmpdir) / "test.epub"
+        build_epub(_make_sections(), _make_config(), date(2026, 2, 28), output)
+        with zipfile.ZipFile(output) as z:
+            opf_files = [n for n in z.namelist() if n.endswith(".opf")]
+            opf_content = z.read(opf_files[0]).decode("utf-8")
+            import re
+            spine_refs = re.findall(r'<itemref idref="([^"]+)"', opf_content)
+            assert "nav" not in spine_refs

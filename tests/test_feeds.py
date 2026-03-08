@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,7 +13,10 @@ from paper_boy.feeds import (
     _download_image,
     _extract_article,
     _extract_article_content,
+    _extract_bloomberg_article,
     _extract_from_json_ld,
+    _extract_paginated_content,
+    _extract_via_archive,
     _fetch_single_feed,
     _get_feed_content,
     _normalize_html,
@@ -495,52 +499,58 @@ class TestExtractArticleContent:
         # Should not attempt bot UA fetch
         mock_fetch.assert_not_called()
 
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
     @patch("paper_boy.feeds._extract_from_json_ld", return_value=None)
     @patch("paper_boy.feeds._trafilatura_extract_from_html")
     @patch("paper_boy.feeds._fetch_page")
     @patch("paper_boy.feeds._trafilatura_extract")
     def test_falls_back_to_bot_ua(
-        self, mock_traf, mock_fetch, mock_traf_html, mock_json_ld
+        self, mock_traf, mock_fetch, mock_traf_html, mock_json_ld, mock_archive
     ):
-        """Strategy 2 fires when strategy 1 returns short content."""
+        """Strategy 2 fires when strategy 1 and 1.5 (browser UA) fail."""
         mock_traf.return_value = "<p>Short paywall text.</p>"  # < 150 words
-        mock_fetch.return_value = "<html>full page</html>"
         long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        # browser UA returns None, bot UA returns full page
+        mock_fetch.side_effect = [None, "<html>full page</html>"]
         mock_traf_html.return_value = long_html
 
         result = _extract_article_content("https://example.com/paywalled", True)
         assert result is not None
         assert "word" in result
-        mock_fetch.assert_called_once()
+        assert mock_fetch.call_count == 2
 
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
     @patch("paper_boy.feeds._trafilatura_extract_from_html", return_value=None)
     @patch("paper_boy.feeds._fetch_page")
     @patch("paper_boy.feeds._trafilatura_extract", return_value=None)
-    def test_falls_back_to_json_ld(self, mock_traf, mock_fetch, mock_traf_html):
-        """Strategy 3 (JSON-LD) fires when strategies 1 and 2 fail."""
+    def test_falls_back_to_json_ld(self, mock_traf, mock_fetch, mock_traf_html, mock_archive):
+        """Strategy 3 (JSON-LD) fires when strategies 1, 1.5, and 2 fail."""
         body_text = " ".join(["word"] * 200)
         page_html = (
             '<html><head><script type="application/ld+json">'
             + '{"@type":"Article","articleBody":"' + body_text + '"}'
             + "</script></head></html>"
         )
-        mock_fetch.return_value = page_html
+        # browser UA returns None, bot UA returns page with JSON-LD
+        mock_fetch.side_effect = [None, page_html]
 
         result = _extract_article_content("https://example.com/paywalled", False)
         assert result is not None
         assert "word" in result
 
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
     @patch("paper_boy.feeds._fetch_page", return_value=None)
     @patch("paper_boy.feeds._trafilatura_extract", return_value=None)
-    def test_returns_none_when_all_strategies_fail(self, mock_traf, mock_fetch):
+    def test_returns_none_when_all_strategies_fail(self, mock_traf, mock_fetch, mock_archive):
         """Returns None when no strategy produces content."""
         result = _extract_article_content("https://example.com/broken", True)
         assert result is None
 
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
     @patch("paper_boy.feeds._fetch_page", return_value=None)
     @patch("paper_boy.feeds._trafilatura_extract")
     def test_returns_short_result_normalized_when_no_better(
-        self, mock_traf, mock_fetch
+        self, mock_traf, mock_fetch, mock_archive
     ):
         """Short result from strategy 1 is returned (normalized) if no other succeeds."""
         mock_traf.return_value = '<p style="color:red">Short but real.</p>'
@@ -659,6 +669,16 @@ class TestNormalizeHtml:
 
     def test_strips_whitespace(self):
         assert _normalize_html("  <p>Text.</p>  ") == "<p>Text.</p>"
+
+    def test_strips_html_body_wrapper(self):
+        html = '<html>\n  <body>\n    <h1>Title</h1>\n    <p>Content.</p>\n  </body>\n</html>'
+        result = _normalize_html(html)
+        assert "<html>" not in result
+        assert "<body>" not in result
+        assert "</html>" not in result
+        assert "</body>" not in result
+        assert "<h1>Title</h1>" in result
+        assert "<p>Content.</p>" in result
 
     def test_passthrough_clean_html(self):
         html = "<p>Already clean content.</p>"
@@ -808,3 +828,206 @@ class TestStripDuplicateTitleIntegration:
         article = _extract_article(entry, local_config)
         assert article is not None
         assert "<h1>Different Heading</h1>" in article.html_content
+
+
+# --- TestBrowserUAFallback ---
+
+
+class TestBrowserUAFallback:
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    @patch("paper_boy.feeds._trafilatura_extract")
+    def test_falls_back_to_browser_ua(
+        self, mock_traf, mock_fetch, mock_traf_html, mock_archive
+    ):
+        """Strategy 1.5 (browser UA) fires when strategy 1 returns short content."""
+        mock_traf.return_value = "<p>Short paywall text.</p>"  # < 150 words
+        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_fetch.return_value = "<html>browser page</html>"
+        mock_traf_html.return_value = long_html
+
+        result = _extract_article_content("https://nature.com/articles/123", True)
+        assert result is not None
+        assert "word" in result
+        # _fetch_page called once with browser UA
+        mock_fetch.assert_called_once()
+
+
+# --- TestBloombergExtraction ---
+
+
+class TestBloombergExtraction:
+    @patch("paper_boy.feeds._fetch_page")
+    def test_bloomberg_api_success(self, mock_fetch):
+        """Bloomberg API returns article body from JSON."""
+        body = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_fetch.return_value = json.dumps({"body": body})
+
+        result = _extract_bloomberg_article("https://www.bloomberg.com/news/articles/2026-03-08/test-slug")
+        assert result is not None
+        assert "word" in result
+
+    @patch("paper_boy.feeds._fetch_page")
+    def test_bloomberg_api_bad_json(self, mock_fetch):
+        """Invalid JSON returns None."""
+        mock_fetch.return_value = "not json at all"
+        result = _extract_bloomberg_article("https://www.bloomberg.com/news/articles/2026-03-08/test-slug")
+        assert result is None
+
+    @patch("paper_boy.feeds._fetch_page")
+    def test_bloomberg_api_short_body(self, mock_fetch):
+        """Body < MIN_ARTICLE_WORDS returns None."""
+        mock_fetch.return_value = json.dumps({"body": "<p>Too short.</p>"})
+        result = _extract_bloomberg_article("https://www.bloomberg.com/news/articles/2026-03-08/test-slug")
+        assert result is None
+
+    def test_bloomberg_api_no_slug(self):
+        """URL with no slug returns None."""
+        result = _extract_bloomberg_article("https://www.bloomberg.com/")
+        assert result is None
+
+    @patch("paper_boy.feeds._extract_bloomberg_article")
+    @patch("paper_boy.feeds._trafilatura_extract", return_value=None)
+    @patch("paper_boy.feeds._fetch_page", return_value=None)
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
+    def test_bloomberg_dispatched_in_extract(
+        self, mock_archive, mock_fetch, mock_traf, mock_bloomberg
+    ):
+        """_extract_article_content calls Bloomberg API for bloomberg.com URLs."""
+        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_bloomberg.return_value = long_html
+        result = _extract_article_content("https://www.bloomberg.com/news/articles/2026-03-08/slug", True)
+        mock_bloomberg.assert_called_once()
+        assert result is not None
+
+
+# --- TestArchiveExtraction ---
+
+
+class TestArchiveExtraction:
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    def test_archive_success(self, mock_fetch, mock_traf_html):
+        """Archive.today proxy returns extracted content."""
+        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_fetch.return_value = "<html>archived page</html>"
+        mock_traf_html.return_value = long_html
+
+        result = _extract_via_archive("https://example.com/article", True)
+        assert result is not None
+        assert "word" in result
+
+    @patch("paper_boy.feeds.random.choice", return_value="li")
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    def test_archive_uses_random_tld(self, mock_fetch, mock_traf_html, mock_choice):
+        """Archive URL uses archive.{tld}/latest/ format."""
+        mock_fetch.return_value = None
+        _extract_via_archive("https://example.com/article", True)
+        mock_fetch.assert_called_once_with(
+            "https://archive.li/latest/https://example.com/article",
+            "Mozilla/5.0 (Java) outbrain",
+        )
+
+    @patch("paper_boy.feeds.random.choice", return_value="fo")
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    def test_archive_strips_query_params(self, mock_fetch, mock_traf_html, mock_choice):
+        """Query parameters are stripped before archive lookup."""
+        mock_fetch.return_value = None
+        _extract_via_archive("https://example.com/article?param=1&foo=bar", True)
+        mock_fetch.assert_called_once_with(
+            "https://archive.fo/latest/https://example.com/article",
+            "Mozilla/5.0 (Java) outbrain",
+        )
+
+    @patch("paper_boy.feeds._fetch_page", return_value=None)
+    def test_archive_returns_none_on_failure(self, mock_fetch):
+        """Returns None when archive fetch fails."""
+        result = _extract_via_archive("https://example.com/article", True)
+        assert result is None
+
+
+# --- TestPaginatedExtraction ---
+
+
+class TestPaginatedExtraction:
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    def test_ars_pagination_appends(self, mock_fetch, mock_traf_html):
+        """Pagination links are followed and content concatenated."""
+        raw_page = '<a href="https://arstechnica.com/article/2/">Page 2</a>'
+        page2_content = "<p>" + " ".join(["extra"] * 50) + "</p>"
+        mock_fetch.return_value = "<html>page 2</html>"
+        mock_traf_html.return_value = page2_content
+
+        result = _extract_paginated_content(
+            "https://arstechnica.com/article/", raw_page, True
+        )
+        assert result is not None
+        assert "extra" in result
+
+    def test_ars_pagination_no_links(self):
+        """Page without pagination links returns None."""
+        raw_page = "<html><p>No pagination here.</p></html>"
+        result = _extract_paginated_content(
+            "https://arstechnica.com/article/", raw_page, True
+        )
+        assert result is None
+
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    def test_ars_strips_heading_from_continuation(self, mock_fetch, mock_traf_html):
+        """h1/h2 headings are stripped from continuation pages."""
+        raw_page = '<a href="https://arstechnica.com/article/2/">Page 2</a>'
+        mock_fetch.return_value = "<html>page 2</html>"
+        mock_traf_html.return_value = "<h1>Article Title</h1><p>Page 2 content.</p>"
+
+        result = _extract_paginated_content(
+            "https://arstechnica.com/article/", raw_page, True
+        )
+        assert result is not None
+        assert "<h1>" not in result
+        assert "Page 2 content." in result
+
+
+# --- TestHNSelfPostHandling ---
+
+
+class TestHNSelfPostHandling:
+    @patch("paper_boy.feeds._extract_article_content")
+    def test_hn_self_post_uses_feed_content(self, mock_extract, local_config):
+        """HN self-post with news.ycombinator.com/item link uses RSS content."""
+        entry = _make_feed_entry(
+            title="Ask HN: Something",
+            link="https://news.ycombinator.com/item?id=12345",
+            content=[{"value": "<p>This is the self-post content.</p>"}],
+            author="hackernews_user",
+        )
+        article = _extract_article(entry, local_config)
+        assert article is not None
+        assert "self-post content" in article.html_content
+        assert article.author == "hackernews_user"
+        # Should NOT call _extract_article_content
+        mock_extract.assert_not_called()
+
+    def test_hn_self_post_no_content_returns_none(self, local_config):
+        """HN self-post with no/short RSS content returns None."""
+        entry = _make_feed_entry(
+            title="Ask HN: Something",
+            link="https://news.ycombinator.com/item?id=12345",
+            summary="short",
+        )
+        article = _extract_article(entry, local_config)
+        assert article is None
+
+    @patch("paper_boy.feeds._extract_article_content", return_value="<p>External article.</p>")
+    def test_hn_external_link_normal_extraction(self, mock_extract, local_config):
+        """HN entry with external link goes through normal extraction."""
+        entry = _make_feed_entry(
+            title="Some External Article",
+            link="https://example.com/article/123",
+        )
+        article = _extract_article(entry, local_config)
+        mock_extract.assert_called_once()

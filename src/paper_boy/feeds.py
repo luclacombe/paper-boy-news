@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 import signal
 import urllib.request
@@ -66,7 +67,24 @@ IMG_PLACEHOLDER_PREFIX = "__paperboy_img_"
 MIN_ARTICLE_WORDS = 150
 
 # Bot UA that publishers whitelist for SEO content discovery (same approach as Calibre)
-_BOT_USER_AGENT = "Mozilla/5.0 (compatible; archive.org_bot; +https://archive.org)"
+_BOT_USER_AGENT = "Mozilla/5.0 (Java) outbrain"
+
+# Browser-like UA for bypassing interstitials (e.g. Nature)
+_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Bloomberg mobile API (unauthenticated, returns full article JSON)
+# Technique from Calibre's bloomberg.recipe by Kovid Goyal
+_BLOOMBERG_API = "https://cdn-mobapi.bloomberg.com/wssmobile/v1/stories/"
+
+# Archive.today mirror TLDs for soft-paywalled content
+# Technique from Calibre's project_syndicate.recipe by Kovid Goyal
+_ARCHIVE_TLDS = ("fo", "is", "li", "md", "ph", "vn")
+
+# Pagination link detection (e.g. Ars Technica /2/, /3/)
+_PAGINATION_LINK_RE = re.compile(r'href="([^"]*?/(\d+)/)"')
 
 # URL path segments indicating non-article pages (video, podcasts, live streams)
 _SKIP_URL_SEGMENTS = ("/video/", "/program/", "/podcasts/", "/live/")
@@ -84,6 +102,7 @@ _LEADING_HEADING_RE = re.compile(
 )
 
 # HTML normalization patterns
+_HTML_BODY_WRAPPER_RE = re.compile(r"</?(?:html|body)\b[^>]*>", re.IGNORECASE)
 _EMPTY_TAG_RE = re.compile(r"<(p|div|span)\b[^>]*>\s*</\1>", re.IGNORECASE)
 _INLINE_STYLE_RE = re.compile(r'\s+style="[^"]*"', re.IGNORECASE)
 _CAPTION_ARTIFACT_RE = re.compile(
@@ -206,6 +225,21 @@ def _extract_article(
         logger.debug("Skipping non-article URL: %s", url)
         return None
 
+    # HN self-posts link to the comments page — use feed content directly
+    if "news.ycombinator.com/item" in url:
+        html_content = _get_feed_content(entry)
+        if not html_content:
+            logger.debug("Skipping HN self-post with no feed content: %s", title)
+            return None
+        author = entry.get("author")
+        if not author and entry.get("authors"):
+            author = entry["authors"][0].get("name")
+        date_str = entry.get("published") or entry.get("updated")
+        return Article(
+            title=title, url=url, author=author, date=date_str,
+            html_content=html_content, images=[],
+        )
+
     include_images = config.newspaper.include_images
 
     # Check cache for previously extracted article HTML
@@ -264,16 +298,42 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     """Multi-strategy article extraction with fallback for paywalled content.
 
     Strategy chain:
+    0. Domain-specific: Bloomberg mobile API
     1. Standard trafilatura (default UA)
+    1.5. Re-fetch with browser UA (bypasses interstitials)
     2. Re-fetch with bot UA → trafilatura
     3. JSON-LD structured data from bot-fetched page
+    4. Archive.today proxy (for soft-paywalled sites)
     Returns the first result with >= MIN_ARTICLE_WORDS, or the best short
     result, or None.
     """
+    # Domain-specific: Bloomberg mobile API
+    if "bloomberg.com" in urlparse(url).netloc:
+        bloomberg_result = _extract_bloomberg_article(url)
+        if bloomberg_result:
+            logger.debug("Extraction strategy 'bloomberg_api' for %s", url)
+            return _normalize_html(bloomberg_result)
+
     # Strategy 1: Standard trafilatura extraction
     result = _trafilatura_extract(url, include_images)
     if result and _count_words(result) >= MIN_ARTICLE_WORDS:
+        # Paginated articles: fetch continuation pages (e.g. Ars Technica)
+        if "arstechnica.com" in url:
+            raw_page = _fetch_page(url, _BROWSER_USER_AGENT)
+            if raw_page:
+                extra = _extract_paginated_content(url, raw_page, include_images)
+                if extra:
+                    result = result + "\n" + extra
+                    logger.debug("Appended paginated content for %s", url)
         return _normalize_html(result)
+
+    # Strategy 1.5: Re-fetch with browser UA (bypasses interstitials)
+    browser_page = _fetch_page(url, _BROWSER_USER_AGENT)
+    if browser_page:
+        browser_result = _trafilatura_extract_from_html(browser_page, include_images)
+        if browser_result and _count_words(browser_result) >= MIN_ARTICLE_WORDS:
+            logger.debug("Extraction strategy 'browser_ua' succeeded for %s", url)
+            return _normalize_html(browser_result)
 
     # Strategy 2: Re-fetch with bot UA
     bot_page = _fetch_page(url, _BOT_USER_AGENT)
@@ -289,10 +349,93 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
             logger.debug("Extraction strategy 'json_ld' succeeded for %s", url)
             return _normalize_html(json_ld_result)
 
+    # Strategy 4: Archive.today proxy (for soft-paywalled sites)
+    archive_result = _extract_via_archive(url, include_images)
+    if archive_result:
+        logger.debug("Extraction strategy 'archive' succeeded for %s", url)
+        return _normalize_html(archive_result)
+
     # Return best short result we have, normalized
     if result:
         return _normalize_html(result)
     return None
+
+
+def _extract_bloomberg_article(url: str) -> str | None:
+    """Extract full article from Bloomberg's mobile API.
+
+    Technique from Calibre's bloomberg.recipe by Kovid Goyal.
+    """
+    slug = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
+    if not slug:
+        return None
+    page = _fetch_page(f"{_BLOOMBERG_API}{slug}", "Mozilla/5.0")
+    if not page:
+        return None
+    try:
+        data = json.loads(page)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    body = data.get("body") or data.get("articleBody") or ""
+    if not body or _count_words(body) < MIN_ARTICLE_WORDS:
+        return None
+    return body
+
+
+def _extract_via_archive(url: str, include_images: bool) -> str | None:
+    """Fetch article via archive.today and extract with trafilatura.
+
+    Technique from Calibre's project_syndicate.recipe by Kovid Goyal.
+    """
+    clean_url = url.split("?")[0]
+    tld = random.choice(_ARCHIVE_TLDS)
+    archive_url = f"https://archive.{tld}/latest/{clean_url}"
+    page = _fetch_page(archive_url, _BOT_USER_AGENT)
+    if not page:
+        return None
+    extracted = _trafilatura_extract_from_html(page, include_images)
+    if extracted and _count_words(extracted) >= MIN_ARTICLE_WORDS:
+        return extracted
+    return None
+
+
+def _extract_paginated_content(
+    url: str, raw_page: str, include_images: bool
+) -> str | None:
+    """Follow pagination links and concatenate content.
+
+    Technique from Calibre's ars_technica.recipe by Kovid Goyal.
+    """
+    seen = {url.rstrip("/")}
+    pages = []
+    for match in _PAGINATION_LINK_RE.finditer(raw_page):
+        page_url = match.group(1)
+        page_num = int(match.group(2))
+        if page_url.startswith("/"):
+            parsed = urlparse(url)
+            page_url = f"{parsed.scheme}://{parsed.netloc}{page_url}"
+        if page_url.rstrip("/") in seen or page_num <= 1:
+            continue
+        seen.add(page_url.rstrip("/"))
+        pages.append((page_num, page_url))
+
+    if not pages:
+        return None
+
+    pages.sort()
+    extra = []
+    for _, page_url in pages:
+        page_html = _fetch_page(page_url, _BROWSER_USER_AGENT)
+        if page_html:
+            extracted = _trafilatura_extract_from_html(page_html, include_images)
+            if extracted:
+                # Strip title heading from continuation pages
+                extracted = re.sub(
+                    r"^\s*<h[12]\b[^>]*>.*?</h[12]>\s*", "",
+                    extracted, count=1, flags=re.DOTALL | re.IGNORECASE,
+                )
+                extra.append(_normalize_html(extracted))
+    return "\n".join(extra) if extra else None
 
 
 def _trafilatura_extract(url: str, include_images: bool) -> str | None:
@@ -389,6 +532,10 @@ def _normalize_html(html: str) -> str:
     Applied to ALL extraction paths (trafilatura, bot UA, JSON-LD) for
     consistent output.
     """
+    # Strip <html> and <body> wrapper tags (trafilatura adds these)
+    # Must happen first so downstream regexes (e.g. _strip_duplicate_title)
+    # can match leading content like <h1>
+    html = _HTML_BODY_WRAPPER_RE.sub("", html)
     # Remove empty tags
     html = _EMPTY_TAG_RE.sub("", html)
     # Strip inline styles
