@@ -244,17 +244,25 @@ def build_and_deliver_for_record(record_id: str) -> None:
                     delivery_message = f"Delivery failed: {e}"
                     logger.error("Delivery failed: %s", e)
 
-            # Update record as delivered
-            sb.table("delivery_history").update({
-                "status": "delivered",
+            # Determine final status based on delivery outcome
+            delivery_failed = delivery_message.startswith("Delivery failed:")
+            final_status = "failed" if delivery_failed else "delivered"
+
+            update_data: dict = {
+                "status": final_status,
                 "article_count": result.total_articles,
                 "source_count": len(feed_list),
                 "file_size": file_size,
                 "file_size_bytes": file_size_bytes,
-                "delivery_message": delivery_message,
                 "epub_storage_path": epub_storage_path,
                 "sections": sections,
-            }).eq("id", record_id).execute()
+            }
+            if delivery_failed:
+                update_data["error_message"] = delivery_message[:500]
+            else:
+                update_data["delivery_message"] = delivery_message
+
+            sb.table("delivery_history").update(update_data).eq("id", record_id).execute()
 
             logger.info(
                 "Built and delivered edition %s: %d articles, %s",
