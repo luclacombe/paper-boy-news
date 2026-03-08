@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { ChevronRight } from "lucide-react";
-import { addFeed, removeFeed } from "@/actions/feeds";
+import { setFeeds } from "@/actions/feeds";
 import { getBundleFeeds } from "@/actions/feed-catalog";
 import { BundleCard } from "@/components/bundle-card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ interface SourcesSectionProps {
   categories: CatalogCategory[];
   bundles: CatalogBundle[];
   onDirtyChange: (dirty: boolean) => void;
+  onEffectiveCountChange?: (count: number, categoryCount: number) => void;
   saveRef: React.RefObject<(() => Promise<void>) | null>;
 }
 
@@ -33,6 +34,7 @@ export function SourcesSection({
   categories,
   bundles,
   onDirtyChange,
+  onEffectiveCountChange,
   saveRef,
 }: SourcesSectionProps) {
   const router = useRouter();
@@ -60,6 +62,18 @@ export function SourcesSection({
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Report effective count to parent for summary accuracy
+  useEffect(() => {
+    if (!onEffectiveCountChange) return;
+    // Compute effective categories from the effective URL set
+    const effectiveFeeds = [
+      ...feeds.filter((f) => !pendingRemoves.has(f.id)),
+      ...pendingAdds,
+    ];
+    const cats = new Set(effectiveFeeds.map((f) => f.category).filter(Boolean));
+    onEffectiveCountChange(effectiveUrls.size, cats.size);
+  }, [effectiveUrls, feeds, pendingAdds, pendingRemoves, onEffectiveCountChange]);
 
   // Pre-load bundle feed mappings
   useEffect(() => {
@@ -206,25 +220,24 @@ export function SourcesSection({
     }
   }
 
-  // Persist all pending changes
+  // Persist all pending changes in a single bulk operation
   const persistChanges = useCallback(async () => {
     if (!dirty) return;
     try {
-      // Removals first
-      for (const feedId of pendingRemoves) {
-        await removeFeed(feedId);
-      }
-      // Then additions
-      for (const add of pendingAdds) {
-        await addFeed(add.name, add.url, add.category);
-      }
+      const finalFeeds = [
+        ...feeds
+          .filter((f) => !pendingRemoves.has(f.id))
+          .map((f) => ({ name: f.name, url: f.url, category: f.category })),
+        ...pendingAdds,
+      ];
+      await setFeeds(finalFeeds);
       setPendingAdds([]);
       setPendingRemoves(new Set());
       router.refresh();
     } catch {
       toast.error("Failed to save sources");
     }
-  }, [dirty, pendingAdds, pendingRemoves, router]);
+  }, [dirty, feeds, pendingAdds, pendingRemoves, router]);
 
   // Expose save function to parent (for auto-save on collapse)
   useEffect(() => {
