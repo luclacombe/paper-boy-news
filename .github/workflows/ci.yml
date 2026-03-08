@@ -25,9 +25,7 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: |
-          pip install -e ".[dev]" httpx
-          pip install -r api/requirements.txt
+        run: pip install -e ".[dev]" httpx
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
@@ -65,5 +63,4 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
-          NEXT_PUBLIC_FASTAPI_URL: http://localhost:8000
           NEXT_PUBLIC_APP_URL: http://localhost:3000

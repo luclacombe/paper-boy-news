@@ -1,6 +1,6 @@
 # tests — Python Test Suite
 
-pytest tests for the core Python library and FastAPI backend.
+pytest tests for the core Python library.
 
 ## Run
 
@@ -23,14 +23,8 @@ pytest -k "test_build"           # By name pattern
 - `test_delivery.py` — Delivery backends
 - `test_cli.py` — CLI commands
 
-### FastAPI API Tests
-- `test_api_build.py` — `POST /build` endpoint
-- `test_api_deliver.py` — `POST /deliver` endpoint
-- `test_api_feeds.py` — `POST /feeds/validate` endpoint
-- `test_api_smtp.py` — `POST /smtp-test` endpoint
-
 ## Notes
 
 - `conftest.py` has shared fixtures
-- API tests require `PYTHONPATH` to include both `src/` and project root (handled in CI)
+- Legacy FastAPI API tests are in `legacy/api/tests/`
 - Next.js tests are separate — they live in `web/src/__tests__/` and use Vitest
