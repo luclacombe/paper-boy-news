@@ -1,6 +1,5 @@
 "use client";
 
-import { Progress } from "@/components/ui/progress";
 import { BUILD_MESSAGES, BUILD_MESSAGES_ASYNC } from "@/lib/constants";
 
 interface BuildProgressProps {
@@ -17,7 +16,21 @@ export function BuildProgress({ step, async: isAsync }: BuildProgressProps) {
 
   return (
     <div className="space-y-3 py-4">
-      <Progress value={progress} className="h-2" />
+      <div className="relative h-4 w-full overflow-hidden rounded-full bg-ink/10">
+        <div
+          className="h-full bg-ink transition-all duration-500 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+        {/* Halftone dot overlay */}
+        <div
+          className="pointer-events-none absolute inset-0 mix-blend-multiply opacity-50"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle, rgba(80, 60, 30, 0.3) 30%, transparent 30%)",
+            backgroundSize: "5px 5px",
+          }}
+        />
+      </div>
       <p className="text-center font-headline text-sm italic text-caption">
         {message}
       </p>
