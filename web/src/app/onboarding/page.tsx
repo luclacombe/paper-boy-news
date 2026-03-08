@@ -505,18 +505,76 @@ export default function OnboardingPage() {
           </RadioGroup>
         </div>
 
+        {/* Kobo setup hint */}
+        {state.device === "kobo" && state.deliveryMethod === "google_drive" && (
+          <div className="border-l-2 border-rule-gray/50 pl-3">
+            <p className="font-headline text-xs font-bold text-ink">
+              Kobo setup
+            </p>
+            <p className="mt-1 font-body text-xs text-caption">
+              Google Drive sync is supported on{" "}
+              <strong>Kobo Forma, Sage, Elipsa, Elipsa 2E, and Libra Colour</strong>{" "}
+              (firmware 4.37+). Clara models and older devices don&apos;t
+              support it &mdash; choose Download instead.
+            </p>
+            <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+              <li>
+                On your Kobo, tap{" "}
+                <strong>More &rarr; My Google Drive &rarr; Get Started</strong>
+              </li>
+              <li>Note the code shown on screen</li>
+              <li>
+                On a computer or phone, visit{" "}
+                <strong>kobo.com/googledrive</strong> and enter the code
+              </li>
+              <li>
+                Authorize Kobo to access the same Google account you&apos;ll
+                connect after creating your account
+              </li>
+              <li>
+                Paper Boy will place your newspaper in the folder &mdash; sync
+                your Kobo over Wi-Fi to download it
+              </li>
+            </ol>
+          </div>
+        )}
+
         {/* Kindle email (conditional) */}
         {state.deliveryMethod === "email" && state.device === "kindle" && (
-          <div className="space-y-2">
-            <Label className="font-headline text-sm text-ink">
-              Kindle Email Address
-            </Label>
-            <Input
-              type="email"
-              value={state.kindleEmail}
-              onChange={(e) => update({ kindleEmail: e.target.value })}
-              placeholder="your-kindle@kindle.com"
-            />
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label className="font-headline text-sm text-ink">
+                Kindle Email Address
+              </Label>
+              <Input
+                type="email"
+                value={state.kindleEmail}
+                onChange={(e) => update({ kindleEmail: e.target.value })}
+                placeholder="your-kindle@kindle.com"
+              />
+            </div>
+            <div className="border-l-2 border-rule-gray/50 pl-3">
+              <p className="font-headline text-xs font-bold text-ink">
+                Kindle setup
+              </p>
+              <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+                <li>
+                  Find your Kindle email: on your Kindle, go to{" "}
+                  <strong>Settings &rarr; Your Account</strong> &mdash;
+                  it ends in <strong>@kindle.com</strong>
+                </li>
+                <li>
+                  You&apos;ll also need to approve the sender email in{" "}
+                  <strong>
+                    amazon.com &rarr; Manage Your Content and Devices &rarr;
+                    Preferences &rarr; Personal Document Settings
+                  </strong>
+                </li>
+              </ol>
+              <p className="mt-1.5 font-body text-xs text-caption">
+                Works with all Kindle devices and the Kindle app.
+              </p>
+            </div>
           </div>
         )}
 
