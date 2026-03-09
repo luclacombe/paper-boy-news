@@ -102,6 +102,26 @@ export async function getEditionForDate(
   };
 }
 
+/** Check if there's an active build (status = "building") for today's edition. */
+export async function hasActiveBuild(editionDate: string): Promise<boolean> {
+  const profile = await getUserProfile();
+  if (!profile) return false;
+
+  const [row] = await db
+    .select({ id: deliveryHistory.id })
+    .from(deliveryHistory)
+    .where(
+      and(
+        eq(deliveryHistory.userId, profile.id),
+        eq(deliveryHistory.editionDate, editionDate),
+        eq(deliveryHistory.status, "building")
+      )
+    )
+    .limit(1);
+
+  return !!row;
+}
+
 export async function getEditionCount(): Promise<number> {
   const profile = await getUserProfile();
   if (!profile) return 0;
