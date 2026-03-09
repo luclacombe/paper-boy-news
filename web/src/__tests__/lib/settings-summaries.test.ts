@@ -4,6 +4,7 @@ import {
   getDeliverySummary,
   getScheduleSummary,
   getPaperSummary,
+  getAccountSummary,
 } from "@/components/settings-accordion";
 import type { Feed } from "@/types";
 
@@ -117,5 +118,19 @@ describe("getPaperSummary", () => {
     expect(
       getPaperSummary({ title: "", readingTime: 10, includeImages: true })
     ).toBe('"Untitled" · ~10 min · Images on');
+  });
+});
+
+describe("getAccountSummary", () => {
+  it("shows email and Google provider", () => {
+    expect(getAccountSummary("user@gmail.com", "google")).toBe(
+      "user@gmail.com · Google"
+    );
+  });
+
+  it("shows email and Email provider", () => {
+    expect(getAccountSummary("user@example.com", "email")).toBe(
+      "user@example.com · Email"
+    );
   });
 });

@@ -43,6 +43,7 @@ src/
 │   ├── build.ts       # getItNow() — timezone-aware build + deliver with dedup guard
 │   ├── delivery-history.ts
 │   ├── feed-catalog.ts
+│   ├── account.ts     # getAccountInfo(), changePassword(), deleteAccount()
 │   ├── feeds.ts       # CRUD for user_feeds table + cleanOrphanedFeeds()
 │   ├── google-oauth.ts
 │   ├── onboarding.ts  # completeOnboarding() — saves wizard state to DB
@@ -63,7 +64,7 @@ src/
 │       └── smtp-test/ # SMTP connection test (replaces FastAPI)
 ├── components/
 │   ├── ui/            # shadcn/ui primitives (button, card, input, etc.)
-│   ├── settings/      # Settings section panels (sources, delivery, schedule, paper)
+│   ├── settings/      # Settings section panels (sources, delivery, schedule, paper, account)
 │   ├── app-masthead.tsx      # Newspaper masthead (rendered by dashboard page, not layout)
 │   ├── dashboard-client.tsx  # Dashboard interactive UI (deep links to settings via ?open=)
 │   ├── save-toast.tsx         # Custom save toast: halftone texture, countdown progress bar, undo
@@ -89,6 +90,7 @@ src/
 │   ├── reading-time.ts
 │   ├── utils.ts       # cn() helper (clsx + tailwind-merge)
 │   └── supabase/
+│       ├── admin.ts   # Service role client (for deleteUser, storage cleanup)
 │       ├── client.ts  # Browser Supabase client
 │       └── server.ts  # Server Supabase client (for Server Components + Actions)
 ├── proxy.ts           # Auth routing (protect app routes, redirect auth users)
@@ -128,12 +130,13 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Types** centralized in `src/types/index.ts`
 - **Supabase clients**: use `server.ts` in Server Components/Actions, `client.ts` in Client Components
 - **Feed validation + SMTP test** run as Next.js API routes (`/api/feeds/validate`, `/api/smtp-test`)
-- **Edition model**: editions roll over at 5 AM user-local (not midnight UTC). One per day, enforced by partial unique DB index. See `src/lib/edition-date.ts`
-- **Build pipeline**: Two-phase: build all papers at 5 AM UTC (`BUILD_MODE=build`), deliver at each user's time (`BUILD_MODE=deliver`). `getItNow()` action → checks dedup → if `"built"` exists dispatches delivery-only, else creates "building" record → fires `repository_dispatch` → returns immediately. Dashboard polls Supabase every 5s. Status lifecycle: `building → built → delivered` (or `→ failed`)
+- **Edition model**: edition date = today's calendar date in the user's timezone (no rollover). One per day, enforced by partial unique DB index. `isBeforeEditionCutoff()` checks if before 5 AM local for UI messaging. See `src/lib/edition-date.ts`
+- **Build pipeline**: Two-phase: 6 build windows every 4 hours build users in midnight–5 AM local (`BUILD_MODE=build`), deliver at each user's time (`BUILD_MODE=deliver`). Pre-check skips Python setup if no users need building. `getItNow()` action → checks dedup → if `"built"` exists dispatches delivery-only, else creates "building" record → fires `repository_dispatch` → returns immediately. Dashboard polls Supabase every 5s. Status lifecycle: `building → built → delivered` (or `→ failed`)
 - **Dashboard state machine**: 9 states computed from edition status, time of day, and setup completeness. Includes `"awaiting-delivery"` for `status="built"` (paper ready, delivery pending). Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability
-- **Settings accordion**: 4 collapsible cards with colored left borders (red/ink/amber/green). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper`. All sections use batch save — "Save changes" when dirty, auto-save on collapse. Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing. Sources section reports effective (pending-aware) counts to accordion for accurate summary display
+- **Settings accordion**: 5 collapsible cards with colored left borders (red/ink/amber/green/caption). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper|account`. First 4 sections use batch save — "Save changes" when dirty, auto-save on collapse. Account section has its own action buttons (password change, delete). Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing. Sources section reports effective (pending-aware) counts to accordion for accurate summary display
 - **Orphaned feed cleanup**: `cleanOrphanedFeeds()` runs on settings page load — removes feeds whose URL is no longer in the catalog (unless category is "Custom"). Handles sources removed from `feed-catalog.yaml` (e.g. Bloomberg, FT)
-- **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout). Settings has its own compact header with back link + sign out
+- **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout), shows user email next to sign out. Settings has its own compact header with back link + sign out
+- **Account management**: `account.ts` server actions use admin client (`lib/supabase/admin.ts`) with service role key for `changePassword()` (verifies current password via `signInWithPassword`, then admin update) and `deleteAccount()` (deletes profile via Drizzle cascade, cleans Storage, deletes auth user). Google OAuth users cannot change password
 - **Send to device**: File System Access API (`showDirectoryPicker`) lets Chrome/Edge users save EPUBs directly to a USB-mounted e-reader folder. Handle persisted in IndexedDB. Falls back to regular download on unsupported browsers. See `src/lib/download-epub.ts`
 
 ## Design System
@@ -161,14 +164,14 @@ See `.env.example` for cloud vars, `.env.local.example` for local Supabase:
 
 ## Edition Model
 
-Editions use a **5 AM rollover** in the user's configured timezone:
-- Before 5 AM → current edition = yesterday. After 5 AM → current edition = today.
-- `getEditionDate(timezone)` in `src/lib/edition-date.ts` is the single source of truth.
+Edition date = **today's calendar date** in the user's configured timezone (no rollover):
+- `getEditionDate(timezone)` in `src/lib/edition-date.ts` returns today's date, always.
+- `isBeforeEditionCutoff()` checks if before 5 AM local — used for UI messaging (paper building overnight).
 - `getItNow()` in `src/actions/build.ts` checks for existing editions before building (dedup guard), then dispatches async build to GitHub Actions.
 
 Dashboard states (in priority order): setup-incomplete → build-in-progress (client or DB "building") → build-error → awaiting-delivery (DB "built") → fetched-early → delivered → failed → pre-build-first / pre-build → ready-first / ready.
 
-**Scheduled pipeline**: Two-phase — build all papers at 5 AM UTC (`BUILD_MODE=build`), deliver at each user's configured time (`BUILD_MODE=deliver`, every 30 min). Status lifecycle: `building → built → delivered` (or `→ failed`). Local/download users skip `"built"` and go straight to `"delivered"`.
+**Scheduled pipeline**: Two-phase — 6 build windows every 4 hours for users in midnight–5 AM local (`BUILD_MODE=build`), deliver at each user's configured time (`BUILD_MODE=deliver`, every 30 min). Status lifecycle: `building → built → delivered` (or `→ failed`). Local/download users skip `"built"` and go straight to `"delivered"`.
 
 ## Current Status
 

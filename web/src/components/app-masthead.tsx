@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 
 interface AppMastheadProps {
   newspaperTitle: string;
+  userEmail?: string;
 }
 
 function formatDate(): string {
@@ -18,7 +19,7 @@ function formatDate(): string {
   });
 }
 
-export function AppMasthead({ newspaperTitle }: AppMastheadProps) {
+export function AppMasthead({ newspaperTitle, userEmail }: AppMastheadProps) {
   const router = useRouter();
 
   async function handleSignOut() {
@@ -46,12 +47,19 @@ export function AppMasthead({ newspaperTitle }: AppMastheadProps) {
             &ldquo;{newspaperTitle}&rdquo; &middot; {formatDate()}
           </p>
         </div>
-        <button
-          onClick={handleSignOut}
-          className="font-mono text-sm text-caption transition-colors hover:text-ink"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-3">
+          {userEmail && (
+            <span className="hidden font-mono text-[10px] text-caption sm:inline truncate max-w-[180px]">
+              {userEmail}
+            </span>
+          )}
+          <button
+            onClick={handleSignOut}
+            className="font-mono text-sm text-caption transition-colors hover:text-ink"
+          >
+            Sign out
+          </button>
+        </div>
       </div>
 
       {/* Bottom double rule */}
