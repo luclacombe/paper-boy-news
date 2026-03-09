@@ -1,9 +1,61 @@
 "use client";
 
 import { useSyncExternalStore, useCallback } from "react";
+import { TIMEZONES } from "@/lib/constants";
 import type { Device, DeliveryMethod, EmailMethod } from "@/types";
 
 const STORAGE_KEY = "paperboy_onboarding";
+
+function detectTimezone(): string {
+  try {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Exact match in our list
+    if (TIMEZONES.some((tz) => tz.value === detected)) return detected;
+    // Legacy US/ aliases → IANA mapping
+    const legacyMap: Record<string, string> = {
+      "US/Eastern": "America/New_York",
+      "US/Central": "America/Chicago",
+      "US/Pacific": "America/Los_Angeles",
+      "US/Mountain": "America/Denver",
+      "US/Hawaii": "Pacific/Honolulu",
+      "US/Alaska": "America/Anchorage",
+    };
+    for (const [legacy, iana] of Object.entries(legacyMap)) {
+      if (detected === legacy && TIMEZONES.some((tz) => tz.value === iana)) {
+        return iana;
+      }
+    }
+    // Match by UTC offset as fallback
+    const now = new Date();
+    const detectedOffset = -now.getTimezoneOffset(); // minutes east of UTC
+    function getOffset(tz: string): number {
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "shortOffset",
+      });
+      const parts = fmt.formatToParts(now);
+      const tzPart = parts.find((p) => p.type === "timeZoneName")?.value ?? "";
+      const match = tzPart.match(/GMT([+-]\d+(?::(\d+))?)?/);
+      if (!match) return 0;
+      if (!match[1]) return 0;
+      const hours = parseInt(match[1], 10);
+      const mins = match[2] ? parseInt(match[2], 10) : 0;
+      return hours * 60 + (hours < 0 ? -mins : mins);
+    }
+    let best = TIMEZONES[0].value;
+    let bestDiff = Infinity;
+    for (const tz of TIMEZONES) {
+      const diff = Math.abs(getOffset(tz.value) - detectedOffset);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = tz.value;
+      }
+    }
+    return best;
+  } catch {
+    return "America/New_York";
+  }
+}
 
 export interface OnboardingState {
   step: number;
@@ -33,7 +85,7 @@ const DEFAULTS: OnboardingState = {
   totalArticleBudget: 5,
   includeImages: true,
   deliveryTime: "06:00",
-  timezone: "US/Eastern",
+  timezone: typeof window !== "undefined" ? detectTimezone() : "America/New_York",
   googleDriveFolder: "Rakuten Kobo",
   kindleEmail: "",
   emailMethod: "gmail",

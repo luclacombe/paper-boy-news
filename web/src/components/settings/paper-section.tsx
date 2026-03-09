@@ -33,6 +33,7 @@ export function PaperSection({ values, onChange }: PaperSectionProps) {
           value={values.title}
           onChange={(e) => update({ title: e.target.value })}
           placeholder="The Morning Paper"
+          style={{ fontVariantNumeric: "lining-nums" }}
         />
         <p className="font-body text-xs text-caption">
           Appears on your EPUB cover and in the masthead.

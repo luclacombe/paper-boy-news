@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
+import { DELIVERY_TIMES, TIMEZONES, normalizeTimezone } from "@/lib/constants";
 
 export interface ScheduleValues {
   deliveryTime: string;
@@ -21,6 +21,8 @@ interface ScheduleSectionProps {
 }
 
 export function ScheduleSection({ values, onChange }: ScheduleSectionProps) {
+  const normalizedTz = normalizeTimezone(values.timezone);
+
   function update(patch: Partial<ScheduleValues>) {
     onChange({ ...values, ...patch });
   }
@@ -51,7 +53,7 @@ export function ScheduleSection({ values, onChange }: ScheduleSectionProps) {
         <div className="space-y-1.5">
           <Label className="font-headline text-sm text-ink">Timezone</Label>
           <Select
-            value={values.timezone}
+            value={normalizedTz}
             onValueChange={(v) => update({ timezone: v })}
           >
             <SelectTrigger>

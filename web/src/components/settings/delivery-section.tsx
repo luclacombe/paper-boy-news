@@ -208,25 +208,21 @@ export function DeliverySection({
       {/* Google Drive config */}
       {values.deliveryMethod === "google_drive" && (
         <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span
-              className={`inline-block h-2 w-2 rounded-full ${
-                hasDrive ? "bg-delivered" : "bg-building"
-              }`}
-            />
-            <span className="font-body text-sm text-ink">
-              {hasDrive ? "Google Drive connected" : "Google Drive not connected"}
-            </span>
-          </div>
           {hasDrive ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleGoogleDisconnect}
-              disabled={isPending}
-            >
-              Disconnect
-            </Button>
+            <div className="flex items-center gap-3">
+              <span className="font-body text-xs italic text-delivered">
+                Google Drive connected
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGoogleDisconnect}
+                disabled={isPending}
+                className="font-body text-xs"
+              >
+                Disconnect
+              </Button>
+            </div>
           ) : (
             <Button
               size="sm"
@@ -350,25 +346,21 @@ export function DeliverySection({
 
           {values.emailMethod === "gmail" && (
             <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${
-                    hasGmail ? "bg-delivered" : "bg-building"
-                  }`}
-                />
-                <span className="font-body text-sm text-ink">
-                  {hasGmail ? "Gmail connected" : "Gmail not connected"}
-                </span>
-              </div>
               {hasGmail ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGoogleDisconnect}
-                  disabled={isPending}
-                >
-                  Disconnect
-                </Button>
+                <div className="flex items-center gap-3">
+                  <span className="font-body text-xs italic text-delivered">
+                    Gmail connected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGoogleDisconnect}
+                    disabled={isPending}
+                    className="font-body text-xs"
+                  >
+                    Disconnect
+                  </Button>
+                </div>
               ) : (
                 <Button
                   size="sm"

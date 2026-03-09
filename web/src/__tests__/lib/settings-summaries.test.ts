@@ -89,14 +89,20 @@ describe("getDeliverySummary", () => {
 
 describe("getScheduleSummary", () => {
   it("formats time and timezone labels", () => {
+    expect(getScheduleSummary("07:00", "America/New_York")).toBe(
+      "7:00 AM · US Eastern (EST)"
+    );
+  });
+
+  it("normalizes legacy timezone values", () => {
     expect(getScheduleSummary("07:00", "US/Eastern")).toBe(
-      "7:00 AM · US Eastern"
+      "7:00 AM · US Eastern (EST)"
     );
   });
 
   it("falls back to raw values for unknown entries", () => {
-    expect(getScheduleSummary("09:00", "Mars/Olympus")).toBe(
-      "09:00 · Mars/Olympus"
+    expect(getScheduleSummary("03:00", "Mars/Olympus")).toBe(
+      "03:00 · Mars/Olympus"
     );
   });
 });

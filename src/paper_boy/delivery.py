@@ -275,7 +275,6 @@ def _cleanup_old_issues(service, folder_id: str, keep_days: int) -> None:
 
     query = (
         f"'{folder_id}' in parents "
-        f"and name contains 'paper-boy-' "
         f"and mimeType = 'application/epub+zip' "
         f"and createdTime < '{cutoff_str}' "
         f"and trashed = false"
