@@ -58,7 +58,7 @@ const FAKE_PROFILE = {
   authId: "auth-1",
   title: "Morning Digest",
   language: "en",
-  maxArticlesPerFeed: 10,
+  totalArticleBudget: 10,
   includeImages: true,
   device: "kobo",
   deliveryMethod: "local",

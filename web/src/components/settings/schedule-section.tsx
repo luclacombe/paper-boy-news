@@ -8,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DELIVERY_TIMES, TIMEZONES, EDITION_ROLLOVER_HOUR } from "@/lib/constants";
+import { DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
 
 export interface ScheduleValues {
   deliveryTime: string;
@@ -68,8 +68,7 @@ export function ScheduleSection({ values, onChange }: ScheduleSectionProps) {
         </div>
       </div>
       <p className="font-body text-xs text-caption">
-        Your paper is built at {EDITION_ROLLOVER_HOUR}:00 AM and delivered at
-        your scheduled time.
+        Your paper is built overnight and delivered at your scheduled time.
       </p>
     </div>
   );

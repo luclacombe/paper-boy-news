@@ -126,7 +126,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
       ],
       title: "My Paper",
       readingTime: "15 min",
-      maxArticlesPerFeed: 8,
+      totalArticleBudget: 8,
       includeImages: true,
       deliveryTime: "06:00",
       timezone: "UTC",
@@ -144,7 +144,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
     Object.assign(profileRow!, {
       title: "My Paper",
       language: "en",
-      maxArticlesPerFeed: 8,
+      totalArticleBudget: 8,
       includeImages: true,
       deliveryMethod: "local",
       googleDriveFolder: "Rakuten Kobo",
@@ -175,7 +175,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
     Object.assign(profileRow!, {
       title: "My Paper",
       language: "en",
-      maxArticlesPerFeed: 8,
+      totalArticleBudget: 8,
       includeImages: true,
       device: "kobo",
       deliveryMethod: "local",

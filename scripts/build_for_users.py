@@ -2,8 +2,12 @@
 
 Three modes:
   1. On-demand: BUILD_RECORD_ID set — build (or deliver) for a single record
-  2. Build:     BUILD_MODE=build — build all users' papers at 5 AM UTC
+  2. Build:     BUILD_MODE=build — build users whose local time is midnight–5 AM
   3. Deliver:   BUILD_MODE=deliver — deliver pre-built papers at each user's time
+
+Six build windows run every 4 hours (03:45, 07:45, 11:45, 15:45, 19:45, 23:45 UTC).
+Each window builds only users where it's currently midnight–5 AM local time.
+Edition date = today's calendar date in the user's timezone (no rollover).
 
 Environment variables:
   SUPABASE_URL            — Supabase project URL
@@ -55,8 +59,9 @@ def get_supabase():
 
 
 def get_edition_date(timezone: str) -> str:
-    """Compute edition date using 5 AM rollover in user's timezone.
+    """Get today's calendar date in the user's timezone.
 
+    Edition date = today's date, always. No rollover.
     Matches web/src/lib/edition-date.ts logic exactly.
     """
     try:
@@ -64,12 +69,7 @@ def get_edition_date(timezone: str) -> str:
     except (KeyError, Exception):
         tz = ZoneInfo("UTC")
 
-    now = datetime.now(tz)
-    if now.hour < EDITION_ROLLOVER_HOUR:
-        # Before 5 AM — yesterday's edition
-        d = now.date() - timedelta(days=1)
-        return d.isoformat()
-    return now.date().isoformat()
+    return datetime.now(tz).date().isoformat()
 
 
 def build_config_from_profile(
@@ -84,7 +84,7 @@ def build_config_from_profile(
     newspaper = NewspaperConfig(
         title=profile.get("title", "Morning Digest"),
         language=profile.get("language", "en"),
-        max_articles_per_feed=profile.get("max_articles_per_feed", 10),
+        total_article_budget=profile.get("total_article_budget", 7),
         include_images=profile.get("include_images", True),
     )
 
@@ -435,13 +435,16 @@ def build_and_deliver_for_record(
         }).eq("id", record_id).execute()
 
 
-# ─── Build mode: build all users' papers (5 AM UTC) ─────────────────────
+# ─── Build mode: build users in midnight–5 AM window ─────────────────────
 
 def run_build_all() -> None:
-    """Build all onboarded users' papers. Called once daily at 5 AM UTC.
+    """Build papers for users whose local time is midnight–5 AM.
+
+    Called 6 times daily (every 4 hours). Only builds users whose local hour
+    is in [0, 5). Others are skipped — they'll be caught by the next window.
 
     Uses a shared ContentCache to deduplicate RSS fetches, article extraction,
-    and image downloads across all users.
+    and image downloads across all users in this window.
     """
     sb = get_supabase()
 
@@ -462,6 +465,16 @@ def run_build_all() -> None:
     for prof in users.data:
         user_id = prof["id"]
         timezone = prof.get("timezone", "UTC")
+
+        # Only build users whose local time is midnight–5 AM
+        try:
+            tz = ZoneInfo(timezone)
+        except (KeyError, Exception):
+            tz = ZoneInfo("UTC")
+
+        user_now = datetime.now(tz)
+        if not (0 <= user_now.hour < EDITION_ROLLOVER_HOUR):
+            continue
 
         edition_date_str = get_edition_date(timezone)
 

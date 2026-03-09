@@ -70,7 +70,7 @@ async function main() {
             delivery_method = 'local',
             title = 'Morning Digest',
             reading_time = '20 min',
-            max_articles_per_feed = 10,
+            total_article_budget = 7,
             include_images = true,
             delivery_time = '06:00',
             timezone = 'UTC',

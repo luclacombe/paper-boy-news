@@ -4,8 +4,8 @@ on:
   repository_dispatch:
     types: [build-newspaper]
   schedule:
-    # Daily build at 5 AM UTC — builds all users' papers
-    - cron: "0 5 * * *"
+    # 6 build windows every 4 hours — each covers timezones where it's midnight–5 AM
+    - cron: "45 3,7,11,15,19,23 * * *"
     # Delivery checks every 30 min — delivers pre-built papers at each user's time
     - cron: "0,30 * * * *"
   workflow_dispatch: # Manual debug trigger
@@ -17,29 +17,57 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      BUILD_MODE: ${{ github.event.schedule == '45 3,7,11,15,19,23 * * *' && 'build' || (github.event_name == 'schedule' && 'deliver' || '') }}
     steps:
+      - name: Check if any users need building
+        id: precheck
+        if: env.BUILD_MODE == 'build'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          TIMEZONES=$(curl -s \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            "$SUPABASE_URL/rest/v1/user_profiles?onboarding_complete=eq.true&select=timezone" \
+            | jq -r '.[].timezone')
+          NEED_BUILD=false
+          for TZ_NAME in $TIMEZONES; do
+            HOUR=$(TZ="$TZ_NAME" date +%-H)
+            if [ "$HOUR" -lt 5 ]; then
+              NEED_BUILD=true
+              break
+            fi
+          done
+          echo "needed=$NEED_BUILD" >> $GITHUB_OUTPUT
+
       - name: Checkout repository
+        if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Python
+        if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Install dependencies
+        if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
         run: |
           pip install -e . > /dev/null 2>&1
           pip install -r scripts/requirements.txt > /dev/null 2>&1
 
       - name: Build newspaper
+        if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           BUILD_RECORD_ID: ${{ github.event.client_payload.record_id }}
-          BUILD_MODE: ${{ github.event.schedule == '0 5 * * *' && 'build' || (github.event_name == 'schedule' && 'deliver' || '') }}
+          BUILD_MODE: ${{ env.BUILD_MODE }}
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         run: python scripts/build_for_users.py > /dev/null 2>&1
 
