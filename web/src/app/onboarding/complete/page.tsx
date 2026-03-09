@@ -47,7 +47,7 @@ export default function OnboardingCompletePage() {
         feeds: stored.feeds,
         title: stored.title || "The Morning Paper",
         readingTime: stored.readingTime,
-        maxArticlesPerFeed: stored.maxArticlesPerFeed,
+        totalArticleBudget: stored.totalArticleBudget,
         includeImages: stored.includeImages,
         deliveryTime: stored.deliveryTime,
         timezone: stored.timezone,

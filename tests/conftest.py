@@ -39,7 +39,7 @@ def make_config():
     def _make(
         title="Test Digest",
         language="en",
-        max_articles_per_feed=10,
+        total_article_budget=10,
         include_images=True,
         image_max_width=800,
         image_max_height=1200,
@@ -65,7 +65,7 @@ def make_config():
             newspaper=NewspaperConfig(
                 title=title,
                 language=language,
-                max_articles_per_feed=max_articles_per_feed,
+                total_article_budget=total_article_budget,
                 include_images=include_images,
                 image_max_width=image_max_width,
                 image_max_height=image_max_height,
@@ -199,7 +199,7 @@ def sample_user_config():
         "email_smtp_port": 465,
         "email_sender": "",
         "email_password": "",
-        "max_articles_per_feed": 10,
+        "total_article_budget": 10,
         "include_images": True,
         "delivery_time": "06:00",
         "language": "en",

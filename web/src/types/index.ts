@@ -13,7 +13,7 @@ export interface UserConfig {
   // Newspaper settings
   title: string;
   language: string;
-  maxArticlesPerFeed: number;
+  totalArticleBudget: number;
   readingTime: string;
   includeImages: boolean;
 
@@ -143,7 +143,7 @@ export interface OnboardingData {
   feeds: { name: string; url: string; category: string }[];
   title: string;
   readingTime: string;
-  maxArticlesPerFeed: number;
+  totalArticleBudget: number;
   includeImages: boolean;
   deliveryTime: string;
   timezone: string;

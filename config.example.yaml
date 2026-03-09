@@ -4,7 +4,7 @@
 newspaper:
   title: "Morning Digest"
   language: "en"
-  max_articles_per_feed: 10
+  total_article_budget: 7  # total articles across all feeds (not per-feed)
 
   # Article images — embed images from articles into the EPUB
   include_images: true

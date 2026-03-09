@@ -15,7 +15,7 @@ export async function getUserConfig(): Promise<UserConfig | null> {
     authId: profile.authId,
     title: profile.title,
     language: profile.language,
-    maxArticlesPerFeed: profile.maxArticlesPerFeed,
+    totalArticleBudget: profile.totalArticleBudget,
     readingTime: profile.readingTime,
     includeImages: profile.includeImages,
     device: profile.device as UserConfig["device"],
@@ -45,8 +45,8 @@ export async function updateUserConfig(
   const updates: Record<string, unknown> = {};
   if (data.title !== undefined) updates.title = data.title;
   if (data.language !== undefined) updates.language = data.language;
-  if (data.maxArticlesPerFeed !== undefined)
-    updates.maxArticlesPerFeed = data.maxArticlesPerFeed;
+  if (data.totalArticleBudget !== undefined)
+    updates.totalArticleBudget = data.totalArticleBudget;
   if (data.readingTime !== undefined) updates.readingTime = data.readingTime;
   if (data.includeImages !== undefined)
     updates.includeImages = data.includeImages;

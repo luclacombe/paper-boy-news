@@ -20,7 +20,7 @@ def test_load_valid_config():
 newspaper:
   title: "Test Paper"
   language: "en"
-  max_articles_per_feed: 5
+  total_article_budget: 5
 
 feeds:
   - name: "Tech"
@@ -31,7 +31,7 @@ delivery:
 """)
     config = load_config(path)
     assert config.newspaper.title == "Test Paper"
-    assert config.newspaper.max_articles_per_feed == 5
+    assert config.newspaper.total_article_budget == 5
     assert len(config.feeds) == 1
     assert config.feeds[0].name == "Tech"
     assert config.delivery.method == "local"

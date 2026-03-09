@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getCatalogData, getBundleFeeds } from "@/actions/feed-catalog";
 import { useOnboardingState } from "@/hooks/use-onboarding-state";
-import { readingTimeToArticleCount } from "@/lib/reading-time";
+import { readingTimeToArticleBudget, READING_TIME_OPTIONS } from "@/lib/reading-time";
 import { NewspaperMasthead } from "@/components/newspaper-masthead";
 import { StepIndicator } from "@/components/step-indicator";
 import { DeviceCard } from "@/components/device-card";
@@ -26,7 +26,6 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { DEVICES, DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
-import { READING_TIME_OPTIONS } from "@/lib/reading-time";
 import type {
   CatalogBundle,
   CatalogCategory,
@@ -642,7 +641,7 @@ export default function OnboardingPage() {
             <Label className="font-headline text-sm text-ink">
               Reading Time
               <span className="ml-1 font-mono text-xs text-caption">
-                (~{readingTimeToArticleCount(readingMinutes)} articles/feed)
+                (~{readingTimeToArticleBudget(readingMinutes)} articles total)
               </span>
             </Label>
             <div className="flex border border-rule-gray">
@@ -655,8 +654,8 @@ export default function OnboardingPage() {
                     onClick={() =>
                       update({
                         readingTime: String(minutes),
-                        maxArticlesPerFeed:
-                          readingTimeToArticleCount(minutes),
+                        totalArticleBudget:
+                          readingTimeToArticleBudget(minutes),
                       })
                     }
                     className={cn(

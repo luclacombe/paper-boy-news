@@ -13,7 +13,7 @@ export interface OnboardingState {
   deliveryMethod: DeliveryMethod;
   title: string;
   readingTime: string;
-  maxArticlesPerFeed: number;
+  totalArticleBudget: number;
   includeImages: boolean;
   deliveryTime: string;
   timezone: string;
@@ -30,7 +30,7 @@ const DEFAULTS: OnboardingState = {
   deliveryMethod: "local",
   title: "The Morning Paper",
   readingTime: "15",
-  maxArticlesPerFeed: 8,
+  totalArticleBudget: 5,
   includeImages: true,
   deliveryTime: "06:00",
   timezone: "US/Eastern",

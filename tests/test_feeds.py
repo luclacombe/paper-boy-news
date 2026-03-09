@@ -23,6 +23,7 @@ from paper_boy.feeds import (
     _normalize_html,
     _should_skip_image,
     _strip_duplicate_title,
+    apply_article_budget,
     fetch_feeds,
 )
 
@@ -128,16 +129,17 @@ class TestFetchFeeds:
     @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     @patch("paper_boy.feeds.feedparser.parse")
-    def test_respects_max_articles_per_feed(
+    def test_respects_total_article_budget(
         self, mock_parse, mock_fetch, mock_ext, make_config
     ):
-        """Only max_articles_per_feed entries are processed."""
-        config = make_config(max_articles_per_feed=2)
+        """Total article budget limits output across all feeds."""
+        config = make_config(total_article_budget=2)
         entries = [_make_feed_entry(title=f"Art {i}") for i in range(5)]
         mock_parse.return_value = _make_parsed_feed(entries=entries)
 
         sections = fetch_feeds(config)
-        assert len(sections[0].articles) <= 2
+        total = sum(len(s.articles) for s in sections)
+        assert total <= 2
 
 
 # --- TestExtractArticle ---
@@ -1078,3 +1080,71 @@ class TestDowngradeBodyHeadings:
         html = "<p>Just a paragraph.</p>"
         result = _downgrade_body_headings(html)
         assert result == html
+
+
+class TestApplyArticleBudget:
+    """Tests for the total article budget distribution."""
+
+    def _make_section(self, name: str, num_articles: int) -> "Section":
+        from paper_boy.feeds import Article, Section
+
+        articles = [
+            Article(
+                title=f"{name} Art {i}",
+                url=f"https://example.com/{name}/{i}",
+                html_content="<p>Content</p>",
+            )
+            for i in range(num_articles)
+        ]
+        return Section(name=name, articles=articles)
+
+    def test_no_trimming_when_under_budget(self):
+        """If total articles <= budget, return as-is."""
+        sections = [self._make_section("A", 2), self._make_section("B", 3)]
+        result = apply_article_budget(sections, 10)
+        assert sum(len(s.articles) for s in result) == 5
+
+    def test_no_trimming_when_equal_to_budget(self):
+        sections = [self._make_section("A", 3), self._make_section("B", 2)]
+        result = apply_article_budget(sections, 5)
+        assert sum(len(s.articles) for s in result) == 5
+
+    def test_budget_less_than_sources(self):
+        """More sources than budget — first N sources get 1 article each."""
+        sections = [self._make_section(f"S{i}", 3) for i in range(5)]
+        result = apply_article_budget(sections, 3)
+        assert len(result) == 3
+        for s in result:
+            assert len(s.articles) == 1
+
+    def test_round_robin_distribution(self):
+        """Remaining budget distributed across sources."""
+        sections = [self._make_section("A", 5), self._make_section("B", 5)]
+        result = apply_article_budget(sections, 4)
+        total = sum(len(s.articles) for s in result)
+        assert total == 4
+        # Each source gets at least 1
+        for s in result:
+            assert len(s.articles) >= 1
+
+    def test_each_source_gets_at_least_one(self):
+        """Every source is guaranteed 1 article."""
+        sections = [self._make_section(f"S{i}", 3) for i in range(4)]
+        result = apply_article_budget(sections, 6)
+        assert len(result) == 4
+        for s in result:
+            assert len(s.articles) >= 1
+        assert sum(len(s.articles) for s in result) == 6
+
+    def test_empty_sections(self):
+        """Empty input returns empty output."""
+        result = apply_article_budget([], 10)
+        assert result == []
+
+    def test_respects_available_articles(self):
+        """Cannot allocate more than a source has."""
+        sections = [self._make_section("A", 1), self._make_section("B", 10)]
+        result = apply_article_budget(sections, 8)
+        total = sum(len(s.articles) for s in result)
+        assert total <= 8
+        assert len(result[0].articles) == 1  # A only had 1
