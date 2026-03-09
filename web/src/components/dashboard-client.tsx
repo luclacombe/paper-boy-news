@@ -58,16 +58,20 @@ export function getDashboardState(
   todaysEdition: DeliveryRecord | null,
   historyCount: number
 ): DashboardState {
-  if (!setupStatus.isFullyConfigured) return "setup-incomplete";
+  // Active build states always take priority — even if the user changed
+  // settings mid-build (e.g. switched delivery method, making setup "incomplete")
   if (earlyState === "fetching") return "build-in-progress";
+  if (todaysEdition?.status === "building") return "build-in-progress";
   if (earlyState === "error") return "build-error";
   if (earlyState === "done") return "fetched-early";
 
   // Current edition exists — show its status regardless of time of day
-  if (todaysEdition?.status === "building") return "build-in-progress";
   if (todaysEdition?.status === "built") return "awaiting-delivery";
   if (todaysEdition?.status === "delivered") return "delivered";
   if (todaysEdition?.status === "failed") return "failed";
+
+  // No active build — now check setup completeness
+  if (!setupStatus.isFullyConfigured) return "setup-incomplete";
 
   // No edition yet — are we before or after the 5 AM cutoff?
   if (isBeforeCutoff) {

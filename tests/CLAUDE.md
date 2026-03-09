@@ -24,6 +24,9 @@ pytest -k "test_build"           # By name pattern
 - `test_delivery.py` — Delivery backends
 - `test_cli.py` — CLI commands
 
+### Build Pipeline Tests
+- `test_build_for_users.py` — Build script delivery method snapshotting, mid-build safety, on-demand flow, config construction, helper functions
+
 ## Notes
 
 - `conftest.py` has shared fixtures

@@ -2,7 +2,9 @@ import { getUserConfig } from "@/actions/user-config";
 import { getFeeds, cleanOrphanedFeeds } from "@/actions/feeds";
 import { getCatalogData } from "@/actions/feed-catalog";
 import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
+import { hasActiveBuild } from "@/actions/delivery-history";
 import { getAuthUser } from "@/lib/auth";
+import { getEditionDate } from "@/lib/edition-date";
 import { SettingsClient } from "@/components/settings-client";
 import { redirect } from "next/navigation";
 import type { AuthProvider } from "@/actions/account";
@@ -37,6 +39,9 @@ export default async function SettingsPage({
 
   if (!config) redirect("/login");
 
+  const editionDate = getEditionDate(config.timezone);
+  const buildInProgress = await hasActiveBuild(editionDate);
+
   const userEmail = authUser?.email ?? "";
   const authProvider: AuthProvider =
     authUser?.app_metadata?.provider === "google" ? "google" : "email";
@@ -59,6 +64,7 @@ export default async function SettingsPage({
         initialOpen={initialOpen}
         userEmail={userEmail}
         authProvider={authProvider}
+        buildInProgress={buildInProgress}
       />
     </main>
   );

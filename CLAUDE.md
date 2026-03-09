@@ -54,11 +54,12 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 3. Downloads EPUB from Storage, delivers via Google Drive/email/Gmail, updates to `status: "delivered"`
 
 **"Get it now" flow** (on-demand):
-1. Next.js server action creates `delivery_history` record with `status: "building"`
+1. Next.js server action creates `delivery_history` record with `status: "building"` + snapshots `delivery_method`
 2. If a `"built"` record already exists, dispatches delivery-only instead of rebuilding
 3. Fires `repository_dispatch` to GitHub Actions with `{ record_id }` (no PII)
 4. Returns immediately — dashboard polls Supabase every 5s for completion
 5. Dashboard detects `status: "delivered"`, `"built"`, or `"failed"` and transitions state
+6. Settings locks Sources/Delivery/Schedule sections during active builds to prevent mid-build changes
 
 **Status lifecycle:** `building → built → delivered` (or `→ failed` at any step)
 
@@ -194,8 +195,8 @@ Key files:
 ## Current Status
 
 - Core library, auth, and server actions are complete
-- Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge)
-- Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`. Account section: email display, password change (email users), account deletion with confirmation
+- Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
+- Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Account section: email display, password change (email users), account deletion with confirmation
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional

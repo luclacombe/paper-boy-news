@@ -174,14 +174,19 @@ def _write_back_tokens(sb, prof: dict, user_id: str, token_data: dict | None) ->
 
 
 def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
-                    edition_date: date, cache: ContentCache | None = None) -> None:
+                    edition_date: date, cache: ContentCache | None = None,
+                    record_delivery_method: str | None = None) -> None:
     """Build EPUB for a user and update the delivery_history record.
 
     Sets status to "built" (for auto-delivery users) or "delivered" (for local/download).
     On-demand callers should use build_and_deliver_for_record() instead.
+
+    Uses record_delivery_method (from when the build was requested) instead of the
+    live profile, so settings changes mid-build don't break delivery.
     """
     edition_date_str = edition_date.isoformat()
-    is_local = prof.get("delivery_method", "local") == "local"
+    delivery_method = record_delivery_method or prof.get("delivery_method", "local")
+    is_local = delivery_method == "local"
 
     try:
         config = build_config_from_profile(prof, feed_list)
@@ -270,7 +275,13 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
         return
 
     try:
-        config = build_config_from_profile(prof, [])  # feeds not needed for delivery
+        # Use the delivery_method from the record (snapshot from build time)
+        # so settings changes after build don't break delivery
+        prof_snapshot = dict(prof)
+        record_delivery_method = rec.get("delivery_method")
+        if record_delivery_method:
+            prof_snapshot["delivery_method"] = record_delivery_method
+        config = build_config_from_profile(prof_snapshot, [])  # feeds not needed for delivery
         token_data = get_token_data(prof)
 
         # Download EPUB from Supabase Storage
@@ -338,6 +349,10 @@ def build_and_deliver_for_record(
         _deliver_record(sb, rec, prof)
         return
 
+    # Use the delivery_method from the record (snapshot from when build was requested)
+    # so settings changes mid-build don't break delivery
+    record_delivery_method = rec.get("delivery_method") or prof.get("delivery_method", "local")
+
     # Fetch user feeds
     feeds = (
         sb.table("user_feeds")
@@ -358,7 +373,10 @@ def build_and_deliver_for_record(
     edition_date = date.fromisoformat(edition_date_str)
 
     try:
-        config = build_config_from_profile(prof, feed_list)
+        # Override delivery method with the snapshot from the record
+        prof_snapshot = dict(prof)
+        prof_snapshot["delivery_method"] = record_delivery_method
+        config = build_config_from_profile(prof_snapshot, feed_list)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_") as tmp_dir:
             filename = _epub_filename(prof["title"], edition_date_str)
@@ -390,11 +408,11 @@ def build_and_deliver_for_record(
             except Exception as e:
                 logger.warning("Storage upload failed (non-critical): %s", e)
 
-            # Deliver if not local
+            # Deliver if not local — use the record's delivery method, not live profile
             delivery_message = "Available for download"
             token_data = get_token_data(prof)
 
-            if prof.get("delivery_method", "local") != "local":
+            if record_delivery_method != "local":
                 try:
                     deliver(result.epub_path, config, token_data=token_data)
                     delivery_message = _generate_delivery_message(config)
@@ -533,7 +551,11 @@ def run_build_all() -> None:
         if record.data:
             record_id = record.data[0]["id"]
             edition_date = date.fromisoformat(edition_date_str)
-            _build_for_user(sb, prof, feeds.data, record_id, edition_date, cache=cache)
+            _build_for_user(
+                sb, prof, feeds.data, record_id, edition_date,
+                cache=cache,
+                record_delivery_method=prof.get("delivery_method", "local"),
+            )
             built_count += 1
 
     cache.log_stats()

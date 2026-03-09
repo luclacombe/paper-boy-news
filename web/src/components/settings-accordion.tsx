@@ -121,6 +121,7 @@ interface SettingsAccordionProps {
   initialOpen: SettingsSection | null;
   userEmail: string;
   authProvider: AuthProvider;
+  buildInProgress: boolean;
 }
 
 export function SettingsAccordion({
@@ -133,6 +134,7 @@ export function SettingsAccordion({
   initialOpen,
   userEmail,
   authProvider,
+  buildInProgress,
 }: SettingsAccordionProps) {
   const router = useRouter();
   const [isSaving, startSave] = useTransition();
@@ -369,6 +371,14 @@ export function SettingsAccordion({
     setOpenSection((prev) => (prev === section ? null : section));
   }
 
+  // Close the currently open section if it becomes locked by a build
+  useEffect(() => {
+    if (openSection && isSectionLocked(openSection)) {
+      setOpenSection(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buildInProgress]);
+
   // ── Deep link scroll on mount ──
 
   const scrollRef = useRef(false);
@@ -385,10 +395,25 @@ export function SettingsAccordion({
     }
   }, [initialOpen]);
 
+  // Sections that are locked during an active build
+  const lockedDuringBuild: SettingsSection[] = ["sources", "delivery", "schedule"];
+  function isSectionLocked(section: SettingsSection): boolean {
+    return buildInProgress && lockedDuringBuild.includes(section);
+  }
+
   // ── Render ──
 
   return (
     <div className="space-y-3">
+      {buildInProgress && (
+        <div className="flex items-center gap-2 rounded-md border border-building/30 bg-building/10 px-4 py-3">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-building" />
+          <p className="font-body text-sm text-ink">
+            A build is in progress. Sources, delivery, and schedule settings are
+            locked until the build completes.
+          </p>
+        </div>
+      )}
       {renderCard(
         "sources",
         "Sources",
@@ -458,18 +483,20 @@ export function SettingsAccordion({
     showSave?: boolean
   ) {
     const isOpen = openSection === section;
+    const locked = isSectionLocked(section);
 
     return (
       <div
         key={section}
         data-section={section}
-        className={`newsprint-card overflow-hidden border border-rule-gray border-l-[3px] bg-card ${SECTION_COLORS[section]}`}
+        className={`newsprint-card overflow-hidden border border-rule-gray border-l-[3px] bg-card ${SECTION_COLORS[section]} ${locked ? "opacity-60" : ""}`}
       >
         {/* Header — always visible */}
         <button
           type="button"
-          onClick={() => handleToggle(section)}
-          className="flex w-full items-center justify-between px-5 py-4 text-left cursor-pointer hover:bg-warm-gray/30 transition-colors"
+          onClick={() => !locked && handleToggle(section)}
+          disabled={locked}
+          className={`flex w-full items-center justify-between px-5 py-4 text-left transition-colors ${locked ? "cursor-not-allowed" : "cursor-pointer hover:bg-warm-gray/30"}`}
         >
           <h2 className="font-headline text-sm font-bold text-ink">
             {title}
@@ -485,7 +512,7 @@ export function SettingsAccordion({
         </button>
 
         {/* Expanded content */}
-        {isOpen && (
+        {isOpen && !locked && (
           <div className="border-t border-rule-gray px-5 pb-5 pt-4">
             {content}
 
