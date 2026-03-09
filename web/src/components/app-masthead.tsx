@@ -35,7 +35,7 @@ export function AppMasthead({ newspaperTitle, userEmail }: AppMastheadProps) {
       <div className="mt-[3px] border-t border-ink" />
 
       {/* Nameplate row */}
-      <div className="flex items-center justify-between py-3">
+      <div className="flex items-start justify-between py-3">
         <div>
           <Link
             href="/dashboard"
@@ -46,20 +46,18 @@ export function AppMasthead({ newspaperTitle, userEmail }: AppMastheadProps) {
           <p className="mt-0.5 font-mono text-[10px] text-caption">
             &ldquo;{newspaperTitle}&rdquo; &middot; {formatDate()}
           </p>
-        </div>
-        <div className="flex items-center gap-3">
           {userEmail && (
-            <span className="hidden font-mono text-[10px] text-caption sm:inline truncate max-w-[180px]">
-              {userEmail}
-            </span>
+            <p className="mt-1 font-body text-[11px] italic text-caption">
+              Edition for {userEmail}
+            </p>
           )}
-          <button
-            onClick={handleSignOut}
-            className="font-mono text-sm text-caption transition-colors hover:text-ink"
-          >
-            Sign out
-          </button>
         </div>
+        <button
+          onClick={handleSignOut}
+          className="mt-1 font-mono text-xs text-caption transition-colors hover:text-ink"
+        >
+          Sign out
+        </button>
       </div>
 
       {/* Bottom double rule */}

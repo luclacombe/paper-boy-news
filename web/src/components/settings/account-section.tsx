@@ -60,11 +60,15 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
 
   return (
     <div className="space-y-5">
-      {/* Email display */}
-      <div className="space-y-1">
-        <Label className="font-headline text-sm text-ink">Email</Label>
-        <p className="font-mono text-sm text-ink">{email}</p>
-        <p className="font-mono text-[10px] text-caption">
+      {/* Email + auth provider */}
+      <div>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <span className="small-caps font-headline text-xs tracking-widest text-caption">
+            Email
+          </span>
+          <span className="font-mono text-sm text-ink">{email}</span>
+        </div>
+        <p className="mt-0.5 font-body text-xs italic text-caption">
           {authProvider === "google"
             ? "Signed in with Google"
             : "Signed in with email"}
@@ -74,9 +78,9 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
       {/* Password change */}
       {authProvider === "email" ? (
         <div className="space-y-3">
-          <h3 className="font-headline text-sm font-bold text-ink">
+          <span className="small-caps font-headline text-xs tracking-widest text-caption">
             Change password
-          </h3>
+          </span>
           <div className="space-y-2">
             <div className="space-y-1">
               <Label
@@ -128,12 +132,9 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
         </p>
       )}
 
-      {/* Delete account — danger zone */}
-      <div className="border-t border-edition-red/20 pt-4">
-        <h3 className="font-headline text-sm font-bold text-edition-red">
-          Danger zone
-        </h3>
-        <p className="mt-1 font-body text-xs text-caption">
+      {/* Delete account */}
+      <div className="border-t border-rule-gray/30 pt-4">
+        <p className="font-body text-xs text-caption">
           Permanently delete your account and all associated data.
         </p>
 

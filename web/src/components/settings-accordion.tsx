@@ -23,7 +23,7 @@ import {
 import { AccountSection } from "@/components/settings/account-section";
 import { Button } from "@/components/ui/button";
 import { readingTimeToArticleBudget } from "@/lib/reading-time";
-import { DEVICES, DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
+import { DEVICES, DELIVERY_TIMES, TIMEZONES, normalizeTimezone } from "@/lib/constants";
 import type { AuthProvider } from "@/actions/account";
 import type {
   UserConfig,
@@ -89,8 +89,9 @@ export function getDeliverySummary(
 export function getScheduleSummary(time: string, timezone: string): string {
   const timeLabel =
     DELIVERY_TIMES.find((t) => t.value === time)?.label ?? time;
+  const normalized = normalizeTimezone(timezone);
   const tzLabel =
-    TIMEZONES.find((tz) => tz.value === timezone)?.label ?? timezone;
+    TIMEZONES.find((tz) => tz.value === normalized)?.label ?? timezone;
   return `${timeLabel} · ${tzLabel}`;
 }
 

@@ -141,6 +141,11 @@ def _format_file_size(size_bytes: int) -> str:
     return f"{size_bytes / 1024:.0f} KB"
 
 
+def _epub_filename(title: str, edition_date_str: str) -> str:
+    """Generate a title-based EPUB filename like 'My-Paper-2026-03-09.epub'."""
+    return f"{title.replace(' ', '-')}-{edition_date_str}.epub"
+
+
 def _generate_delivery_message(config: Config) -> str:
     """Generate a human-readable delivery success message."""
     method = config.delivery.method
@@ -182,9 +187,8 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
         config = build_config_from_profile(prof, feed_list)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_") as tmp_dir:
-            output_path = os.path.join(
-                tmp_dir, f"paper-boy-{edition_date_str}.epub"
-            )
+            filename = _epub_filename(prof["title"], edition_date_str)
+            output_path = os.path.join(tmp_dir, filename)
 
             result = build_newspaper(config, output_path=output_path, issue_date=edition_date, cache=cache)
 
@@ -202,7 +206,6 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
             # Upload EPUB to Supabase Storage
             epub_storage_path = None
             try:
-                filename = f"{prof['title'].replace(' ', '-')}-{edition_date_str}.epub"
                 storage_path = f"{prof['auth_id']}/{filename}"
                 sb.storage.from_("epubs").upload(
                     storage_path,
@@ -274,7 +277,9 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
         epub_bytes = sb.storage.from_("epubs").download(epub_storage_path)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_deliver_") as tmp_dir:
-            epub_path = os.path.join(tmp_dir, "paper.epub")
+            # Use the original filename from storage path so delivery backends get the title
+            deliver_filename = os.path.basename(epub_storage_path)
+            epub_path = os.path.join(tmp_dir, deliver_filename)
             Path(epub_path).write_bytes(epub_bytes)
 
             deliver(epub_path, config, token_data=token_data)
@@ -356,9 +361,8 @@ def build_and_deliver_for_record(
         config = build_config_from_profile(prof, feed_list)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_") as tmp_dir:
-            output_path = os.path.join(
-                tmp_dir, f"paper-boy-{edition_date.isoformat()}.epub"
-            )
+            filename = _epub_filename(prof["title"], edition_date_str)
+            output_path = os.path.join(tmp_dir, filename)
 
             result = build_newspaper(config, output_path=output_path, issue_date=edition_date, cache=cache)
 
@@ -376,7 +380,6 @@ def build_and_deliver_for_record(
             # Upload EPUB to Supabase Storage
             epub_storage_path = None
             try:
-                filename = f"{prof['title'].replace(' ', '-')}-{edition_date_str}.epub"
                 storage_path = f"{prof['auth_id']}/{filename}"
                 sb.storage.from_("epubs").upload(
                     storage_path,
