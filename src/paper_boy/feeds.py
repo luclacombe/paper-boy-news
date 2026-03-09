@@ -155,6 +155,53 @@ def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Secti
             )
         else:
             logger.warning("No articles extracted from %s", feed_cfg.name)
+
+    budget = config.newspaper.total_article_budget
+    if budget > 0:
+        sections = apply_article_budget(sections, budget)
+
+    return sections
+
+
+def apply_article_budget(sections: list[Section], budget: int) -> list[Section]:
+    """Trim sections to fit within a total article budget.
+
+    Guarantees at least 1 article per source (up to the budget).
+    Distributes remaining budget round-robin across sources in order.
+    """
+    if not sections:
+        return sections
+
+    total = sum(len(s.articles) for s in sections)
+    if total <= budget:
+        return sections
+
+    # More sources than budget — keep 1 article from the first `budget` sources
+    if len(sections) >= budget:
+        for section in sections[:budget]:
+            section.articles = section.articles[:1]
+        return sections[:budget]
+
+    # Phase 1: allocate 1 article per source
+    allocations = [1] * len(sections)
+    remaining = budget - len(sections)
+
+    # Phase 2: distribute remaining budget round-robin
+    changed = True
+    while remaining > 0 and changed:
+        changed = False
+        for i in range(len(sections)):
+            if remaining <= 0:
+                break
+            if allocations[i] < len(sections[i].articles):
+                allocations[i] += 1
+                remaining -= 1
+                changed = True
+
+    # Apply allocations
+    for i, section in enumerate(sections):
+        section.articles = section.articles[: allocations[i]]
+
     return sections
 
 
@@ -162,6 +209,7 @@ def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Secti
 
 
 _FEED_FETCH_TIMEOUT = 30  # seconds
+_FETCH_CAP_PER_FEED = 20  # safety net — actual trimming done by apply_article_budget()
 
 
 def _fetch_single_feed(
@@ -177,7 +225,7 @@ def _fetch_single_feed(
     # Check cache for parsed feed entries
     cached_entries = cache.get_feed(feed_cfg.url) if cache else None
     if cached_entries is not None:
-        entries = cached_entries[: config.newspaper.max_articles_per_feed]
+        entries = cached_entries[: _FETCH_CAP_PER_FEED]
     else:
         def _timeout_handler(signum, frame):
             raise TimeoutError(f"Feed fetch timed out after {_FEED_FETCH_TIMEOUT}s")
@@ -201,7 +249,7 @@ def _fetch_single_feed(
         if cache:
             cache.set_feed(feed_cfg.url, feed.entries)
 
-        entries = feed.entries[: config.newspaper.max_articles_per_feed]
+        entries = feed.entries[: _FETCH_CAP_PER_FEED]
 
     for entry in entries:
         article = _extract_article(entry, config, cache=cache)

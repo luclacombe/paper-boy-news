@@ -76,7 +76,7 @@ UPDATE public.user_profiles SET
   device = 'kobo',
   delivery_method = 'local',
   reading_time = '20 min',
-  max_articles_per_feed = 10,
+  total_article_budget = 7,
   include_images = true,
   delivery_time = '06:00',
   timezone = 'America/New_York',

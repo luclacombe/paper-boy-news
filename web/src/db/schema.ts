@@ -17,7 +17,7 @@ export const userProfiles = pgTable("user_profiles", {
   // Newspaper settings
   title: text("title").notNull().default("Morning Digest"),
   language: text("language").notNull().default("en"),
-  maxArticlesPerFeed: integer("max_articles_per_feed").notNull().default(10),
+  totalArticleBudget: integer("total_article_budget").notNull().default(7),
   readingTime: text("reading_time").notNull().default("20 min"),
   includeImages: boolean("include_images").notNull().default(true),
 

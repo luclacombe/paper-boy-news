@@ -81,7 +81,7 @@ export async function completeOnboarding(
         deliveryMethod: data.deliveryMethod,
         title: data.title,
         readingTime: data.readingTime,
-        maxArticlesPerFeed: data.maxArticlesPerFeed,
+        totalArticleBudget: data.totalArticleBudget,
         includeImages: data.includeImages,
         deliveryTime: data.deliveryTime,
         timezone: data.timezone,

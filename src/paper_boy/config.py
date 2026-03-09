@@ -43,7 +43,7 @@ class DeliveryConfig:
 class NewspaperConfig:
     title: str = "Morning Digest"
     language: str = "en"
-    max_articles_per_feed: int = 10
+    total_article_budget: int = 7
     include_images: bool = True
     image_max_width: int = 800
     image_max_height: int = 1200
@@ -75,7 +75,10 @@ def load_config(path: str | Path) -> Config:
     newspaper = NewspaperConfig(
         title=np_raw.get("title", "Morning Digest"),
         language=np_raw.get("language", "en"),
-        max_articles_per_feed=np_raw.get("max_articles_per_feed", 10),
+        total_article_budget=np_raw.get(
+            "total_article_budget",
+            np_raw.get("max_articles_per_feed", 7),
+        ),
         include_images=np_raw.get("include_images", True),
         image_max_width=np_raw.get("image_max_width", 800),
         image_max_height=np_raw.get("image_max_height", 1200),

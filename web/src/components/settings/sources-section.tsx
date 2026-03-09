@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { readingTimeToArticleBudget, recommendedSourceRange } from "@/lib/reading-time";
 import type { Feed, CatalogCategory, CatalogBundle, CatalogFeed } from "@/types";
 
 // Pending addition — not yet saved to DB
@@ -24,6 +25,7 @@ interface SourcesSectionProps {
   feeds: Feed[];
   categories: CatalogCategory[];
   bundles: CatalogBundle[];
+  readingTime: number;
   onDirtyChange: (dirty: boolean) => void;
   onEffectiveCountChange?: (count: number, categoryCount: number) => void;
   saveRef: React.RefObject<(() => Promise<void>) | null>;
@@ -33,6 +35,7 @@ export function SourcesSection({
   feeds,
   categories,
   bundles,
+  readingTime,
   onDirtyChange,
   onEffectiveCountChange,
   saveRef,
@@ -244,8 +247,10 @@ export function SourcesSection({
     saveRef.current = persistChanges;
   }, [persistChanges, saveRef]);
 
-  // Effective feed count
+  // Effective feed count + recommendation
   const effectiveCount = effectiveUrls.size;
+  const budget = readingTimeToArticleBudget(readingTime);
+  const [recMin, recMax] = recommendedSourceRange(budget);
 
   return (
     <div className="space-y-4">
@@ -274,7 +279,7 @@ export function SourcesSection({
         <h3 className="font-headline text-sm font-bold text-ink">
           Edit your sources
           <span className="ml-2 font-mono text-xs font-normal text-caption">
-            {effectiveCount} selected
+            {effectiveCount} selected · {recMin}–{recMax} recommended for {readingTime}m
           </span>
         </h3>
         {categories.map((cat) => {

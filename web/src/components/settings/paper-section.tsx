@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { READING_TIME_OPTIONS, readingTimeToArticleCount } from "@/lib/reading-time";
+import { READING_TIME_OPTIONS, readingTimeToArticleBudget } from "@/lib/reading-time";
 
 export interface PaperValues {
   title: string;
@@ -64,7 +64,7 @@ export function PaperSection({ values, onChange }: PaperSectionProps) {
           })}
         </div>
         <p className="font-mono text-xs text-caption">
-          ~{readingTimeToArticleCount(values.readingTime)} articles per feed
+          ~{readingTimeToArticleBudget(values.readingTime)} articles total
         </p>
       </div>
 
