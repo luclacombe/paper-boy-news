@@ -33,6 +33,10 @@ design-spec.md
 web-product-research.md
 README-FUTURE.md
 
+# Private docs (not for public repo)
+SECURITY.md
+SETUP-GUIDE.md
+
 # Test output files
 *.opf
 
