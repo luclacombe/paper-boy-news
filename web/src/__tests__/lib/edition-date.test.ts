@@ -17,9 +17,9 @@ describe("getEditionDate", () => {
     expect(getEditionDate("UTC", now)).toBe("2026-03-08");
   });
 
-  it("returns yesterday before 5 AM UTC", () => {
+  it("returns today before 5 AM UTC", () => {
     const now = utc(2026, 3, 8, 4, 59); // 4:59 AM UTC
-    expect(getEditionDate("UTC", now)).toBe("2026-03-07");
+    expect(getEditionDate("UTC", now)).toBe("2026-03-08");
   });
 
   it("returns today at exactly 5 AM UTC", () => {
@@ -27,34 +27,34 @@ describe("getEditionDate", () => {
     expect(getEditionDate("UTC", now)).toBe("2026-03-08");
   });
 
-  it("returns yesterday at midnight UTC", () => {
+  it("returns today at midnight UTC", () => {
     const now = utc(2026, 3, 8, 0, 0); // midnight UTC
-    expect(getEditionDate("UTC", now)).toBe("2026-03-07");
+    expect(getEditionDate("UTC", now)).toBe("2026-03-08");
   });
 
   it("handles US/Eastern timezone (EDT in March = UTC-4)", () => {
     // 3:00 AM UTC = 11:00 PM EDT March 7
-    // In ET, it's before 5 AM on March 8, so edition = March 7
+    // In ET, it's March 7 → edition = March 7
     const now = utc(2026, 3, 8, 3, 0);
     expect(getEditionDate("US/Eastern", now)).toBe("2026-03-07");
   });
 
   it("handles US/Eastern after cutoff", () => {
-    // 10:00 AM UTC = 6:00 AM EDT March 8 → after cutoff → March 8
+    // 10:00 AM UTC = 6:00 AM EDT March 8 → March 8
     const now = utc(2026, 3, 8, 10, 0);
     expect(getEditionDate("US/Eastern", now)).toBe("2026-03-08");
   });
 
   it("handles US/Pacific timezone", () => {
-    // 14:00 UTC = 6:00 AM PT (March 8) → after cutoff → March 8
+    // 14:00 UTC = 6:00 AM PT (March 8) → March 8
     const now = utc(2026, 3, 8, 14, 0);
     expect(getEditionDate("US/Pacific", now)).toBe("2026-03-08");
   });
 
   it("handles year boundary", () => {
-    // Jan 1 at 2 AM UTC → edition = Dec 31
+    // Jan 1 at 2 AM UTC → edition = Jan 1 (today's date)
     const now = utc(2026, 1, 1, 2, 0);
-    expect(getEditionDate("UTC", now)).toBe("2025-12-31");
+    expect(getEditionDate("UTC", now)).toBe("2026-01-01");
   });
 });
 

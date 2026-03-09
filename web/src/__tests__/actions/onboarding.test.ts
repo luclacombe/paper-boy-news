@@ -52,7 +52,7 @@ const ONBOARDING_DATA: OnboardingData = {
   ],
   title: "My Paper",
   readingTime: "15 min",
-  maxArticlesPerFeed: 8,
+  totalArticleBudget: 8,
   includeImages: false,
   deliveryTime: "07:00",
   timezone: "US/Eastern",

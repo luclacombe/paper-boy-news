@@ -2,7 +2,6 @@ import {
   DEVICES,
   DELIVERY_TIMES,
   TIMEZONES,
-  EDITION_ROLLOVER_HOUR,
 } from "@/lib/constants";
 import type { UserConfig } from "@/types";
 
@@ -35,12 +34,6 @@ function formatTimeAndZone(
   const timeLabel = timeOption?.label ?? deliveryTime;
   const tzLabel = formatTimezone(timezone);
   return `${timeLabel} ${tzLabel}`;
-}
-
-function formatRolloverTime(timezone: string): string {
-  const tzLabel = formatTimezone(timezone);
-  const hour = EDITION_ROLLOVER_HOUR;
-  return `${hour}:00 AM ${tzLabel}`;
 }
 
 /** Past tense — what happened with the latest edition */
@@ -79,7 +72,6 @@ export function getPreBuildSentence(
 ): string {
   const deviceLabel =
     DEVICES.find((d) => d.value === config.device)?.label ?? config.device;
-  const rollover = formatRolloverTime(config.timezone);
   const delivery = formatTimeAndZone(config.deliveryTime, config.timezone);
 
   if (isFirst) {
@@ -93,12 +85,12 @@ export function getPreBuildSentence(
   }
 
   if (config.deliveryMethod === "google_drive") {
-    return `Tomorrow\u2019s paper will be ready at ${rollover}. Yours is scheduled for delivery at ${delivery}.`;
+    return `Your paper is being prepared overnight. Yours is scheduled for delivery at ${delivery}.`;
   }
   if (config.deliveryMethod === "email") {
-    return `Tomorrow\u2019s paper will be ready at ${rollover}. Yours is scheduled for delivery at ${delivery}.`;
+    return `Your paper is being prepared overnight. Yours is scheduled for delivery at ${delivery}.`;
   }
-  return `Tomorrow\u2019s paper will be ready at ${rollover}. Yours is scheduled for download at ${delivery}.`;
+  return `Your paper is being prepared overnight. Yours is scheduled for download at ${delivery}.`;
 }
 
 /** Ready sentence — shown after 5 AM when edition is available but not yet delivered */

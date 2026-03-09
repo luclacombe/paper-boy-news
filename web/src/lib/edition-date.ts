@@ -27,24 +27,16 @@ function getDatePartsInTZ(
   };
 }
 
-/** Subtract one calendar day from a YYYY-MM-DD string. */
-function subtractOneDay(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() - 1);
-  return dt.toISOString().split("T")[0];
-}
-
 /**
  * Get the current edition date in a user's timezone.
- * Before 5 AM → yesterday's date. 5 AM onward → today's date.
+ * Always returns today's calendar date — no rollover.
  */
 export function getEditionDate(
   timezone: string,
   now: Date = new Date()
 ): string {
-  const { date, hour } = getDatePartsInTZ(timezone, now);
-  return hour < EDITION_ROLLOVER_HOUR ? subtractOneDay(date) : date;
+  const { date } = getDatePartsInTZ(timezone, now);
+  return date;
 }
 
 /**

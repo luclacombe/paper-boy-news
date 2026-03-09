@@ -177,8 +177,8 @@ export function DashboardClient({
       setFetchedAt(new Date());
       toast.success(
         todaysEdition.status === "delivered"
-          ? "Your paper is ready"
-          : "Your paper was delivered"
+          ? "Your paper has been delivered"
+          : "Your paper is ready"
       );
     } else if (todaysEdition?.status === "failed") {
       setEarlyState("error");
@@ -358,9 +358,7 @@ export function DashboardClient({
                         ? "text-delivered"
                         : record.status === "failed"
                           ? "text-edition-red"
-                          : record.status === "built"
-                            ? "text-building"
-                            : "text-building"
+                          : "text-building"
                     }`}
                   >
                     {record.status === "delivered"
