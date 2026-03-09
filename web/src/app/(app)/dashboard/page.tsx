@@ -2,6 +2,7 @@ import { getUserConfig } from "@/actions/user-config";
 import { getFeeds } from "@/actions/feeds";
 import { getDeliveryHistory, getEditionCount } from "@/actions/delivery-history";
 import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
+import { getAuthUser } from "@/lib/auth";
 import { computeSetupStatus } from "@/lib/setup-status";
 import {
   getEditionDate,
@@ -13,7 +14,7 @@ import { AppMasthead } from "@/components/app-masthead";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
-  const [config, feeds, history, editionCount, hasDrive, hasGmail] =
+  const [config, feeds, history, editionCount, hasDrive, hasGmail, authUser] =
     await Promise.all([
       getUserConfig(),
       getFeeds(),
@@ -21,6 +22,7 @@ export default async function DashboardPage() {
       getEditionCount(),
       hasDriveScope(),
       hasGmailScope(),
+      getAuthUser(),
     ]);
 
   if (!config) redirect("/login");
@@ -38,7 +40,7 @@ export default async function DashboardPage() {
 
   return (
     <>
-      <AppMasthead newspaperTitle={config.title} />
+      <AppMasthead newspaperTitle={config.title} userEmail={authUser?.email} />
       <main className="mx-auto max-w-3xl px-6 py-8">
         <DashboardClient
           config={config}

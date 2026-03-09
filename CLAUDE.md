@@ -39,15 +39,16 @@ Legacy code is archived in `legacy/` (Streamlit prototype and former FastAPI bac
 
 ## Build Pipeline
 
-Two-phase scheduled pipeline (build at 5 AM UTC, deliver at each user's time):
+Two-phase scheduled pipeline (6 build windows + delivery checks):
 
-**Build phase** (daily, 5 AM UTC):
+**Build phase** (6 windows every 4 hours at :45 — 03:45, 07:45, 11:45, 15:45, 19:45, 23:45 UTC):
 1. GitHub Actions cron triggers `BUILD_MODE=build`
-2. `build_for_users.py` builds ALL onboarded users' papers in one run
-3. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across all users
-4. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
+2. Pre-check queries Supabase for user timezones; skips Python setup if no users are in midnight–5 AM window
+3. `build_for_users.py` builds only users whose local time is midnight–5 AM (others caught by next window)
+4. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users in the window
+5. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
 
-**Deliver phase** (every 30 min):
+**Deliver phase** (every 30 min at :00/:30):
 1. GitHub Actions cron triggers `BUILD_MODE=deliver`
 2. `build_for_users.py` scans for `status: "built"` records within ±15 min of each user's delivery window
 3. Downloads EPUB from Storage, delivers via Google Drive/email/Gmail, updates to `status: "delivered"`
@@ -175,14 +176,14 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 
 ## Edition Model
 
-Editions use a **5 AM rollover** in the user's configured timezone (not UTC midnight):
+Edition date = **today's calendar date** in the user's configured timezone (no rollover):
 
-- Before 5 AM user-local → current edition is **yesterday's**
-- After 5 AM → current edition is **today's**
+- Edition date is always today's date — `getEditionDate()` returns the current calendar date
 - One edition per calendar day per user (enforced by partial unique index on `delivery_history`)
-- Build time = 5 AM UTC (all users built in one run with shared cache)
+- Build time = midnight–5 AM user-local (6 build windows every 4 hours cover all timezones)
 - Delivery time (5–8 AM user-local) = when the paper gets pushed to the user's device
 - "Get it now" = async build (or delivery-only if already built) via GitHub Actions
+- `isBeforeEditionCutoff()` checks if before 5 AM local — used for UI messaging (paper may still be building)
 
 Key files:
 - `web/src/lib/edition-date.ts` — timezone-aware edition date calculation
@@ -194,7 +195,7 @@ Key files:
 
 - Core library, auth, and server actions are complete
 - Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge)
-- Settings (`/settings`) — accordion with 4 colored-border cards, batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`
+- Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`. Account section: email display, password change (email users), account deletion with confirmation
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional

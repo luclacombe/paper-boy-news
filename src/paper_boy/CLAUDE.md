@@ -60,7 +60,7 @@ YAML-based (`config.yaml`), see `config.example.yaml` in project root:
 ```yaml
 title: "Morning Digest"
 language: en
-max_articles_per_feed: 10
+total_article_budget: 7   # total articles across all feeds (each source gets at least 1)
 include_images: true
 feeds:
   - name: "The Guardian"

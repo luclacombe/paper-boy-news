@@ -20,9 +20,11 @@ import {
   PaperSection,
   type PaperValues,
 } from "@/components/settings/paper-section";
+import { AccountSection } from "@/components/settings/account-section";
 import { Button } from "@/components/ui/button";
-import { readingTimeToArticleCount } from "@/lib/reading-time";
+import { readingTimeToArticleBudget } from "@/lib/reading-time";
 import { DEVICES, DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
+import type { AuthProvider } from "@/actions/account";
 import type {
   UserConfig,
   Feed,
@@ -34,13 +36,14 @@ import type {
 
 // ─── Types ───────────────────────────────────────────────────────
 
-export type SettingsSection = "sources" | "delivery" | "schedule" | "paper";
+export type SettingsSection = "sources" | "delivery" | "schedule" | "paper" | "account";
 
 const SECTION_TOAST: Record<SettingsSection, string> = {
   sources: "Sources",
   delivery: "Delivery",
   schedule: "Schedule",
   paper: "Your paper",
+  account: "Account",
 };
 
 const SECTION_COLORS: Record<SettingsSection, string> = {
@@ -48,6 +51,7 @@ const SECTION_COLORS: Record<SettingsSection, string> = {
   delivery: "border-l-ink",
   schedule: "border-l-building",
   paper: "border-l-delivered",
+  account: "border-l-caption",
 };
 
 // ─── Summary generators (pure, exported for testing) ─────────────
@@ -96,6 +100,14 @@ export function getPaperSummary(values: PaperValues): string {
   return `"${title}" · ~${values.readingTime} min · ${images}`;
 }
 
+export function getAccountSummary(
+  email: string,
+  provider: AuthProvider
+): string {
+  const providerLabel = provider === "google" ? "Google" : "Email";
+  return `${email} · ${providerLabel}`;
+}
+
 // ─── Component ───────────────────────────────────────────────────
 
 interface SettingsAccordionProps {
@@ -106,6 +118,8 @@ interface SettingsAccordionProps {
   hasDrive: boolean;
   hasGmail: boolean;
   initialOpen: SettingsSection | null;
+  userEmail: string;
+  authProvider: AuthProvider;
 }
 
 export function SettingsAccordion({
@@ -116,6 +130,8 @@ export function SettingsAccordion({
   hasDrive,
   hasGmail,
   initialOpen,
+  userEmail,
+  authProvider,
 }: SettingsAccordionProps) {
   const router = useRouter();
   const [isSaving, startSave] = useTransition();
@@ -225,7 +241,7 @@ export function SettingsAccordion({
         return {
           title: paperValues.title,
           readingTime: String(paperValues.readingTime),
-          maxArticlesPerFeed: readingTimeToArticleCount(
+          totalArticleBudget: readingTimeToArticleBudget(
             paperValues.readingTime
           ),
           includeImages: paperValues.includeImages,
@@ -323,7 +339,7 @@ export function SettingsAccordion({
             await updateUserConfig({
               title: prevPaper.title,
               readingTime: String(prevPaper.readingTime),
-              maxArticlesPerFeed: readingTimeToArticleCount(prevPaper.readingTime),
+              totalArticleBudget: readingTimeToArticleBudget(prevPaper.readingTime),
               includeImages: prevPaper.includeImages,
             });
             break;
@@ -380,6 +396,7 @@ export function SettingsAccordion({
           feeds={feeds}
           categories={categories}
           bundles={bundles}
+          readingTime={paperValues.readingTime}
           onDirtyChange={handleSourcesDirtyChange}
           onEffectiveCountChange={handleEffectiveCountChange}
           saveRef={sourcesSaveRef}
@@ -420,6 +437,14 @@ export function SettingsAccordion({
         getPaperSummary(paperValues),
         <PaperSection values={paperValues} onChange={setPaperValues} />,
         true
+      )}
+
+      {renderCard(
+        "account",
+        "Account",
+        getAccountSummary(userEmail, authProvider),
+        <AccountSection email={userEmail} authProvider={authProvider} />,
+        false
       )}
     </div>
   );

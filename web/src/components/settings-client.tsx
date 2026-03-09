@@ -8,6 +8,7 @@ import {
   SettingsAccordion,
   type SettingsSection,
 } from "@/components/settings-accordion";
+import type { AuthProvider } from "@/actions/account";
 import type { UserConfig, Feed, CatalogCategory, CatalogBundle } from "@/types";
 
 interface SettingsClientProps {
@@ -18,6 +19,8 @@ interface SettingsClientProps {
   hasDrive: boolean;
   hasGmail: boolean;
   initialOpen: SettingsSection | null;
+  userEmail: string;
+  authProvider: AuthProvider;
 }
 
 export function SettingsClient({
@@ -28,6 +31,8 @@ export function SettingsClient({
   hasDrive,
   hasGmail,
   initialOpen,
+  userEmail,
+  authProvider,
 }: SettingsClientProps) {
   const router = useRouter();
 
@@ -64,6 +69,8 @@ export function SettingsClient({
         hasDrive={hasDrive}
         hasGmail={hasGmail}
         initialOpen={initialOpen}
+        userEmail={userEmail}
+        authProvider={authProvider}
       />
     </div>
   );

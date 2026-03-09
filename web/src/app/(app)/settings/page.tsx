@@ -2,8 +2,10 @@ import { getUserConfig } from "@/actions/user-config";
 import { getFeeds, cleanOrphanedFeeds } from "@/actions/feeds";
 import { getCatalogData } from "@/actions/feed-catalog";
 import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
+import { getAuthUser } from "@/lib/auth";
 import { SettingsClient } from "@/components/settings-client";
 import { redirect } from "next/navigation";
+import type { AuthProvider } from "@/actions/account";
 import type { SettingsSection } from "@/components/settings-accordion";
 
 const VALID_SECTIONS: SettingsSection[] = [
@@ -11,6 +13,7 @@ const VALID_SECTIONS: SettingsSection[] = [
   "delivery",
   "schedule",
   "paper",
+  "account",
 ];
 
 export default async function SettingsPage({
@@ -18,13 +21,14 @@ export default async function SettingsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [config, feeds, catalogData, hasDrive, hasGmail, params] =
+  const [config, feeds, catalogData, hasDrive, hasGmail, authUser, params] =
     await Promise.all([
       getUserConfig(),
       getFeeds(),
       getCatalogData(),
       hasDriveScope(),
       hasGmailScope(),
+      getAuthUser(),
       searchParams,
     ]);
 
@@ -32,6 +36,10 @@ export default async function SettingsPage({
   await cleanOrphanedFeeds();
 
   if (!config) redirect("/login");
+
+  const userEmail = authUser?.email ?? "";
+  const authProvider: AuthProvider =
+    authUser?.app_metadata?.provider === "google" ? "google" : "email";
 
   const openParam = typeof params.open === "string" ? params.open : null;
   const initialOpen =
@@ -49,6 +57,8 @@ export default async function SettingsPage({
         hasDrive={hasDrive}
         hasGmail={hasGmail}
         initialOpen={initialOpen}
+        userEmail={userEmail}
+        authProvider={authProvider}
       />
     </main>
   );
