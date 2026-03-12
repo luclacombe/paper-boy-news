@@ -46,7 +46,7 @@ const specialElite = Special_Elite({
 });
 
 export const metadata: Metadata = {
-  title: "Paper Boy",
+  title: "Paper Boy News",
   description:
     "Automated morning newspaper for your e-reader. Fetches news from RSS feeds, builds a beautiful EPUB, and delivers it to your Kindle, Kobo, or reMarkable.",
 };

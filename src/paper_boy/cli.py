@@ -22,7 +22,7 @@ def _setup_logging(verbose: bool) -> None:
 @click.group()
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging.")
 def cli(verbose: bool) -> None:
-    """Paper Boy — Automated morning newspaper for e-readers."""
+    """Paper Boy News — Automated morning newspaper for e-readers."""
     _setup_logging(verbose)
 
 

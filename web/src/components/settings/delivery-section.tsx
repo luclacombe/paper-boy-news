@@ -250,7 +250,7 @@ export function DeliverySection({
             <Input
               value={values.googleDriveFolder}
               onChange={(e) => update({ googleDriveFolder: e.target.value })}
-              placeholder="Paper Boy"
+              placeholder="Paper Boy News"
             />
           </div>
           {values.device === "kobo" && (
@@ -279,7 +279,7 @@ export function DeliverySection({
                   above
                 </li>
                 <li>
-                  Paper Boy will place your newspaper in the{" "}
+                  Paper Boy News will place your newspaper in the{" "}
                   <strong>
                     {values.googleDriveFolder || "Rakuten Kobo"}
                   </strong>{" "}
@@ -325,7 +325,7 @@ export function DeliverySection({
                     </strong>
                   </li>
                   <li>
-                    Add the email address Paper Boy sends from to your{" "}
+                    Add the email address Paper Boy News sends from to your{" "}
                     <strong>Approved Personal Document E-mail List</strong>
                   </li>
                 </ol>

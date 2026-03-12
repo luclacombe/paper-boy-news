@@ -1,10 +1,10 @@
-# Paper Boy
+# Paper Boy News
 
 Automated morning newspaper generator for e-readers (Kobo, Kindle, reMarkable).
 
 ## Project Overview
 
-Paper Boy fetches news from RSS feeds, compiles them into a well-formatted EPUB, and delivers it to e-readers via Google Drive (Kobo), email (Kindle Send-to-Kindle), or direct download.
+Paper Boy News fetches news from RSS feeds, compiles them into a well-formatted EPUB, and delivers it to e-readers via Google Drive (Kobo), email (Kindle Send-to-Kindle), or direct download.
 
 The project has two main components:
 

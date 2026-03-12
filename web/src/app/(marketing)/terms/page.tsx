@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Paper Boy",
+  title: "Terms of Service — Paper Boy News",
 };
 
 export default function TermsPage() {
@@ -13,7 +13,7 @@ export default function TermsPage() {
           href="/"
           className="font-display text-sm uppercase tracking-widest text-caption hover:text-ink"
         >
-          Paper Boy
+          Paper Boy News
         </Link>
         <h1 className="mt-4 font-display text-3xl font-bold text-ink sm:text-4xl">
           Terms of Service
@@ -29,7 +29,7 @@ export default function TermsPage() {
             The Short Version
           </h2>
           <p>
-            Paper Boy is a free, open-source personal project. You can use it to
+            Paper Boy News is a free, open-source personal project. You can use it to
             compile RSS feeds into newspapers for your e-reader. There are no
             fees, no subscriptions, and no catch.
           </p>
@@ -80,7 +80,7 @@ export default function TermsPage() {
             Content
           </h2>
           <p>
-            Paper Boy fetches and compiles content from RSS feeds you choose. We
+            Paper Boy News fetches and compiles content from RSS feeds you choose. We
             don&apos;t control, curate, or endorse any of that content. The
             articles belong to their original publishers.
           </p>
@@ -93,7 +93,7 @@ export default function TermsPage() {
             No Warranty
           </h2>
           <p>
-            Paper Boy is provided &ldquo;as is&rdquo; without warranty of any
+            Paper Boy News is provided &ldquo;as is&rdquo; without warranty of any
             kind. It&apos;s a personal project maintained in spare time.
             Deliveries may occasionally fail, feeds may change, and the service
             may have downtime. We&apos;ll do our best but make no guarantees.
@@ -107,7 +107,7 @@ export default function TermsPage() {
             Account Termination
           </h2>
           <p>
-            You can stop using Paper Boy at any time and delete your account
+            You can stop using Paper Boy News at any time and delete your account
             from Settings &gt; Account. Deletion is immediate and removes all
             your data. We reserve the right to suspend accounts that abuse the
             service. For questions, contact{" "}
@@ -137,7 +137,7 @@ export default function TermsPage() {
 
       <footer className="mt-16 border-t border-rule-gray/40 pt-6 text-center font-body text-xs text-caption">
         <Link href="/" className="underline hover:no-underline">
-          Back to Paper Boy
+          Back to Paper Boy News
         </Link>
         {" · "}
         <Link href="/privacy" className="underline hover:no-underline">

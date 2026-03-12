@@ -41,7 +41,7 @@ export function AppMasthead({ newspaperTitle, userEmail }: AppMastheadProps) {
             href="/dashboard"
             className="ink-bleed font-display text-xl font-black uppercase leading-none tracking-[0.15em] text-ink sm:text-2xl"
           >
-            Paper Boy
+            Paper Boy News
           </Link>
           <p className="mt-0.5 font-mono text-[10px] text-caption">
             &ldquo;{newspaperTitle}&rdquo; &middot; {formatDate()}

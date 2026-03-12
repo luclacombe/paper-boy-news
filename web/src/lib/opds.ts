@@ -62,9 +62,9 @@ export function buildOpdsFeed(
 <feed xmlns="http://www.w3.org/2005/Atom">
   <id>urn:paperboy:user:${escapeXml(profileId)}</id>
   <title>${escapeXml(title)}</title>
-  <subtitle>Your daily newspaper, built by Paper Boy</subtitle>
+  <subtitle>Your daily newspaper, built by Paper Boy News</subtitle>
   <updated>${updated}</updated>
-  <author><name>Paper Boy</name></author>
+  <author><name>Paper Boy News</name></author>
   <link rel="self" href="${escapeXml(selfUrl)}"
         type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
 ${entries}

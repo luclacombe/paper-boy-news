@@ -49,7 +49,7 @@ export function NewspaperMasthead({
             : "py-4 text-3xl tracking-[0.15em] sm:py-6 sm:text-5xl sm:tracking-[0.2em]"
         )}
       >
-        Paper Boy
+        Paper Boy News
       </h1>
 
       {/* Motto */}

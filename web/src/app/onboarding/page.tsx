@@ -531,7 +531,7 @@ export default function OnboardingPage() {
                 connect after creating your account
               </li>
               <li>
-                Paper Boy will place your newspaper in the folder &mdash; sync
+                Paper Boy News will place your newspaper in the folder &mdash; sync
                 your Kobo over Wi-Fi to download it
               </li>
             </ol>
@@ -765,8 +765,8 @@ export default function OnboardingPage() {
                     Recommended: Sign in with Google.
                   </span>{" "}
                   {state.device === "kindle"
-                    ? "This lets Paper Boy deliver your newspaper via Gmail\u2019s Send-to-Kindle service\u00a0\u2014 no app passwords needed."
-                    : "This lets Paper Boy sync your newspaper to Google Drive, where your Kobo picks it up automatically."}
+                    ? "This lets Paper Boy News deliver your newspaper via Gmail\u2019s Send-to-Kindle service\u00a0\u2014 no app passwords needed."
+                    : "This lets Paper Boy News sync your newspaper to Google Drive, where your Kobo picks it up automatically."}
                 </p>
               </div>
             )}
