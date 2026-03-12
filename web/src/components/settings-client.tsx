@@ -22,6 +22,7 @@ interface SettingsClientProps {
   userEmail: string;
   authProvider: AuthProvider;
   buildInProgress: boolean;
+  opdsUrl: string | null;
 }
 
 export function SettingsClient({
@@ -35,6 +36,7 @@ export function SettingsClient({
   userEmail,
   authProvider,
   buildInProgress,
+  opdsUrl,
 }: SettingsClientProps) {
   const router = useRouter();
 
@@ -74,6 +76,7 @@ export function SettingsClient({
         userEmail={userEmail}
         authProvider={authProvider}
         buildInProgress={buildInProgress}
+        opdsUrl={opdsUrl}
       />
     </div>
   );

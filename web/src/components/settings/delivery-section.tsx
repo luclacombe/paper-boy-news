@@ -7,6 +7,11 @@ import {
   getGoogleAuthUrl,
   disconnectGoogle,
 } from "@/actions/google-oauth";
+import {
+  enableOpdsSync,
+  disableOpdsSync,
+  regenerateOpdsUrl,
+} from "@/actions/opds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +30,8 @@ export interface DeliveryValues {
   emailSmtpPort: string;
   emailSender: string;
   emailPassword: string;
+  opdsEnabled: boolean;
+  opdsUrl: string;
 }
 
 interface DeliverySectionProps {
@@ -32,6 +39,7 @@ interface DeliverySectionProps {
   onChange: (values: DeliveryValues) => void;
   hasDrive: boolean;
   hasGmail: boolean;
+  onOpdsChange: (enabled: boolean, url: string | null) => void;
 }
 
 function getDeliveryMethodsForDevice(
@@ -85,10 +93,13 @@ export function DeliverySection({
   onChange,
   hasDrive,
   hasGmail,
+  onOpdsChange,
 }: DeliverySectionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [smtpTesting, setSmtpTesting] = useState(false);
+  const [opdsBusy, setOpdsBusy] = useState(false);
+  const [copyLabel, setCopyLabel] = useState("Copy");
 
   const methods = getDeliveryMethodsForDevice(values.device);
 
@@ -430,6 +441,135 @@ export function DeliverySection({
           )}
         </div>
       )}
+
+      {/* KOReader wireless sync — independent of delivery method */}
+      <div className="border-t border-rule-gray/50 pt-4">
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            checked={values.opdsEnabled}
+            onChange={async (e) => {
+              const enable = e.target.checked;
+              setOpdsBusy(true);
+              try {
+                if (enable) {
+                  const { url } = await enableOpdsSync();
+                  onOpdsChange(true, url);
+                  router.refresh();
+                } else {
+                  await disableOpdsSync();
+                  onOpdsChange(false, null);
+                  router.refresh();
+                }
+              } catch {
+                toast.error(
+                  enable
+                    ? "Failed to enable wireless sync"
+                    : "Failed to disable wireless sync"
+                );
+              } finally {
+                setOpdsBusy(false);
+              }
+            }}
+            disabled={opdsBusy}
+            className="mt-1 h-4 w-4 accent-ink"
+          />
+          <div>
+            <span className="font-headline text-sm font-bold text-ink">
+              Enable wireless sync via KOReader
+            </span>
+            <p className="font-body text-xs text-caption">
+              Automatically download your paper on any e-reader running
+              KOReader &mdash; no USB cable needed.
+            </p>
+          </div>
+        </label>
+
+        {values.opdsEnabled && values.opdsUrl && (
+          <div className="mt-3 space-y-3 pl-7">
+            {/* Feed URL */}
+            <div className="space-y-1.5">
+              <Label className="font-headline text-sm text-ink">
+                Personal feed URL
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  value={values.opdsUrl}
+                  readOnly
+                  className="font-mono text-xs"
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 font-body text-xs"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(values.opdsUrl);
+                    setCopyLabel("Copied!");
+                    setTimeout(() => setCopyLabel("Copy"), 2000);
+                  }}
+                >
+                  {copyLabel}
+                </Button>
+              </div>
+            </div>
+
+            {/* Regenerate URL */}
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="font-body text-xs"
+                disabled={opdsBusy}
+                onClick={async () => {
+                  setOpdsBusy(true);
+                  try {
+                    const { url } = await regenerateOpdsUrl();
+                    onOpdsChange(true, url);
+                    router.refresh();
+                    toast.success("Feed URL regenerated");
+                  } catch {
+                    toast.error("Failed to regenerate URL");
+                  } finally {
+                    setOpdsBusy(false);
+                  }
+                }}
+              >
+                New URL
+              </Button>
+              <span className="font-body text-xs text-caption">
+                This will disconnect any devices using the current URL.
+              </span>
+            </div>
+
+            {/* Setup instructions */}
+            <div className="border-l-2 border-rule-gray/50 pl-3">
+              <p className="font-headline text-xs font-bold text-ink">
+                How to connect your e-reader
+              </p>
+              <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+                <li>
+                  Install KOReader on your device (Kobo: copy files to SD card,
+                  reMarkable: use Toltec)
+                </li>
+                <li>In KOReader, open the file manager</li>
+                <li>Tap the OPDS icon (looks like a signal/broadcast icon)</li>
+                <li>Tap &ldquo;Add new OPDS catalog&rdquo;</li>
+                <li>
+                  Paste the URL above &mdash; leave username and password empty
+                </li>
+                <li>
+                  Your paper will appear in the catalog each morning
+                </li>
+              </ol>
+              <p className="mt-1.5 font-body text-xs text-caption">
+                Works with Kobo (all models), reMarkable, PocketBook, and Kindle
+                (requires jailbreak).
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

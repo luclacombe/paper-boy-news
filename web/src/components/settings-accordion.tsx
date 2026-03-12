@@ -70,7 +70,8 @@ export function getSourcesSummary(
 
 export function getDeliverySummary(
   device: Device,
-  method: DeliveryMethod
+  method: DeliveryMethod,
+  opdsEnabled?: boolean
 ): string {
   const deviceLabel =
     DEVICES.find((d) => d.value === device)?.label ?? device;
@@ -83,7 +84,8 @@ export function getDeliverySummary(
   };
 
   const methodLabel = methodLabels[device]?.[method] ?? method;
-  return `${deviceLabel} · ${methodLabel}`;
+  const suffix = opdsEnabled ? " · KOReader sync" : "";
+  return `${deviceLabel} · ${methodLabel}${suffix}`;
 }
 
 export function getScheduleSummary(time: string, timezone: string): string {
@@ -122,6 +124,7 @@ interface SettingsAccordionProps {
   userEmail: string;
   authProvider: AuthProvider;
   buildInProgress: boolean;
+  opdsUrl: string | null;
 }
 
 export function SettingsAccordion({
@@ -135,6 +138,7 @@ export function SettingsAccordion({
   userEmail,
   authProvider,
   buildInProgress,
+  opdsUrl,
 }: SettingsAccordionProps) {
   const router = useRouter();
   const [isSaving, startSave] = useTransition();
@@ -154,6 +158,8 @@ export function SettingsAccordion({
     emailSmtpPort: String(config.emailSmtpPort),
     emailSender: config.emailSender,
     emailPassword: config.emailPassword,
+    opdsEnabled: !!config.opdsToken,
+    opdsUrl: opdsUrl ?? "",
   };
 
   const initSchedule: ScheduleValues = {
@@ -433,12 +439,24 @@ export function SettingsAccordion({
       {renderCard(
         "delivery",
         "Delivery",
-        getDeliverySummary(deliveryValues.device, deliveryValues.deliveryMethod),
+        getDeliverySummary(deliveryValues.device, deliveryValues.deliveryMethod, deliveryValues.opdsEnabled),
         <DeliverySection
           values={deliveryValues}
           onChange={setDeliveryValues}
           hasDrive={hasDrive}
           hasGmail={hasGmail}
+          onOpdsChange={(enabled, url) => {
+            setDeliveryValues((prev) => ({
+              ...prev,
+              opdsEnabled: enabled,
+              opdsUrl: url ?? "",
+            }));
+            setDeliverySaved((prev) => ({
+              ...prev,
+              opdsEnabled: enabled,
+              opdsUrl: url ?? "",
+            }));
+          }}
         />,
         true
       )}

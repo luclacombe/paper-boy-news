@@ -46,6 +46,10 @@ export default async function SettingsPage({
   const authProvider: AuthProvider =
     authUser?.app_metadata?.provider === "google" ? "google" : "email";
 
+  const opdsUrl = config.opdsToken
+    ? `${process.env.NEXT_PUBLIC_APP_URL}/api/opds/${config.opdsToken}/feed.xml`
+    : null;
+
   const openParam = typeof params.open === "string" ? params.open : null;
   const initialOpen =
     openParam && VALID_SECTIONS.includes(openParam as SettingsSection)
@@ -65,6 +69,7 @@ export default async function SettingsPage({
         userEmail={userEmail}
         authProvider={authProvider}
         buildInProgress={buildInProgress}
+        opdsUrl={opdsUrl}
       />
     </main>
   );
