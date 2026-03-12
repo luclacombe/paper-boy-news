@@ -54,6 +54,39 @@ class TestStripJunk:
         "CLICK HERE TO GET THE FOX NEWS APP",
         "LIKE WHAT YOU'RE READING? CLICK HERE FOR MORE ENTERTAINMENT NEWS",
         "Follow Fox News Digital's sports coverage on X and subscribe to the Fox News Sports Huddle newsletter.",
+        # Source-specific preambles
+        "Agenda-setting intelligence, analysis and advice for the global fashion community.",
+        "These highlights were written by the reporters and editors of ProPublica.",
+        "We've lifted the paywall. Foreign Policy's best stories, accessible for all.",
+        "Roula Khalaf, Editor of the FT, selects her favourite stories in this weekly newsletter.",
+        "Get your daily dose of health and medicine every weekday with STAT's free newsletter Morning Rounds. Sign up here.",
+        "Good morning and welcome to The Downshift, your daily briefing.",
+        # Navigation CTAs
+        "Go Deeper: Fashion Sustainability Report 2026",
+        "Learn more: How AI Is Reshaping Fashion Design",
+        # Guardian sign-up variant
+        "Sign up: AU Breaking News email",
+        # NPR newsletter
+        "You're reading the Up First newsletter. Subscribe here to get it delivered to your inbox.",
+        "Good morning. You're reading the Up First newsletter. Subscribe here to get it delivered to your inbox, and listen to the Up First podcast for all the news you need to start your day.",
+        "This newsletter was edited by Suzanne Nuyen.",
+        # Post metadata
+        "This post originally published at March 9 at 6:56 p.m. PT",
+        "Materials provided by MIT. Note: Content may be edited for style and length.",
+        # BBC solicitation
+        "If you have information about this story that you would like to share, please email us.",
+        # AP separator
+        "___",
+        # Wired
+        "In Your Inbox: For dispatches from the intersection of tech and culture.",
+        "What Say You? Let us know what you think about this article in the comments below.",
+        # Kiplinger
+        "Profit and prosper with the best of expert advice on investing and taxes.",
+        # Donation/partnership
+        "This coverage is made possible through a partnership between Grist and The Texas Tribune.",
+        "If you've ever considered going solar, there's no better time than right now.",
+        # Free newsletter label
+        "Free newsletter",
     ])
     def test_removes_junk_paragraph(self, junk_text):
         html = f"<p>Good content here.</p><p>{junk_text}</p>"
@@ -65,6 +98,9 @@ class TestStripJunk:
         "The company decided to share this article with investors before the earnings call.",
         "The advertisement industry is worth billions.",
         "Click here to see the full report on the government website.",
+        "The company provided materials for the research project.",
+        "She decided to sign up for the marathon next month.",
+        "The editor originally published the story in 2020.",
     ])
     def test_preserves_contextual_mentions(self, safe_text):
         html = f"<p>{safe_text}</p>"
@@ -138,6 +174,17 @@ class TestStripScienceDailyMetadata:
         assert "First paragraph" in result
         assert "Second paragraph" in result
         assert "Story Source:" not in result
+
+    def test_removes_journal_references_plural(self):
+        """Plural 'Journal References:' variant."""
+        html = (
+            "<p>Article content here.</p>"
+            "<p>Journal References:</p>"
+            "<ul><li>Smith et al. 2026</li><li>Jones et al. 2025</li></ul>"
+        )
+        result = strip_sciencedaily_metadata(html)
+        assert "Article content" in result
+        assert "Journal References:" not in result
 
 
 # --- strip_bbc_related ---

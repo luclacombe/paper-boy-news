@@ -59,6 +59,61 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"like\s+what\s+you(?:'re|.re)\s+reading\??\s*click\s+here\b.*",
         r"follow\s+fox\s+news\b.*",
     ],
+    # --- Source-specific boilerplate preambles ---
+    [
+        r"agenda[- ]setting\s+intelligence,?\s+analysis\s+and\s+advice\b.*",  # BoF
+        r"these\s+highlights\s+were\s+written\s+by\s+the\s+reporters\b.*",  # ProPublica
+        r"we(?:'ve|.ve)\s+lifted\s+the\s+paywall\.?\s+foreign\s+policy(?:'s|.s)\b.*",  # Foreign Policy
+        r"roula\s+khalaf,?\s+editor\s+of\s+the\s+ft,?\s+selects\b.*",  # FT
+        r"get\s+your\s+daily\s+dose\s+of\s+health\b.*",  # STAT Morning Rounds
+        r"good\s+morning\s+and\s+welcome\s+to\s+the\s+downshift\b.*",  # The Drive TDS
+    ],
+    # --- Navigation / related article CTAs ---
+    [
+        r"go\s+deeper\s*:.*",  # BoF
+        r"learn\s+more\s*:.*",  # BoF
+    ],
+    # --- Guardian sign-up variant ---
+    [
+        r"sign\s+up\s*:.*",  # Guardian "Sign up: AU Breaking News email"
+    ],
+    # --- NPR / newsletter boilerplate ---
+    [
+        r"you(?:'re|.re)\s+reading\s+the\s+(?:up\s+first|morning)\s+newsletter\b.*",  # NPR
+        r"good\s+morning\.?\s+you(?:'re|.re)\s+reading\s+the\s+(?:up\s+first|morning)\s+newsletter\b.*",  # NPR with greeting
+        r"this\s+newsletter\s+was\s+edited\s+by\b.*",  # NPR
+    ],
+    # --- Post metadata ---
+    [
+        r"this\s+post\s+originally\s+published\b.*",  # TechCrunch
+        r"materials\s+provided\s+by\b.*(?:note:\s+content\s+may\s+be\s+edited)?.*",  # ScienceDaily
+    ],
+    # --- BBC trailing solicitation ---
+    [
+        r"if\s+you\s+have\s+information\s+about\s+this\s+story\b.*(?:please\s+email)?.*",
+    ],
+    # --- AP News section links ---
+    [
+        r"_{3,}",  # AP horizontal rule separator (3+ underscores)
+    ],
+    # --- Wired engagement sections ---
+    [
+        r"in\s+your\s+inbox\b.*",  # Wired
+        r"what\s+say\s+you\?.*",  # Wired
+    ],
+    # --- Kiplinger subscription/tagline ---
+    [
+        r"profit\s+and\s+prosper\b.*",  # Kiplinger tagline
+    ],
+    # --- Donation / partnership blocks ---
+    [
+        r"this\s+coverage\s+is\s+made\s+possible\s+through\s+a\s+partnership\b.*",  # Grist
+        r"if\s+you(?:'ve|.ve)\s+ever\s+considered\s+going\s+solar\b.*",  # Electrek affiliate
+    ],
+    # --- Free newsletter label ---
+    [
+        r"free\s+newsletter",  # New Scientist standalone label
+    ],
 ]
 
 # Compile once at import time — same regex as before, just organized
@@ -105,7 +160,7 @@ _SCIENCEDAILY_META_RE = re.compile(
 # Matches "Story Source:" or "Journal Reference:" <p> tags and everything
 # after them until the end of .article-body (these are always trailing metadata)
 _SCIENCEDAILY_TRAILING_RE = re.compile(
-    r"<p>\s*(?:Story Source|Journal Reference|Cite This Page)\s*:\s*</p>.*",
+    r"<p>\s*(?:Story Source|Journal References?|Cite This Page)\s*:\s*</p>.*",
     re.IGNORECASE | re.DOTALL,
 )
 
