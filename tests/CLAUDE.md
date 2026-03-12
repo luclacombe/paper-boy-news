@@ -31,7 +31,7 @@ pytest -k "test_build"           # By name pattern
 ## Test Patterns
 
 - **Parametrized tests**: `test_filters.py` and `test_feeds.py` use `@pytest.mark.parametrize` for pattern-based tests (junk text removal, normalization rules, caption artifacts). Adding a test case = appending one string to the parametrize list.
-- **Stub/no-op tests**: `TestStripSectionJunk` and `TestStripTrailingJunk` verify passthrough behavior when rules lists are empty. Future batches add rules + corresponding test cases.
+- **Section/trailing junk tests**: `TestStripSectionJunk` (7 tests) and `TestStripTrailingJunk` (4 tests) verify structural junk removal patterns (headings + lists, trailing tip-lines, AP section links).
 
 ## Notes
 
