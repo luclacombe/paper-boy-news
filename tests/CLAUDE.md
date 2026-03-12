@@ -19,7 +19,7 @@ pytest -k "test_build"           # By name pattern
 - `test_cover.py` — Cover image generation
 - `test_epub.py` — EPUB creation + metadata
 - `test_feeds.py` — RSS fetching + article extraction + cache integration
-- `test_filters.py` — Post-extraction content filters (paywall, junk stripping, quality gate)
+- `test_filters.py` — Post-extraction content filters (paywall, junk stripping, section/trailing junk, quality gate)
 - `test_images.py` — Image optimization
 - `test_main.py` — Build pipeline orchestration + cache threading
 - `test_delivery.py` — Delivery backends
@@ -27,6 +27,11 @@ pytest -k "test_build"           # By name pattern
 
 ### Build Pipeline Tests
 - `test_build_for_users.py` — Build script delivery method snapshotting, mid-build safety, on-demand flow, config construction, helper functions
+
+## Test Patterns
+
+- **Parametrized tests**: `test_filters.py` and `test_feeds.py` use `@pytest.mark.parametrize` for pattern-based tests (junk text removal, normalization rules, caption artifacts). Adding a test case = appending one string to the parametrize list.
+- **Stub/no-op tests**: `TestStripSectionJunk` and `TestStripTrailingJunk` verify passthrough behavior when rules lists are empty. Future batches add rules + corresponding test cases.
 
 ## Notes
 

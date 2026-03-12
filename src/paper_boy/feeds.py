@@ -33,6 +33,8 @@ from paper_boy.filters import (
     strip_bbc_related,
     strip_junk,
     strip_sciencedaily_metadata,
+    strip_section_junk,
+    strip_trailing_junk,
 )
 from paper_boy.url_validation import is_safe_url
 
@@ -216,6 +218,15 @@ _CAPTION_ARTIFACT_RE = re.compile(
     r"(hide\s+caption|toggle\s+caption|enlarge\s+this\s+image)",
     re.IGNORECASE,
 )
+
+# Declarative normalization rules: (compiled_pattern, replacement)
+# Applied sequentially — order matters (e.g. body wrapper must be first).
+_NORMALIZE_RULES: list[tuple[re.Pattern, str]] = [
+    (_HTML_BODY_WRAPPER_RE, ""),    # Strip <html>/<body> wrappers (must be first)
+    (_EMPTY_TAG_RE, ""),            # Remove empty tags
+    (_INLINE_STYLE_RE, ""),         # Strip inline styles
+    (_CAPTION_ARTIFACT_RE, ""),     # Remove NPR caption artifacts
+]
 
 
 # --- Dataclasses ---
@@ -472,6 +483,8 @@ def _extract_article(
     html_content = strip_junk(html_content)
     html_content = strip_sciencedaily_metadata(html_content)
     html_content = strip_bbc_related(html_content)
+    html_content = strip_section_junk(html_content)
+    html_content = strip_trailing_junk(html_content)
     if detect_paywall(html_content, url):
         logger.debug("Paywall detected, skipping: %s", title)
         return None
@@ -1403,18 +1416,10 @@ def _normalize_html(html: str) -> str:
     """Normalize extracted HTML for consistent EPUB output.
 
     Applied to ALL extraction paths (trafilatura, bot UA, JSON-LD) for
-    consistent output.
+    consistent output. Rules applied sequentially from _NORMALIZE_RULES.
     """
-    # Strip <html> and <body> wrapper tags (trafilatura adds these)
-    # Must happen first so downstream regexes (e.g. _strip_duplicate_title)
-    # can match leading content like <h1>
-    html = _HTML_BODY_WRAPPER_RE.sub("", html)
-    # Remove empty tags
-    html = _EMPTY_TAG_RE.sub("", html)
-    # Strip inline styles
-    html = _INLINE_STYLE_RE.sub("", html)
-    # Remove NPR caption artifacts
-    html = _CAPTION_ARTIFACT_RE.sub("", html)
+    for pattern, replacement in _NORMALIZE_RULES:
+        html = pattern.sub(replacement, html)
     return html.strip()
 
 

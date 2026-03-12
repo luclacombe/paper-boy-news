@@ -2,123 +2,90 @@
 
 from __future__ import annotations
 
+import pytest
+
 from paper_boy.filters import (
     check_quality,
     detect_paywall,
     strip_bbc_related,
     strip_junk,
     strip_sciencedaily_metadata,
+    strip_section_junk,
+    strip_trailing_junk,
 )
 
 
-# --- strip_junk ---
+# --- strip_junk (parametrized) ---
 
 
 class TestStripJunk:
-    def test_removes_advertisement_paragraph(self):
-        html = "<p>Good content here.</p><p>Advertisement</p><p>More content.</p>"
+    @pytest.mark.parametrize("junk_text", [
+        "Advertisement",
+        "ADVERTISEMENT",
+        "Follow us on Twitter",
+        "Follow us on Facebook",
+        "Follow us on Twitter @BBCAfrica, on Facebook at BBC Africa or on Instagram at bbcafrica",
+        "Go to BBCAfrica.com for more news from the African continent.",
+        "Go to bbc.com for more",
+        "Sign up for our daily newsletter",
+        "Sign up to Morning Edition",
+        "Subscribe to our newsletter",
+        "Related articles",
+        "Related article",
+        "You may also be interested in",
+        "More from Technology",
+        "Read more:",
+        "Share this article",
+        "Share on Twitter",
+        "Power up with unlimited access to WIRED. Get best-in-class reporting. Subscribe Today.",
+        "Breaking space news, the latest updates on rocket launches!",
+        "You are now subscribed",
+        "Your newsletter sign-up was successful",
+        "Want to add more newsletters?",
+        "Enjoying our latest content and features",
+        "Access the most recent journalism from our team",
+        "Explore the latest features and updates",
+        "Thank you for visiting nature.com and reading our articles",
+        "Story Source:",
+        "Cite This Page:",
+        "CLICK HERE TO DOWNLOAD THE FOX NEWS APP",
+        "CLICK HERE FOR MORE SPORTS COVERAGE ON FOXNEWS.COM",
+        "CLICK HERE TO SIGN UP FOR OUR LIFESTYLE NEWSLETTER",
+        "CLICK HERE TO GET THE FOX NEWS APP",
+        "LIKE WHAT YOU'RE READING? CLICK HERE FOR MORE ENTERTAINMENT NEWS",
+        "Follow Fox News Digital's sports coverage on X and subscribe to the Fox News Sports Huddle newsletter.",
+    ])
+    def test_removes_junk_paragraph(self, junk_text):
+        html = f"<p>Good content here.</p><p>{junk_text}</p>"
         result = strip_junk(html)
-        assert "Advertisement" not in result
+        assert junk_text not in result
         assert "Good content" in result
-        assert "More content" in result
 
-    def test_removes_follow_us_footer(self):
-        html = "<p>Article text.</p><p>Follow us on Twitter</p>"
+    @pytest.mark.parametrize("safe_text", [
+        "The company decided to share this article with investors before the earnings call.",
+        "The advertisement industry is worth billions.",
+        "Click here to see the full report on the government website.",
+    ])
+    def test_preserves_contextual_mentions(self, safe_text):
+        html = f"<p>{safe_text}</p>"
         result = strip_junk(html)
-        assert "Follow us on" not in result
-        assert "Article text" in result
-
-    def test_removes_follow_us_facebook(self):
-        html = "<p>Content.</p><p>Follow us on Facebook</p>"
-        result = strip_junk(html)
-        assert "Follow us on Facebook" not in result
-
-    def test_removes_newsletter_cta(self):
-        html = "<p>Story.</p><p>Sign up for our daily newsletter</p>"
-        result = strip_junk(html)
-        assert "Sign up for" not in result
-
-    def test_removes_subscribe_to_newsletter(self):
-        html = "<p>Story.</p><p>Subscribe to our newsletter</p>"
-        result = strip_junk(html)
-        assert "Subscribe to our newsletter" not in result
-
-    def test_removes_sign_up_to_edition(self):
-        html = "<p>Story.</p><p>Sign up to Morning Edition</p>"
-        result = strip_junk(html)
-        assert "Sign up to" not in result
-
-    def test_removes_related_articles(self):
-        html = "<p>Story.</p><p>Related articles</p>"
-        result = strip_junk(html)
-        assert "Related articles" not in result
-
-    def test_removes_you_may_also(self):
-        html = "<p>Story.</p><p>You may also be interested in</p>"
-        result = strip_junk(html)
-        assert "You may also" not in result
-
-    def test_removes_more_from(self):
-        html = "<p>Story.</p><p>More from Technology</p>"
-        result = strip_junk(html)
-        assert "More from" not in result
-
-    def test_removes_read_more_colon(self):
-        html = "<p>Story.</p><p>Read more:</p>"
-        result = strip_junk(html)
-        assert "Read more:" not in result
-
-    def test_removes_share_this_article(self):
-        html = "<p>Story.</p><p>Share this article</p>"
-        result = strip_junk(html)
-        assert "Share this article" not in result
-
-    def test_removes_share_on(self):
-        html = "<p>Story.</p><p>Share on Twitter</p>"
-        result = strip_junk(html)
-        assert "Share on" not in result
+        assert safe_text[:30] in result
 
     def test_removes_div_junk(self):
         html = "<p>Story.</p><div>Advertisement</div>"
         result = strip_junk(html)
         assert "Advertisement" not in result
 
-    def test_preserves_contextual_mentions(self):
-        """Don't strip paragraphs that mention junk phrases in longer context."""
-        html = "<p>The company decided to share this article with investors before the earnings call.</p>"
-        result = strip_junk(html)
-        assert "The company decided" in result
-
-    def test_preserves_contextual_advertisement(self):
-        html = "<p>The advertisement industry is worth billions.</p>"
-        result = strip_junk(html)
-        assert "advertisement industry" in result
-
-    def test_case_insensitive(self):
-        html = "<p>ADVERTISEMENT</p>"
-        result = strip_junk(html)
-        assert "ADVERTISEMENT" not in result
-
     def test_junk_with_inner_tags(self):
         html = '<p><strong>Follow us on</strong> <a href="#">Twitter</a></p>'
         result = strip_junk(html)
         assert "Follow us on" not in result
 
-    def test_removes_follow_us_with_trailing_text(self):
-        """BBC-style: 'Follow us on Twitter @BBCAfrica, on Facebook...'"""
-        html = "<p>Story.</p><p>Follow us on Twitter @BBCAfrica, on Facebook at BBC Africa or on Instagram at bbcafrica</p>"
+    def test_preserves_good_content_around_junk(self):
+        html = "<p>Good content here.</p><p>Advertisement</p><p>More content.</p>"
         result = strip_junk(html)
-        assert "Follow us on" not in result
-
-    def test_removes_bbc_go_to_footer(self):
-        html = "<p>Story.</p><p>Go to BBCAfrica.com for more news from the African continent.</p>"
-        result = strip_junk(html)
-        assert "Go to BBC" not in result
-
-    def test_removes_bbc_go_to_short(self):
-        html = "<p>Story.</p><p>Go to bbc.com for more</p>"
-        result = strip_junk(html)
-        assert "Go to bbc.com" not in result
+        assert "Good content" in result
+        assert "More content" in result
 
 
 # --- strip_sciencedaily_metadata ---
@@ -200,67 +167,41 @@ class TestStripBbcRelated:
         assert "RELATED TOPICS" not in result
 
 
-# --- strip_junk: new patterns ---
+# --- strip_section_junk (stub — no-op with empty rules) ---
 
 
-class TestStripJunkNewPatterns:
-    def test_removes_wired_subscribe_cta(self):
-        html = (
-            "<p>Article text.</p>"
-            "<p>Power up with unlimited access to WIRED. Get best-in-class "
-            "reporting. Subscribe Today.</p>"
-        )
-        result = strip_junk(html)
-        assert "Power up" not in result
-        assert "Article text" in result
+class TestStripSectionJunk:
+    def test_passthrough_with_empty_rules(self):
+        """With no rules configured, input passes through unchanged."""
+        html = "<p>Content.</p><h2>Some Heading</h2><ul><li>item</li></ul>"
+        result = strip_section_junk(html)
+        assert result == html
 
-    def test_removes_space_com_newsletter(self):
-        html = "<p>Content.</p><p>Breaking space news, the latest updates on rocket launches!</p>"
-        result = strip_junk(html)
-        assert "Breaking space news" not in result
+    def test_passthrough_preserves_all_content(self):
+        html = "<p>First.</p><p>Second.</p><h3>Third</h3><p>Fourth.</p>"
+        result = strip_section_junk(html)
+        assert "First" in result
+        assert "Second" in result
+        assert "Third" in result
+        assert "Fourth" in result
 
-    def test_removes_newsletter_success(self):
-        html = "<p>Content.</p><p>You are now subscribed</p><p>Your newsletter sign-up was successful</p>"
-        result = strip_junk(html)
-        assert "You are now subscribed" not in result
-        assert "sign-up was successful" not in result
 
-    def test_removes_sciencedaily_inline_labels(self):
-        html = "<p>Content.</p><p>Story Source:</p><p>Cite This Page:</p>"
-        result = strip_junk(html)
-        assert "Story Source:" not in result
-        assert "Cite This Page:" not in result
+# --- strip_trailing_junk (stub — no-op with empty rules) ---
 
-    def test_removes_fox_news_download_app_cta(self):
-        html = "<p>Article text.</p><p>CLICK HERE TO DOWNLOAD THE FOX NEWS APP</p>"
-        result = strip_junk(html)
-        assert "CLICK HERE" not in result
-        assert "Article text" in result
 
-    def test_removes_fox_news_click_for_more(self):
-        html = "<p>Content.</p><p>CLICK HERE FOR MORE SPORTS COVERAGE ON FOXNEWS.COM</p>"
-        result = strip_junk(html)
-        assert "CLICK HERE FOR MORE" not in result
+class TestStripTrailingJunk:
+    def test_passthrough_with_empty_rules(self):
+        """With no rules configured, input passes through unchanged."""
+        html = "<p>Content.</p><p>Trailing text.</p>"
+        result = strip_trailing_junk(html)
+        assert result == html
 
-    def test_removes_fox_news_sign_up_cta(self):
-        html = "<p>Content.</p><p>CLICK HERE TO SIGN UP FOR OUR LIFESTYLE NEWSLETTER</p>"
-        result = strip_junk(html)
-        assert "CLICK HERE TO SIGN UP" not in result
-
-    def test_removes_fox_news_like_reading_cta(self):
-        html = "<p>Content.</p><p>LIKE WHAT YOU'RE READING? CLICK HERE FOR MORE ENTERTAINMENT NEWS</p>"
-        result = strip_junk(html)
-        assert "LIKE WHAT YOU" not in result
-
-    def test_removes_fox_news_follow_cta(self):
-        html = "<p>Content.</p><p>Follow Fox News Digital's sports coverage on X and subscribe to the Fox News Sports Huddle newsletter.</p>"
-        result = strip_junk(html)
-        assert "Follow Fox News" not in result
-
-    def test_preserves_click_here_in_context(self):
-        html = "<p>Click here to see the full report on the government website.</p>"
-        result = strip_junk(html)
-        assert "Click here to see" in result
+    def test_passthrough_preserves_all_content(self):
+        html = "<p>First.</p><p>Second.</p><p>Third.</p>"
+        result = strip_trailing_junk(html)
+        assert "First" in result
+        assert "Second" in result
+        assert "Third" in result
 
 
 # --- detect_paywall ---
