@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Paper Boy",
+  title: "Privacy Policy — Paper Boy News",
 };
 
 export default function PrivacyPage() {
@@ -13,7 +13,7 @@ export default function PrivacyPage() {
           href="/"
           className="font-display text-sm uppercase tracking-widest text-caption hover:text-ink"
         >
-          Paper Boy
+          Paper Boy News
         </Link>
         <h1 className="mt-4 font-display text-3xl font-bold text-ink sm:text-4xl">
           Privacy Policy
@@ -26,10 +26,10 @@ export default function PrivacyPage() {
       <div className="legal-prose space-y-8 font-body text-sm leading-relaxed text-ink/90">
         <section>
           <h2 className="mb-3 font-headline text-lg font-bold text-ink">
-            What Paper Boy Is
+            What Paper Boy News Is
           </h2>
           <p>
-            Paper Boy is a free, open-source tool that compiles RSS feeds into
+            Paper Boy News is a free, open-source tool that compiles RSS feeds into
             EPUB newspapers and delivers them to your e-reader. The source code
             is publicly available on GitHub.
           </p>
@@ -168,7 +168,7 @@ export default function PrivacyPage() {
           </h2>
           <p>
             If this policy changes, the updated version will be posted here with
-            a new date. Paper Boy is a personal project — the policy is kept
+            a new date. Paper Boy News is a personal project — the policy is kept
             simple because the project is simple.
           </p>
         </section>
@@ -176,7 +176,7 @@ export default function PrivacyPage() {
 
       <footer className="mt-16 border-t border-rule-gray/40 pt-6 text-center font-body text-xs text-caption">
         <Link href="/" className="underline hover:no-underline">
-          Back to Paper Boy
+          Back to Paper Boy News
         </Link>
         {" · "}
         <Link href="/terms" className="underline hover:no-underline">

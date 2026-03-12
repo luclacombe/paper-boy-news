@@ -2,7 +2,7 @@
 
 <img src="docs/banner.webp" alt="Your news, compiled overnight. On your e-reader by morning." width="720" />
 
-Paper Boy: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, and delivers it to your Kobo, Kindle, or reMarkable before you wake up.
+Paper Boy News: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, and delivers it to your Kobo, Kindle, or reMarkable before you wake up.
 
 [![CI](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml/badge.svg)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](web/tsconfig.json)
@@ -17,7 +17,7 @@ Paper Boy: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, a
 
 I wanted to read the news on my Kobo without doomscrolling on my phone. No existing solution let me pick my own sources *and* get a properly formatted newspaper delivered automatically.
 
-Paper Boy started as a Python CLI, grew into a Streamlit prototype, and evolved into a full-stack Next.js app with a FastAPI backend — each iteration solving real pain points I hit as a daily user.
+Paper Boy News started as a Python CLI, grew into a Streamlit prototype, and evolved into a full-stack Next.js app with a FastAPI backend — each iteration solving real pain points I hit as a daily user.
 
 ## How It Works
 

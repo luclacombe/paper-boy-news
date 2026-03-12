@@ -32,7 +32,7 @@ class TestCliGroup:
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "Paper Boy" in result.output
+        assert "Paper Boy News" in result.output
 
     def test_verbose_flag_accepted(self):
         """--help with -v flag does not error."""

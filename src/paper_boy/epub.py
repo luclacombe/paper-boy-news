@@ -260,7 +260,7 @@ def build_epub(
     book.set_identifier(uid)
     book.set_title(f"{config.newspaper.title} — {issue_date.strftime('%B %d, %Y')}")
     book.set_language(config.newspaper.language)
-    book.add_author("Paper Boy")
+    book.add_author("Paper Boy News")
 
     # Publication date
     book.add_metadata("DC", "date", issue_date.isoformat())
