@@ -41,6 +41,9 @@ export const userProfiles = pgTable("user_profiles", {
   // OAuth tokens (encrypted JSON)
   googleTokens: jsonb("google_tokens"),
 
+  // OPDS wireless sync (KOReader)
+  opdsToken: text("opds_token"),
+
   // Onboarding
   onboardingComplete: boolean("onboarding_complete").notNull().default(false),
 

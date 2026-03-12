@@ -29,6 +29,7 @@ export async function getUserConfig(): Promise<UserConfig | null> {
     emailPassword: profile.emailPassword ?? "",
     deliveryTime: profile.deliveryTime,
     timezone: profile.timezone,
+    opdsToken: profile.opdsToken ?? null,
     googleTokens: profile.googleTokens as UserConfig["googleTokens"],
     onboardingComplete: profile.onboardingComplete,
     createdAt: profile.createdAt.toISOString(),

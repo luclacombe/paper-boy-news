@@ -1,6 +1,6 @@
 # web — Next.js Web App
 
-Full-stack web app for Paper Boy. Deployed on Vercel at `paper-boy-news.vercel.app`.
+Full-stack web app for Paper Boy. Deployed on Vercel at `www.paper-boy-news.com`.
 
 ## Stack
 
@@ -47,6 +47,7 @@ src/
 │   ├── feeds.ts       # CRUD for user_feeds table + cleanOrphanedFeeds()
 │   ├── google-oauth.ts
 │   ├── onboarding.ts  # completeOnboarding() — saves wizard state to DB
+│   ├── opds.ts        # enableOpdsSync(), disableOpdsSync(), regenerateOpdsUrl()
 │   └── user-config.ts
 ├── app/
 │   ├── globals.css    # Tailwind v4 config + newspaper palette + shadcn tokens
@@ -61,6 +62,8 @@ src/
 │   └── api/
 │       ├── auth/      # OAuth callback routes (Supabase + Google)
 │       ├── feeds/validate/ # RSS feed URL validation (replaces FastAPI)
+│       ├── opds/[token]/feed.xml/     # OPDS catalog feed (token-based auth)
+│       ├── opds/[token]/download/[editionId]/ # EPUB download proxy
 │       └── smtp-test/ # SMTP connection test (replaces FastAPI)
 ├── components/
 │   ├── ui/            # shadcn/ui primitives (button, card, input, etc.)
@@ -87,6 +90,7 @@ src/
 │   ├── constants.ts   # DEVICES, TIMEZONES, DELIVERY_TIMES, EDITION_ROLLOVER_HOUR, BUILD_MESSAGES
 │   ├── edition-date.ts # Timezone-aware edition date (5 AM rollover), cutoff checks
 │   ├── feed-catalog.ts # Catalog loading + getAllCatalogFeedUrls() for orphan cleanup
+│   ├── opds.ts        # buildOpdsFeed() — pure OPDS Atom XML builder
 │   ├── reading-time.ts
 │   ├── utils.ts       # cn() helper (clsx + tailwind-merge)
 │   └── supabase/
@@ -138,6 +142,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout), shows user email next to sign out. Settings has its own compact header with back link + sign out
 - **Account management**: `account.ts` server actions use admin client (`lib/supabase/admin.ts`) with service role key for `changePassword()` (verifies current password via `signInWithPassword`, then admin update) and `deleteAccount()` (deletes profile via Drizzle cascade, cleans Storage, deletes auth user). Google OAuth users cannot change password
 - **Send to device**: File System Access API (`showDirectoryPicker`) lets Chrome/Edge users save EPUBs directly to a USB-mounted e-reader folder. Handle persisted in IndexedDB. Falls back to regular download on unsupported browsers. See `src/lib/download-epub.ts`
+- **OPDS wireless sync**: Per-user OPDS feed for KOReader. Token-based auth (256-bit `crypto.randomBytes`), no session cookies. `/api/opds/[token]/feed.xml` returns Atom XML with edition list; `/api/opds/[token]/download/[editionId]` proxies EPUB from Supabase Storage. Token lifecycle managed via immediate server actions (not batch-saved). Input validation: token must be 64 hex chars, editionId must be UUID. Cross-user isolation enforced on download route. See `src/lib/opds.ts`, `src/actions/opds.ts`
 
 ## Design System
 

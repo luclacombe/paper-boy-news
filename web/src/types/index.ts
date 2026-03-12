@@ -32,6 +32,9 @@ export interface UserConfig {
   deliveryTime: string;
   timezone: string;
 
+  // OPDS wireless sync
+  opdsToken: string | null;
+
   // OAuth
   googleTokens: GoogleTokens | null;
 

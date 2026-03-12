@@ -85,6 +85,18 @@ describe("getDeliverySummary", () => {
       "reMarkable · Email"
     );
   });
+
+  it("appends KOReader sync when OPDS enabled", () => {
+    expect(getDeliverySummary("kobo", "local", true)).toBe(
+      "Kobo · Download · KOReader sync"
+    );
+  });
+
+  it("does not append KOReader sync when OPDS disabled", () => {
+    expect(getDeliverySummary("kobo", "local", false)).toBe(
+      "Kobo · Download"
+    );
+  });
 });
 
 describe("getScheduleSummary", () => {
