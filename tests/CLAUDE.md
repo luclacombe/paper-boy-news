@@ -19,6 +19,7 @@ pytest -k "test_build"           # By name pattern
 - `test_cover.py` — Cover image generation
 - `test_epub.py` — EPUB creation + metadata
 - `test_feeds.py` — RSS fetching + article extraction + cache integration
+- `test_filters.py` — Post-extraction content filters (paywall, junk stripping, quality gate)
 - `test_images.py` — Image optimization
 - `test_main.py` — Build pipeline orchestration + cache threading
 - `test_delivery.py` — Delivery backends
@@ -30,5 +31,6 @@ pytest -k "test_build"           # By name pattern
 ## Notes
 
 - `conftest.py` has shared fixtures
+- `test_feeds.py` uses `_LONG_CONTENT` (250 words) for mock extraction results — content must pass the 200-word quality gate in `filters.py`
 - Legacy FastAPI API tests are in `legacy/api/tests/`
 - Next.js tests are separate — they live in `web/src/__tests__/` and use Vitest

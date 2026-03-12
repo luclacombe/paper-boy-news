@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import gzip
+import html as _html_mod
+import http.client
 import json
 import logging
 import random
 import re
 import signal
+import ssl
+import http.cookiejar
 import urllib.request
+
+# Some servers (e.g. Business of Fashion) send >100 response headers,
+# exceeding Python's default _MAXHEADERS=100 and crashing http.client.
+http.client._MAXHEADERS = 200
 from dataclasses import dataclass, field
 from io import BytesIO
 from urllib.parse import urlparse
@@ -18,24 +27,69 @@ from PIL import Image
 
 from paper_boy.cache import ContentCache
 from paper_boy.config import Config, FeedConfig
+from paper_boy.filters import (
+    check_quality,
+    detect_paywall,
+    strip_bbc_related,
+    strip_junk,
+    strip_sciencedaily_metadata,
+)
 from paper_boy.url_validation import is_safe_url
 
 logger = logging.getLogger(__name__)
 
+# --- Performance safeguards ---
+
+# Abort a feed after this many consecutive extraction failures
+_MAX_CONSECUTIVE_FAILURES = 3
+
+# Domain-level extraction failure tracking.
+# After _DOMAIN_FAILURE_THRESHOLD failures on strategy 1 (trafilatura),
+# skip strategies 1.5–4 for all subsequent articles from that domain.
+_DOMAIN_FAILURE_THRESHOLD = 2
+_domain_failures: dict[str, int] = {}
+
+
+def _reset_domain_failures() -> None:
+    """Clear domain failure tracking. Called at the start of each build."""
+    _domain_failures.clear()
+
+
+def _record_domain_failure(url: str) -> None:
+    """Record a strategy-1 extraction failure for a domain."""
+    domain = urlparse(url).netloc
+    if domain:
+        _domain_failures[domain] = _domain_failures.get(domain, 0) + 1
+
+
+def _domain_is_blocked(url: str) -> bool:
+    """Check if a domain has exceeded the failure threshold."""
+    domain = urlparse(url).netloc
+    return _domain_failures.get(domain, 0) >= _DOMAIN_FAILURE_THRESHOLD
+
+
+# Auth/login URL patterns — detected after redirect to abort early
+_AUTH_URL_PATTERNS = ("/login", "/authorize", "/signin", "/auth/")
+
 # --- Image filtering ---
 
-_AD_DOMAINS = frozenset(
+# Full domains checked with substring match
+_AD_DOMAINS_FULL = frozenset(
     {
         "doubleclick.net",
         "googlesyndication.com",
         "facebook.com",
-        "pixel.",
-        "analytics.",
-        "tracking.",
-        "ads.",
-        "ad.",
-        "beacon.",
     }
+)
+# Subdomain prefixes — only match when they START the netloc (e.g. "pixel.example.com")
+# NOT as substrings (avoids "petapixel.com" matching "pixel.")
+_AD_SUBDOMAIN_PREFIXES = (
+    "pixel.",
+    "analytics.",
+    "tracking.",
+    "ads.",
+    "ad.",
+    "beacon.",
 )
 
 _SKIP_PATTERNS = re.compile(
@@ -75,19 +129,72 @@ _BROWSER_USER_AGENT = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-# Bloomberg mobile API (unauthenticated, returns full article JSON)
-# Technique from Calibre's bloomberg.recipe by Kovid Goyal
-_BLOOMBERG_API = "https://cdn-mobapi.bloomberg.com/wssmobile/v1/stories/"
+# Googlebot UA for sites that only whitelist Google's crawler (e.g. Smithsonian)
+_GOOGLEBOT_USER_AGENT = (
+    "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+)
+
+# Domains that require Googlebot UA (all other UAs get 403)
+_GOOGLEBOT_DOMAINS = {"smithsonianmag.com"}
+
+# Bloomberg mobile API (unauthenticated CDN, returns full article JSON/HTML)
+# Technique from Calibre's bloomberg.recipe by unkn0wn
+_BLOOMBERG_CDN = "https://cdn-mobapi.bloomberg.com"
+_BLOOMBERG_BW_STORIES = f"{_BLOOMBERG_CDN}/wssmobile/v1/bw/news/stories/"
+_BLOOMBERG_NAV = f"{_BLOOMBERG_CDN}/wssmobile/v1/navigation/bloomberg_app/search-v2"
+_BLOOMBERG_BW_LIST = f"{_BLOOMBERG_CDN}/wssmobile/v1/bw/news/list?limit=1"
+
+# Reuters mobile app API (returns structured JSON with full article content)
+# Technique from Calibre's reuters.recipe by unkn0wn
+_REUTERS_BASE = "https://www.reuters.com"
+_REUTERS_API_UA = (
+    "ReutersNews/7.11.0.1742843009 Mozilla/5.0 (Linux; Android 14) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+)
+_REUTERS_GEO_COOKIE = 'reuters-geo={"country":"-"; "region":"-"}='
 
 # Archive.today mirror TLDs for soft-paywalled content
 # Technique from Calibre's project_syndicate.recipe by Kovid Goyal
 _ARCHIVE_TLDS = ("fo", "is", "li", "md", "ph", "vn")
+
+# LibreSSL (macOS system Python) cannot complete TLS handshakes with
+# archive.today — each attempt burns ~12s waiting for the 15s timeout.
+# With 6 TLDs per article, that's ~72s of pure waste per failed article.
+# Detect LibreSSL at import time and skip archive.today strategy entirely.
+_HAS_MODERN_SSL = "LibreSSL" not in ssl.OPENSSL_VERSION
+
+# Scientific American base URL
+# Uses __DATA__ JSON on issue page for article discovery (no RSS feed available).
+# Technique from Calibre's scientific_american.recipe by Kovid Goyal.
+_SCIAM_BASE = "https://www.scientificamerican.com"
+
+# Washington Post: Googlebot UA + Google referrer headers to bypass paywall.
+# Content extracted from __NEXT_DATA__ JSON (Next.js server-rendered data).
+# Technique from Calibre's wash_post.recipe by unkn0wn.
+_WAPO_HEADERS = {
+    "Referer": "https://www.google.com/",
+    "X-Forwarded-For": "66.249.66.1",
+}
 
 # Pagination link detection (e.g. Ars Technica /2/, /3/)
 _PAGINATION_LINK_RE = re.compile(r'href="([^"]*?/(\d+)/)"')
 
 # URL path segments indicating non-article pages (video, podcasts, live streams)
 _SKIP_URL_SEGMENTS = ("/video/", "/program/", "/podcasts/", "/live/")
+
+# Title prefixes indicating premium/subscriber-only content.
+# Entries with these prefixes are skipped before extraction (saves time and
+# avoids triggering the consecutive failure abort on mixed free/premium feeds).
+_PREMIUM_TITLE_PREFIXES = ("STAT+:",)
+
+
+def _is_premium_title(title: str) -> bool:
+    """Check if a title indicates premium/subscriber-only content."""
+    return any(title.startswith(prefix) for prefix in _PREMIUM_TITLE_PREFIXES)
+
+# Stock photo / internal alt text patterns (should be cleared to "")
+_STOCK_ALT_RE = re.compile(r"^[A-Z]{2,}\d*_")
+_FILENAME_ALT_RE = re.compile(r"^[\w_-]+\.\w{2,4}$")
 
 # JSON-LD script tag extraction
 _JSON_LD_RE = re.compile(
@@ -145,9 +252,14 @@ class Section:
 
 def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Section]:
     """Fetch all configured feeds and extract article content."""
+    _reset_domain_failures()
     sections = []
     for feed_cfg in config.feeds:
-        section = _fetch_single_feed(feed_cfg, config, cache=cache)
+        try:
+            section = _fetch_single_feed(feed_cfg, config, cache=cache)
+        except Exception:
+            logger.exception("Unexpected error fetching %s — skipping", feed_cfg.name)
+            continue
         if section.articles:
             sections.append(section)
             logger.info(
@@ -216,6 +328,14 @@ def _fetch_single_feed(
     feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
 ) -> Section:
     """Fetch a single RSS feed and extract articles."""
+    # Bloomberg and Reuters use mobile APIs instead of RSS
+    if "bloomberg.com" in urlparse(feed_cfg.url).netloc:
+        return _fetch_bloomberg_feed(feed_cfg, config, cache=cache)
+    if "reuters.com" in urlparse(feed_cfg.url).netloc:
+        return _fetch_reuters_feed(feed_cfg, config, cache=cache)
+    if "scientificamerican.com" in urlparse(feed_cfg.url).netloc:
+        return _fetch_sciam_feed(feed_cfg, config, cache=cache)
+
     section = Section(name=feed_cfg.name, category=feed_cfg.category)
 
     if not is_safe_url(feed_cfg.url):
@@ -251,10 +371,26 @@ def _fetch_single_feed(
 
         entries = feed.entries[: _FETCH_CAP_PER_FEED]
 
+    consecutive_failures = 0
     for entry in entries:
+        # Skip entries explicitly marked as premium/subscriber-only by title
+        entry_title = entry.get("title", "")
+        if _is_premium_title(entry_title):
+            logger.debug("Skipping premium entry: %s", entry_title)
+            continue
         article = _extract_article(entry, config, cache=cache)
         if article:
             section.articles.append(article)
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                logger.info(
+                    "Aborting %s after %d consecutive extraction failures",
+                    feed_cfg.name,
+                    consecutive_failures,
+                )
+                break
 
     return section
 
@@ -269,9 +405,20 @@ def _extract_article(
     if not url or not is_safe_url(url):
         return None
 
-    # Skip non-article pages (video, podcasts, live streams)
+    # Skip non-article pages (video, podcasts, live streams, PDFs, YouTube)
     if any(seg in url for seg in _SKIP_URL_SEGMENTS):
         logger.debug("Skipping non-article URL: %s", url)
+        return None
+
+    parsed_url = urlparse(url)
+    if parsed_url.path.lower().endswith(".pdf"):
+        logger.debug("Skipping PDF URL: %s", url)
+        return None
+
+    if parsed_url.netloc and (
+        "youtube.com" in parsed_url.netloc or "youtu.be" in parsed_url.netloc
+    ):
+        logger.debug("Skipping YouTube URL: %s", url)
         return None
 
     # HN self-posts link to the comments page — use feed content directly
@@ -302,9 +449,13 @@ def _extract_article(
     else:
         html_content = _extract_article_content(url, include_images)
 
-    # Fall back to RSS feed content if extraction fails
-    if not html_content:
-        html_content = _get_feed_content(entry)
+    # Fall back to RSS feed content if extraction fails or is too short.
+    # Some sites (e.g. Modern Farmer) return minimal page content but have
+    # full articles in their RSS feed (common with WordPress full-content feeds).
+    if not html_content or _count_words(html_content) < MIN_ARTICLE_WORDS:
+        rss_content = _get_feed_content(entry)
+        if rss_content and _count_words(rss_content) >= MIN_ARTICLE_WORDS:
+            html_content = rss_content
 
     if not html_content:
         logger.debug("Skipping article with no content: %s", title)
@@ -316,6 +467,17 @@ def _extract_article(
 
     # Downgrade any remaining <h1> to <h2> — epub.py adds its own <h1>
     html_content = _downgrade_body_headings(html_content)
+
+    # Content filtering pipeline
+    html_content = strip_junk(html_content)
+    html_content = strip_sciencedaily_metadata(html_content)
+    html_content = strip_bbc_related(html_content)
+    if detect_paywall(html_content, url):
+        logger.debug("Paywall detected, skipping: %s", title)
+        return None
+    if check_quality(html_content):
+        logger.debug("Quality check failed, skipping: %s", title)
+        return None
 
     # Process images: download, optimize, rewrite HTML
     images: list[ArticleImage] = []
@@ -346,11 +508,26 @@ def _count_words(html: str) -> int:
     return len(text.split())
 
 
+def _has_paywall_markers(html: str, url: str) -> bool:
+    """Check if extracted HTML is paywall teaser text.
+
+    Runs strip_junk first to remove promotional CTAs that might cause false
+    positives (e.g. Nature's "Enjoying our latest content?" nag), then checks
+    for actual paywall phrases. Used inside _extract_article_content() to
+    prevent paywall teasers from short-circuiting the fallback chain.
+    """
+    cleaned = strip_junk(html)
+    return detect_paywall(cleaned, url)
+
+
 def _extract_article_content(url: str, include_images: bool) -> str | None:
     """Multi-strategy article extraction with fallback for paywalled content.
 
+    Note: Bloomberg and Reuters are handled at the feed level (_fetch_bloomberg_feed,
+    _fetch_reuters_feed) and never reach this function.
+
     Strategy chain:
-    0. Domain-specific: Bloomberg mobile API
+    0. Domain-specific: Project Syndicate → archive.today (registration wall)
     1. Standard trafilatura (default UA)
     1.5. Re-fetch with browser UA (bypasses interstitials)
     2. Re-fetch with bot UA → trafilatura
@@ -359,33 +536,81 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     Returns the first result with >= MIN_ARTICLE_WORDS, or the best short
     result, or None.
     """
-    # Domain-specific: Bloomberg mobile API
-    if "bloomberg.com" in urlparse(url).netloc:
-        bloomberg_result = _extract_bloomberg_article(url)
-        if bloomberg_result:
-            logger.debug("Extraction strategy 'bloomberg_api' for %s", url)
-            return _normalize_html(bloomberg_result)
+    domain = urlparse(url).netloc
+
+    # Strategy 0a: Washington Post — Googlebot UA + __NEXT_DATA__ JSON.
+    # Standard extraction fails (trafilatura hangs, paywall blocks content).
+    # Technique from Calibre's wash_post.recipe by unkn0wn.
+    if "washingtonpost.com" in domain:
+        if "/interactive/" in url:
+            logger.debug("Skipping WaPo interactive page: %s", url)
+            return None
+        return _extract_wapo_article(url, include_images)
+
+    # Strategy 0b: Googlebot-only domains — sites that 403 all UAs except
+    # Googlebot (e.g. Smithsonian Magazine).
+    if any(d in domain for d in _GOOGLEBOT_DOMAINS):
+        page = _fetch_page(url, _GOOGLEBOT_USER_AGENT)
+        if page:
+            result = _trafilatura_extract_from_html(page, include_images)
+            if result and _count_words(result) >= MIN_ARTICLE_WORDS:
+                logger.debug("Googlebot UA succeeded for %s", url)
+                return _normalize_html(result)
+        return None
+
+    # Strategy 0c: Project Syndicate — registration wall, go straight to
+    # archive.today.  Technique from Calibre's project_syndicate.recipe by
+    # unkn0wn.  Normal strategies only return the teaser paragraph (~50 words).
+    if "project-syndicate.org" in domain:
+        return _extract_via_archive(url, include_images)
 
     # Strategy 1: Standard trafilatura extraction
     result = _trafilatura_extract(url, include_images)
     if result and _count_words(result) >= MIN_ARTICLE_WORDS:
-        # Paginated articles: fetch continuation pages (e.g. Ars Technica)
-        if "arstechnica.com" in url:
-            raw_page = _fetch_page(url, _BROWSER_USER_AGENT)
-            if raw_page:
-                extra = _extract_paginated_content(url, raw_page, include_images)
-                if extra:
-                    result = result + "\n" + extra
-                    logger.debug("Appended paginated content for %s", url)
-        return _normalize_html(result)
+        if not _has_paywall_markers(result, url):
+            # Paginated articles: fetch continuation pages (e.g. Ars Technica)
+            if "arstechnica.com" in url:
+                raw_page = _fetch_page(url, _BROWSER_USER_AGENT)
+                if raw_page:
+                    extra = _extract_paginated_content(url, raw_page, include_images)
+                    if extra:
+                        result = result + "\n" + extra
+                        logger.debug("Appended paginated content for %s", url)
+            return _normalize_html(result)
+        logger.debug("Paywall detected in S1 result, trying fallbacks: %s", url)
 
-    # Strategy 1.5: Re-fetch with browser UA (bypasses interstitials)
+    # Strategy 1.5: Re-fetch with browser UA (bypasses interstitials like
+    # Nature's idp.nature.com cookie-setting redirect chain)
     browser_page = _fetch_page(url, _BROWSER_USER_AGENT)
     if browser_page:
         browser_result = _trafilatura_extract_from_html(browser_page, include_images)
         if browser_result and _count_words(browser_result) >= MIN_ARTICLE_WORDS:
-            logger.debug("Extraction strategy 'browser_ua' succeeded for %s", url)
-            return _normalize_html(browser_result)
+            if not _has_paywall_markers(browser_result, url):
+                logger.debug("Extraction strategy 'browser_ua' succeeded for %s", url)
+                return _normalize_html(browser_result)
+            logger.debug("Paywall detected in S1.5 result, trying fallbacks: %s", url)
+
+    # Strategies 1 and 1.5 both failed — record domain failure for adaptive
+    # skipping of the more expensive strategies 2-4.  Recording here (after
+    # 1.5) instead of after strategy 1 alone prevents sites like Nature
+    # (where trafilatura's own fetcher fails but our _fetch_page succeeds)
+    # from being prematurely domain-blocked.
+    #
+    # Only record a domain failure when extraction truly failed (no content
+    # or too few words).  If S1/S1.5 returned paywalled content, the site IS
+    # accessible — it just needs a different UA (e.g. bot/outbrain for FT).
+    # Recording paywall hits as domain failures would block S2, which is
+    # exactly the strategy that works for paywalled sites.
+    s1_was_paywall = result and _count_words(result) >= MIN_ARTICLE_WORDS
+    if not s1_was_paywall:
+        _record_domain_failure(url)
+
+    # If this domain has failed repeatedly, skip the expensive fallback chain
+    if _domain_is_blocked(url):
+        logger.debug("Domain blocked after repeated failures, skipping fallbacks: %s", url)
+        if result:
+            return _normalize_html(result)
+        return None
 
     # Strategy 2: Re-fetch with bot UA
     bot_page = _fetch_page(url, _BOT_USER_AGENT)
@@ -413,41 +638,608 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     return None
 
 
-def _extract_bloomberg_article(url: str) -> str | None:
-    """Extract full article from Bloomberg's mobile API.
+def _extract_wapo_article(url: str, include_images: bool) -> str | None:
+    """Extract a Washington Post article via __NEXT_DATA__ JSON.
 
-    Technique from Calibre's bloomberg.recipe by Kovid Goyal.
+    Fetches the page with Googlebot UA + Google referrer headers, then parses
+    the structured content from Next.js server-rendered data. This bypasses
+    TWP's paywall because Google's crawler is whitelisted.
+    Technique from Calibre's wash_post.recipe by unkn0wn.
     """
-    slug = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
-    if not slug:
-        return None
-    page = _fetch_page(f"{_BLOOMBERG_API}{slug}", "Mozilla/5.0")
+    page = _fetch_page(url, _GOOGLEBOT_USER_AGENT, _WAPO_HEADERS)
     if not page:
         return None
+
+    m = re.search(
+        r'<script\s+id="__NEXT_DATA__"[^>]*>(.*?)</script>', page, re.DOTALL
+    )
+    if not m:
+        logger.debug("No __NEXT_DATA__ in WaPo page: %s", url)
+        return None
+
     try:
-        data = json.loads(page)
-    except (json.JSONDecodeError, ValueError):
+        data = json.loads(m.group(1))
+        gc = data.get("props", {}).get("pageProps", {}).get("globalContent", {})
+        if not gc:
+            return None
+    except (json.JSONDecodeError, KeyError):
+        logger.debug("Failed to parse WaPo __NEXT_DATA__: %s", url)
         return None
-    body = data.get("body") or data.get("articleBody") or ""
-    if not body or _count_words(body) < MIN_ARTICLE_WORDS:
+
+    parts: list[str] = []
+    for el in gc.get("content_elements", []):
+        el_type = el.get("type", "")
+        if el_type == "text":
+            parts.append(f"<p>{el.get('content', '')}</p>")
+        elif el_type == "header":
+            level = el.get("level", 2)
+            parts.append(f"<h{level}>{el.get('content', '')}</h{level}>")
+        elif el_type == "list":
+            items = "".join(
+                f"<li>{li.get('content', '')}</li>"
+                for li in el.get("items", [])
+                if li.get("content", "")
+            )
+            if items:
+                list_type = el.get("list_type", "unordered")
+                tag = "ol" if list_type == "ordered" else "ul"
+                parts.append(f"<{tag}>{items}</{tag}>")
+        elif el_type == "image" and include_images:
+            img_url = el.get("url", "")
+            caption = el.get("credits_caption_display", "")
+            if img_url:
+                parts.append(
+                    f'<figure><img src="{img_url}" alt=""/>'
+                    f"<figcaption>{caption}</figcaption></figure>"
+                )
+
+    body = "\n".join(parts)
+    if _count_words(body) < MIN_ARTICLE_WORDS:
         return None
-    return body
+    return _normalize_html(body)
+
+
+def _fetch_bloomberg_api(url: str) -> dict | list | None:
+    """Fetch a Bloomberg mobile API endpoint and return parsed JSON.
+
+    The CDN API returns gzip-encoded responses; handles decompression.
+    Technique from Calibre's bloomberg.recipe by unkn0wn.
+    """
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Accept-Encoding": "gzip",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+            if resp.headers.get("Content-Encoding") == "gzip":
+                data = gzip.decompress(data)
+            return json.loads(data.decode("utf-8"))
+    except Exception:
+        logger.debug("Bloomberg API fetch failed: %s", url, exc_info=True)
+        return None
+
+
+def _resolve_bloomberg_section(section_name: str) -> str | None:
+    """Resolve a section name to its Bloomberg API href via the navigation API.
+
+    section_name is the URL path segment (e.g. 'technology', 'markets').
+    Returns the full API path (e.g. '/wssmobile/v1/pages/business/phx-technology').
+    """
+    nav = _fetch_bloomberg_api(_BLOOMBERG_NAV)
+    if not nav:
+        return None
+    for group in nav.get("searchNav", []):
+        for item in group.get("items", []):
+            if item.get("id") == section_name:
+                return item.get("links", {}).get("self", {}).get("href")
+    return None
+
+
+def _fetch_bloomberg_feed(
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+) -> Section:
+    """Fetch articles from Bloomberg via the mobile app API.
+
+    Bloomberg has no RSS feeds; the mobile CDN API returns section listings
+    and full article HTML. Feed URL should be a bloomberg.com section URL
+    (e.g. /technology/, /markets/) or /businessweek/ for the latest issue.
+    Technique from Calibre's bloomberg.recipe by unkn0wn.
+    """
+    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+
+    parsed = urlparse(feed_cfg.url)
+    path = parsed.path.strip("/")
+    # e.g. "technology", "markets", "businessweek"
+    sec_name = path.split("/")[-1] if path else ""
+
+    if sec_name == "businessweek":
+        stories = _fetch_bloomberg_bw_stories()
+    else:
+        stories = _fetch_bloomberg_section_stories(sec_name)
+
+    if not stories:
+        logger.warning("Bloomberg API returned no stories for %s", feed_cfg.name)
+        return section
+
+    include_images = config.newspaper.include_images
+    seen_ids: set[str] = set()
+
+    for story in stories[:_FETCH_CAP_PER_FEED]:
+        story_id = story.get("internalID") or story.get("id", "")
+        if not story_id or story_id in seen_ids:
+            continue
+        seen_ids.add(story_id)
+
+        # Build a canonical URL for cache keying and display
+        long_url = story.get("longURL", f"https://www.bloomberg.com/news/articles/{story_id}")
+
+        # Check cache
+        byline = story.get("byline")
+        if cache:
+            found, cached_html = cache.get_article(long_url, include_images)
+            if found:
+                html_content = cached_html
+            else:
+                html_content, api_byline = _extract_bloomberg_article(story_id)
+                if not byline:
+                    byline = api_byline
+                cache.set_article(long_url, include_images, html_content)
+        else:
+            html_content, api_byline = _extract_bloomberg_article(story_id)
+            if not byline:
+                byline = api_byline
+
+        if not html_content:
+            continue
+
+        # Normalize HTML
+        html_content = _normalize_html(html_content)
+
+        # Process images if requested
+        images: list[ArticleImage] = []
+        if include_images and html_content:
+            html_content, images = _process_article_images(
+                html_content, config, cache=cache
+            )
+
+        article = Article(
+            title=story.get("title", "Untitled"),
+            url=long_url,
+            author=byline,
+            date=None,  # published is a unix timestamp; set below
+            html_content=html_content,
+            images=images,
+        )
+
+        # Convert unix timestamp to RFC 2822 date string
+        published = story.get("published")
+        if published:
+            from email.utils import formatdate
+            try:
+                article.date = formatdate(int(published), usegmt=True)
+            except (ValueError, TypeError):
+                pass
+
+        section.articles.append(article)
+
+    return section
+
+
+def _fetch_bloomberg_section_stories(section_name: str) -> list[dict]:
+    """Fetch story list from a Bloomberg section via the mobile API."""
+    api_path = _resolve_bloomberg_section(section_name)
+    if not api_path:
+        logger.warning("Bloomberg section not found: %s", section_name)
+        return []
+
+    data = _fetch_bloomberg_api(f"{_BLOOMBERG_CDN}{api_path}")
+    if not data:
+        return []
+
+    stories: list[dict] = []
+    seen_ids: set[str] = set()
+    for module in data.get("modules", []):
+        for story in module.get("stories", []):
+            sid = story.get("internalID", "")
+            if story.get("type") in ("article", "interactive") and sid not in seen_ids:
+                seen_ids.add(sid)
+                stories.append(story)
+
+    return stories
+
+
+def _fetch_bloomberg_bw_stories() -> list[dict]:
+    """Fetch story list from the latest Bloomberg Businessweek issue."""
+    data = _fetch_bloomberg_api(_BLOOMBERG_BW_LIST)
+    if not data:
+        return []
+
+    magazines = data.get("magazines", [])
+    if not magazines:
+        return []
+
+    mag_id = magazines[0].get("id")
+    if not mag_id:
+        return []
+
+    toc_url = f"{_BLOOMBERG_CDN}/wssmobile/v1/bw/news/week/{mag_id}"
+    toc = _fetch_bloomberg_api(toc_url)
+    if not toc:
+        return []
+
+    stories: list[dict] = []
+    for module in toc.get("modules", []):
+        for article in module.get("articles", []):
+            # BW articles use "id" not "internalID"
+            stories.append(article)
+
+    return stories
+
+
+def _extract_bloomberg_article(story_id: str) -> tuple[str | None, str | None]:
+    """Extract full article HTML from Bloomberg's mobile API.
+
+    Uses the /bw/news/stories/ endpoint which returns pre-rendered HTML.
+    Returns (html, byline) tuple.
+    Technique from Calibre's bloomberg.recipe by unkn0wn.
+    """
+    data = _fetch_bloomberg_api(f"{_BLOOMBERG_BW_STORIES}{story_id}")
+    if not data:
+        return None, None
+    html = data.get("html", "")
+    byline = data.get("byline")
+    if not html or _count_words(html) < MIN_ARTICLE_WORDS:
+        return None, byline
+    return html, byline
+
+
+def _fetch_reuters_api(path: str) -> dict | list | None:
+    """Fetch a Reuters mobile API endpoint and return parsed JSON.
+
+    Technique from Calibre's reuters.recipe by unkn0wn.
+    """
+    url = f"{_REUTERS_BASE}/mobile/v1{path}?outputType=json"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": _REUTERS_API_UA,
+                "Cookie": _REUTERS_GEO_COOKIE,
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        logger.debug("Reuters API fetch failed: %s", url, exc_info=True)
+        return None
+
+
+def _fetch_reuters_feed(
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+) -> Section:
+    """Fetch articles from Reuters via the mobile app API.
+
+    Reuters killed public RSS feeds; the mobile API returns structured JSON
+    with full article content — no HTML extraction needed.
+    Feed URL should be a reuters.com section URL (e.g. /world/, /business/).
+    """
+    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+
+    # Derive the section path from the feed URL
+    # e.g. "https://www.reuters.com/world/" → "/world/"
+    parsed = urlparse(feed_cfg.url)
+    sec_path = parsed.path.rstrip("/") + "/"
+    if not sec_path.startswith("/"):
+        sec_path = "/" + sec_path
+
+    data = _fetch_reuters_api(sec_path)
+    if not data:
+        logger.warning("Reuters API returned no data for %s", feed_cfg.name)
+        return section
+
+    # Extract stories from the section listing
+    stories: list[dict] = []
+    items = data if isinstance(data, list) else [data]
+    for item in items:
+        if isinstance(item, dict):
+            for story in item.get("data", {}).get("stories", []):
+                stories.append(story)
+
+    seen_urls: set[str] = set()
+    for story in stories[:_FETCH_CAP_PER_FEED]:
+        story_url = story.get("url", "")
+        if not story_url or story_url in seen_urls:
+            continue
+        seen_urls.add(story_url)
+
+        full_url = _REUTERS_BASE + story_url
+
+        # Check cache
+        include_images = config.newspaper.include_images
+        if cache:
+            found, cached_html = cache.get_article(full_url, include_images)
+            if found:
+                html_content = cached_html
+            else:
+                html_content = _extract_reuters_article(story_url, include_images)
+                cache.set_article(full_url, include_images, html_content)
+        else:
+            html_content = _extract_reuters_article(story_url, include_images)
+
+        if not html_content:
+            continue
+
+        # Process images if requested
+        images: list[ArticleImage] = []
+        if include_images and html_content:
+            html_content, images = _process_article_images(
+                html_content, config, cache=cache
+            )
+
+        article = Article(
+            title=story.get("title", "Untitled"),
+            url=full_url,
+            author=None,  # Set from article detail below if available
+            date=story.get("display_time"),
+            html_content=html_content,
+            images=images,
+        )
+        section.articles.append(article)
+
+    return section
+
+
+def _extract_reuters_article(story_path: str, include_images: bool) -> str | None:
+    """Extract a single Reuters article via the mobile API.
+
+    Returns clean HTML built from the structured JSON content elements.
+    """
+    data = _fetch_reuters_api(story_path)
+    if not data:
+        return None
+
+    items = data if isinstance(data, list) else [data]
+    for item in items:
+        if not isinstance(item, dict) or item.get("type") != "article_detail":
+            continue
+
+        article = item.get("data", {}).get("article", {})
+        parts: list[str] = []
+
+        # Description as italic lead paragraph
+        desc = article.get("description")
+        if desc:
+            parts.append(f"<p><em>{desc}</em></p>")
+
+        # Authors
+        authors = article.get("authors", [])
+        if authors:
+            bylines = ", ".join(a.get("byline", "") for a in authors if a.get("byline"))
+            if bylines:
+                parts.append(f"<p><small>By {bylines}</small></p>")
+
+        # Lead image
+        thumb = article.get("thumbnail")
+        if include_images and thumb and thumb.get("type") == "image":
+            resizer_url = thumb.get("resizer_url", "")
+            if resizer_url:
+                img_url = resizer_url.split("&")[0] + "&width=800"
+                caption = thumb.get("caption", "")
+                if caption:
+                    parts.append(
+                        f'<figure><img src="{img_url}" alt="" />'
+                        f"<figcaption>{caption}</figcaption></figure>"
+                    )
+                else:
+                    parts.append(f'<figure><img src="{img_url}" alt="" /></figure>')
+
+        # Content elements
+        for el in article.get("content_elements", []):
+            el_type = el.get("type", "")
+            if el_type == "paragraph":
+                parts.append(f"<p>{el.get('content', '')}</p>")
+            elif el_type == "header":
+                parts.append(f"<h3>{el.get('content', '')}</h3>")
+            elif el_type == "graphic" and include_images:
+                resizer_url = el.get("resizer_url", "")
+                if resizer_url:
+                    img_url = resizer_url.split("&")[0] + "&width=800"
+                    caption = el.get("description", "")
+                    if caption:
+                        parts.append(
+                            f'<figure><img src="{img_url}" alt="" />'
+                            f"<figcaption>{caption}</figcaption></figure>"
+                        )
+                    else:
+                        parts.append(f'<figure><img src="{img_url}" alt="" /></figure>')
+
+        # Sign-off
+        sign_off = article.get("sign_off")
+        if sign_off:
+            parts.append(f"<p><small>{sign_off}</small></p>")
+
+        html = "\n".join(parts)
+        if _count_words(html) >= MIN_ARTICLE_WORDS:
+            return html
+
+    return None
+
+
+def _fetch_sciam_feed(
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+) -> Section:
+    """Fetch articles from Scientific American's latest magazine issue.
+
+    SciAm has no working RSS feed. Instead, the issue page embeds a __DATA__
+    JSON script with article metadata (title, slug, author, date, category).
+    Articles are freely accessible via standard trafilatura extraction.
+    Feed URL should be https://www.scientificamerican.com (auto-discovers
+    latest issue) or a specific issue URL like /issue/sa/2026/03-01/.
+    Technique from Calibre's scientific_american.recipe by Kovid Goyal.
+    """
+    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+
+    try:
+        articles_meta = _fetch_sciam_issue_articles(feed_cfg.url)
+    except Exception:
+        logger.warning("SciAm issue discovery failed for %s", feed_cfg.name, exc_info=True)
+        return section
+
+    if not articles_meta:
+        logger.warning("SciAm returned no articles for %s", feed_cfg.name)
+        return section
+
+    # Build synthetic feedparser-like entries and delegate to _extract_article
+    consecutive_failures = 0
+    for meta in articles_meta[:_FETCH_CAP_PER_FEED]:
+        slug = meta.get("slug", "")
+        url = f"{_SCIAM_BASE}/article/{slug}"
+
+        # Build author string from authors list
+        authors = meta.get("authors", [])
+        author = ", ".join(a.get("name", "") for a in authors if a.get("name"))
+
+        # Synthetic feedparser entry
+        entry = {
+            "link": url,
+            "title": meta.get("title", "Untitled"),
+            "author": author or None,
+            "published": meta.get("date_published"),
+        }
+
+        article = _extract_article(entry, config, cache=cache)
+        if article:
+            section.articles.append(article)
+            consecutive_failures = 0
+        else:
+            consecutive_failures += 1
+            if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                logger.info(
+                    "Aborting %s after %d consecutive extraction failures",
+                    feed_cfg.name,
+                    consecutive_failures,
+                )
+                break
+
+    return section
+
+
+def _fetch_sciam_issue_articles(feed_url: str) -> list[dict]:
+    """Discover articles from the latest Scientific American issue.
+
+    Fetches the issue page (or homepage to find it), then parses the
+    __DATA__ JSON script for article metadata.
+    Returns list of article metadata dicts with keys:
+    title, slug, authors, date_published, category, subtype.
+    """
+    parsed = urlparse(feed_url)
+    path = parsed.path.strip("/")
+
+    # If feed URL is a specific issue page, use it directly
+    if path.startswith("issue/"):
+        issue_url = f"{_SCIAM_BASE}/{path}"
+    else:
+        # Fetch homepage to find latest issue link
+        req = urllib.request.Request(
+            _SCIAM_BASE,
+            headers={"User-Agent": _BROWSER_USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+        except Exception:
+            logger.warning("SciAm homepage fetch failed", exc_info=True)
+            return []
+
+        issue_match = re.search(r'href="(/issue/sa/[^"]+)"', html)
+        if not issue_match:
+            logger.warning("Could not find SciAm issue link on homepage")
+            return []
+        issue_url = f"{_SCIAM_BASE}{issue_match.group(1)}"
+
+    # Fetch the issue page and parse __DATA__ JSON
+    req = urllib.request.Request(
+        issue_url,
+        headers={"User-Agent": _BROWSER_USER_AGENT},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        logger.warning("SciAm issue page fetch failed: %s", issue_url, exc_info=True)
+        return []
+
+    script_match = re.search(
+        r'<script[^>]*id="__DATA__"[^>]*>(.*?)</script>', html, re.DOTALL
+    )
+    if not script_match:
+        logger.warning("No __DATA__ script found on SciAm issue page")
+        return []
+
+    raw = script_match.group(1)
+    if "JSON.parse(`" not in raw:
+        logger.warning("Unexpected __DATA__ format on SciAm issue page")
+        return []
+
+    try:
+        json_str = raw.split("JSON.parse(`")[1].replace("\\\\", "\\")
+        data = json.JSONDecoder().raw_decode(json_str)[0]
+    except (json.JSONDecodeError, IndexError):
+        logger.warning("Failed to parse SciAm __DATA__ JSON", exc_info=True)
+        return []
+
+    issue_info = data.get("initialData", {}).get("issueData", {})
+    if not issue_info:
+        logger.warning("No issueData in SciAm __DATA__ JSON")
+        return []
+
+    # Collect all articles across sections (features first, then rest)
+    article_previews = issue_info.get("article_previews", {})
+    articles: list[dict] = []
+
+    # Features first (most substantial), then other sections
+    for section_key in sorted(
+        article_previews.keys(),
+        key=lambda k: (not k.startswith("featur"), k),
+    ):
+        for article in article_previews[section_key]:
+            articles.append(article)
+
+    logger.info(
+        "SciAm issue %s: %d articles discovered",
+        issue_info.get("issue_date", "unknown"),
+        len(articles),
+    )
+    return articles
 
 
 def _extract_via_archive(url: str, include_images: bool) -> str | None:
     """Fetch article via archive.today and extract with trafilatura.
 
-    Technique from Calibre's project_syndicate.recipe by Kovid Goyal.
+    Tries multiple archive.today mirror TLDs (shuffled) until one succeeds.
+    Technique from Calibre's project_syndicate.recipe by unkn0wn.
+
+    Skipped entirely on LibreSSL (macOS system Python) where archive.today
+    TLS handshakes always fail, wasting ~72s per article on timeouts.
     """
-    clean_url = url.split("?")[0]
-    tld = random.choice(_ARCHIVE_TLDS)
-    archive_url = f"https://archive.{tld}/latest/{clean_url}"
-    page = _fetch_page(archive_url, _BOT_USER_AGENT)
-    if not page:
+    if not _HAS_MODERN_SSL:
+        logger.debug("Skipping archive.today (LibreSSL incompatible): %s", url)
         return None
-    extracted = _trafilatura_extract_from_html(page, include_images)
-    if extracted and _count_words(extracted) >= MIN_ARTICLE_WORDS:
-        return extracted
+    clean_url = url.split("?")[0]
+    tlds = list(_ARCHIVE_TLDS)
+    random.shuffle(tlds)
+    for tld in tlds:
+        archive_url = f"https://archive.{tld}/latest/{clean_url}"
+        page = _fetch_page(archive_url, _BROWSER_USER_AGENT)
+        if not page:
+            continue
+        extracted = _trafilatura_extract_from_html(page, include_images)
+        if extracted and _count_words(extracted) >= MIN_ARTICLE_WORDS:
+            return extracted
     return None
 
 
@@ -523,13 +1315,42 @@ def _trafilatura_extract_from_html(
         return None
 
 
-def _fetch_page(url: str, user_agent: str) -> str | None:
-    """Download a web page and return HTML source."""
+class _LimitedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Redirect handler with a lower limit to fail faster on redirect loops."""
+
+    max_redirections = 5
+
+
+def _fetch_page(
+    url: str, user_agent: str, extra_headers: dict[str, str] | None = None
+) -> str | None:
+    """Download a web page and return HTML source.
+
+    Uses a cookie jar so cookies set during redirects (e.g. Nature.com's
+    idp.nature.com session cookie) persist across the redirect chain.
+    Limits redirects to 5 (default is 10) and detects auth redirect loops.
+    """
     if not is_safe_url(url):
         return None
     try:
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(
+            _LimitedRedirectHandler,
+            urllib.request.HTTPCookieProcessor(jar),
+        )
         req = urllib.request.Request(url, headers={"User-Agent": user_agent})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        if extra_headers:
+            for key, val in extra_headers.items():
+                req.add_header(key, val)
+        with opener.open(req, timeout=15) as resp:
+            # Detect auth redirect loops — if final URL landed on a login page
+            final_url = resp.url or ""
+            parsed_final = urlparse(final_url)
+            if parsed_final.netloc.startswith("idp.") or any(
+                pat in parsed_final.path for pat in _AUTH_URL_PATTERNS
+            ):
+                logger.debug("Auth redirect detected, aborting: %s → %s", url, final_url)
+                return None
             data = resp.read()
             charset = resp.headers.get_content_charset() or "utf-8"
             return data.decode(charset, errors="replace")
@@ -685,15 +1506,23 @@ def _process_article_images(
 
     images: list[ArticleImage] = []
     counter = [0]  # mutable counter for the closure
+    seen_urls: set[str] = set()  # deduplicate identical images
 
     def _replace_img(match: re.Match) -> str:
         tag = match.group(0)
         attrs = dict(_ATTR_RE.findall(tag))
 
         # Prefer data-src (lazy-loaded images) over src
-        src = attrs.get("data-src") or attrs.get("src", "")
+        # Decode HTML entities (&amp; → &) — trafilatura's <graphic> tags
+        # emit entity-encoded URLs that fail on CDN-signed images (e.g. Guardian 401s)
+        src = _html_mod.unescape(attrs.get("data-src") or attrs.get("src", ""))
         if not src or _should_skip_image(src):
             return ""
+
+        # Skip duplicate images within the same article
+        if src in seen_urls:
+            return ""
+        seen_urls.add(src)
 
         image_data = _download_image(src, cache=cache)
         if image_data is None:
@@ -713,6 +1542,9 @@ def _process_article_images(
         counter[0] += 1
 
         alt = attrs.get("alt", "").strip()
+        # Clean internal stock photo filenames / placeholder alt text
+        if alt and (_STOCK_ALT_RE.match(alt) or _FILENAME_ALT_RE.match(alt)):
+            alt = ""
         title = attrs.get("title", "").strip()
         caption = title or (alt if alt.lower() not in _GENERIC_ALT else "")
 
@@ -747,9 +1579,12 @@ def _should_skip_image(url: str) -> bool:
     """Filter out ads, tracking pixels, icons, and logos by URL."""
     parsed = urlparse(url)
 
-    for ad_domain in _AD_DOMAINS:
-        if ad_domain in parsed.netloc:
+    netloc = parsed.netloc
+    for ad_domain in _AD_DOMAINS_FULL:
+        if ad_domain in netloc:
             return True
+    if netloc.startswith(_AD_SUBDOMAIN_PREFIXES):
+        return True
 
     if _SKIP_PATTERNS.search(parsed.path):
         return True

@@ -8,19 +8,30 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from paper_boy.cache import ContentCache
+from paper_boy import feeds
 from paper_boy.feeds import (
+    _MAX_CONSECUTIVE_FAILURES,
+    Article,
     _count_words,
+    _domain_failures,
+    _domain_is_blocked,
     _downgrade_body_headings,
     _download_image,
     _extract_article,
     _extract_article_content,
     _extract_bloomberg_article,
+    _fetch_bloomberg_section_stories,
+    _fetch_bloomberg_bw_stories,
     _extract_from_json_ld,
     _extract_paginated_content,
+    _has_paywall_markers,
     _extract_via_archive,
     _fetch_single_feed,
     _get_feed_content,
+    _is_premium_title,
     _normalize_html,
+    _record_domain_failure,
+    _reset_domain_failures,
     _should_skip_image,
     _strip_duplicate_title,
     apply_article_budget,
@@ -29,6 +40,9 @@ from paper_boy.feeds import (
 
 
 # --- Helpers ---
+
+# Content long enough to pass the 200-word quality gate in filters.py
+_LONG_CONTENT = "<p>" + " ".join(["word"] * 250) + "</p>"
 
 
 def _make_feed_entry(
@@ -69,7 +83,7 @@ def _make_parsed_feed(entries=None, bozo=False, bozo_exception=None):
 
 
 class TestFetchFeeds:
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Full text.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html>page</html>")
     @patch("paper_boy.feeds.feedparser.parse")
     def test_returns_sections_for_valid_feeds(
@@ -96,7 +110,7 @@ class TestFetchFeeds:
         sections = fetch_feeds(local_config)
         assert len(sections) == 0
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     @patch("paper_boy.feeds.feedparser.parse")
     def test_handles_multiple_feeds(self, mock_parse, mock_fetch, mock_ext, make_config):
@@ -126,7 +140,7 @@ class TestFetchFeeds:
         sections = fetch_feeds(local_config)
         assert len(sections) == 0
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     @patch("paper_boy.feeds.feedparser.parse")
     def test_respects_total_article_budget(
@@ -146,7 +160,7 @@ class TestFetchFeeds:
 
 
 class TestExtractArticle:
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Full article.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html>page</html>")
     def test_returns_article_with_trafilatura_content(
         self, mock_fetch, mock_extract, local_config
@@ -155,28 +169,29 @@ class TestExtractArticle:
         entry = _make_feed_entry()
         article = _extract_article(entry, local_config)
         assert article is not None
-        assert "<p>Full article.</p>" in article.html_content
+        assert "word" in article.html_content
 
     @patch("paper_boy.feeds.trafilatura.extract", return_value=None)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value=None)
     def test_falls_back_to_rss_content(self, mock_fetch, mock_extract, local_config):
         """When trafilatura fails, RSS entry content field is used."""
+        rss_content = "<p>" + " ".join(["rss"] * 250) + "</p>"
         entry = _make_feed_entry(
-            content=[{"value": "<p>RSS content here.</p>"}]
+            content=[{"value": rss_content}]
         )
         article = _extract_article(entry, local_config)
         assert article is not None
-        assert "RSS content here" in article.html_content
+        assert "rss" in article.html_content
 
     @patch("paper_boy.feeds.trafilatura.extract", return_value=None)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value=None)
     def test_falls_back_to_rss_summary(self, mock_fetch, mock_extract, local_config):
         """When trafilatura and content fail, a long summary is used."""
-        long_summary = "A" * 150
+        long_summary = " ".join(["summary"] * 250)
         entry = _make_feed_entry(summary=long_summary)
         article = _extract_article(entry, local_config)
         assert article is not None
-        assert article.html_content == long_summary
+        assert "summary" in article.html_content
 
     @patch("paper_boy.feeds.trafilatura.extract", return_value=None)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value=None)
@@ -194,7 +209,7 @@ class TestExtractArticle:
         article = _extract_article(entry, local_config)
         assert article is None
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Text.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_extracts_author_from_entry(self, mock_fetch, mock_extract, local_config):
         """Author field is extracted from entry.author."""
@@ -202,7 +217,7 @@ class TestExtractArticle:
         article = _extract_article(entry, local_config)
         assert article.author == "Jane Doe"
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Text.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_extracts_author_from_authors_list(
         self, mock_fetch, mock_extract, local_config
@@ -212,7 +227,7 @@ class TestExtractArticle:
         article = _extract_article(entry, local_config)
         assert article.author == "John Smith"
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Text.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_extracts_date_from_published(self, mock_fetch, mock_extract, local_config):
         """entry.published is used as article date."""
@@ -220,7 +235,7 @@ class TestExtractArticle:
         article = _extract_article(entry, local_config)
         assert article.date == "Mon, 01 Mar 2026 06:00:00 UTC"
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Text.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_extracts_date_from_updated(self, mock_fetch, mock_extract, local_config):
         """When published is absent, entry.updated is used."""
@@ -229,20 +244,20 @@ class TestExtractArticle:
         assert article.date == "2026-03-01T06:00:00Z"
 
     @patch("paper_boy.feeds._process_article_images")
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>With images.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_processes_images_when_enabled(
         self, mock_fetch, mock_extract, mock_process, make_config
     ):
         """With include_images=True, _process_article_images is called."""
-        mock_process.return_value = ("<p>With images.</p>", [])
+        mock_process.return_value = (_LONG_CONTENT, [])
         config = make_config(include_images=True)
         entry = _make_feed_entry()
         _extract_article(entry, config)
         mock_process.assert_called_once()
 
     @patch("paper_boy.feeds._process_article_images")
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>No images.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_skips_images_when_disabled(
         self, mock_fetch, mock_extract, mock_process, make_config
@@ -260,12 +275,13 @@ class TestExtractArticle:
         self, mock_fetch, mock_extract, local_config
     ):
         """trafilatura exception is caught; falls back to RSS content."""
+        rss_content = "<p>" + " ".join(["fallback"] * 250) + "</p>"
         entry = _make_feed_entry(
-            content=[{"value": "<p>Fallback content.</p>"}]
+            content=[{"value": rss_content}]
         )
         article = _extract_article(entry, local_config)
         assert article is not None
-        assert "Fallback content" in article.html_content
+        assert "fallback" in article.html_content
 
 
 # --- TestGetFeedContent ---
@@ -392,7 +408,7 @@ class TestShouldSkipImageFeeds:
 
 
 class TestFetchFeedsWithCache:
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     @patch("paper_boy.feeds.feedparser.parse")
     def test_cache_prevents_duplicate_feed_parse(
@@ -412,7 +428,7 @@ class TestFetchFeedsWithCache:
         assert cache.stats.feed_hits == 1
         assert cache.stats.feed_misses == 1
 
-    @patch("paper_boy.feeds.trafilatura.extract", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
     @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html></html>")
     def test_cache_prevents_duplicate_article_extraction(
         self, mock_fetch_url, mock_extract, local_config
@@ -489,6 +505,9 @@ class TestCountWords:
 
 
 class TestExtractArticleContent:
+    def setup_method(self):
+        _reset_domain_failures()
+
     @patch("paper_boy.feeds._fetch_page", return_value=None)
     @patch("paper_boy.feeds._trafilatura_extract")
     def test_returns_strategy1_when_sufficient(self, mock_traf, mock_fetch):
@@ -520,6 +539,41 @@ class TestExtractArticleContent:
         result = _extract_article_content("https://example.com/paywalled", True)
         assert result is not None
         assert "word" in result
+        assert mock_fetch.call_count == 2
+
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
+    @patch("paper_boy.feeds._extract_from_json_ld", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    @patch("paper_boy.feeds._trafilatura_extract")
+    def test_paywall_teaser_falls_through_to_bot_ua(
+        self, mock_traf, mock_fetch, mock_traf_html, mock_json_ld, mock_archive
+    ):
+        """S1 paywall teaser (enough words but paywall phrases) falls through to S2.
+
+        FT pattern: S1 extracts ~170 words of 'Subscribe to unlock this article'
+        paywall text which passes MIN_ARTICLE_WORDS but contains paywall markers.
+        The pipeline should NOT accept this and should continue to S2 (bot UA).
+        """
+        paywall_teaser = (
+            "<p>Subscribe to unlock this article</p>"
+            "<p>Try unlimited access Only €1 for 4 weeks Then €69 per month.</p>"
+            "<p>" + " ".join(["teaser"] * 160) + "</p>"
+        )
+        full_article = "<p>" + " ".join(["article"] * 500) + "</p>"
+        mock_traf.return_value = paywall_teaser
+        # browser UA returns same paywall, bot UA returns full page
+        mock_fetch.side_effect = [
+            "<html>paywall page</html>",
+            "<html>full page</html>",
+        ]
+        mock_traf_html.side_effect = [paywall_teaser, full_article]
+
+        result = _extract_article_content("https://www.ft.com/content/abc123", True)
+        assert result is not None
+        assert "article" in result
+        assert "Subscribe to unlock" not in result
+        # Both browser UA and bot UA fetches should have been attempted
         assert mock_fetch.call_count == 2
 
     @patch("paper_boy.feeds._extract_via_archive", return_value=None)
@@ -701,7 +755,7 @@ class TestVideoUrlFilter:
             "https://example.com/live/breaking-news",
         ],
     )
-    @patch("paper_boy.feeds._extract_article_content", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT)
     def test_skips_non_article_urls(self, mock_extract, url, local_config):
         """Non-article URLs (video, program, podcasts, live) are skipped."""
         entry = _make_feed_entry(link=url)
@@ -709,7 +763,7 @@ class TestVideoUrlFilter:
         assert article is None
         mock_extract.assert_not_called()
 
-    @patch("paper_boy.feeds._extract_article_content", return_value="<p>Content.</p>")
+    @patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT)
     def test_allows_normal_article_urls(self, mock_extract, local_config):
         """Normal article URLs are not filtered."""
         entry = _make_feed_entry(
@@ -809,7 +863,7 @@ class TestStripDuplicateTitle:
 class TestStripDuplicateTitleIntegration:
     @patch(
         "paper_boy.feeds._extract_article_content",
-        return_value="<h1>Test Article</h1><p>Full body text.</p>",
+        return_value="<h1>Test Article</h1>" + _LONG_CONTENT,
     )
     def test_extract_article_strips_duplicate_title(self, mock_extract, local_config):
         """_extract_article removes duplicate <h1> matching the entry title."""
@@ -817,11 +871,11 @@ class TestStripDuplicateTitleIntegration:
         article = _extract_article(entry, local_config)
         assert article is not None
         assert "<h1>" not in article.html_content
-        assert "<p>Full body text.</p>" in article.html_content
+        assert "word" in article.html_content
 
     @patch(
         "paper_boy.feeds._extract_article_content",
-        return_value="<h1>Different Heading</h1><p>Body.</p>",
+        return_value="<h1>Different Heading</h1>" + _LONG_CONTENT,
     )
     def test_extract_article_downgrades_non_matching_heading(
         self, mock_extract, local_config
@@ -862,53 +916,76 @@ class TestBrowserUAFallback:
 
 
 class TestBloombergExtraction:
-    @patch("paper_boy.feeds._fetch_page")
-    def test_bloomberg_api_success(self, mock_fetch):
-        """Bloomberg API returns article body from JSON."""
+    @patch("paper_boy.feeds._fetch_bloomberg_api")
+    def test_bloomberg_api_success(self, mock_api):
+        """Bloomberg BW news API returns article HTML and byline."""
         body = "<p>" + " ".join(["word"] * 200) + "</p>"
-        mock_fetch.return_value = json.dumps({"body": body})
+        mock_api.return_value = {"html": body, "byline": "Test Author"}
 
-        result = _extract_bloomberg_article("https://www.bloomberg.com/news/articles/2026-03-08/test-slug")
-        assert result is not None
-        assert "word" in result
+        html, byline = _extract_bloomberg_article("TEST_ID_123")
+        assert html is not None
+        assert "word" in html
+        assert byline == "Test Author"
 
-    @patch("paper_boy.feeds._fetch_page")
-    def test_bloomberg_api_bad_json(self, mock_fetch):
-        """Invalid JSON returns None."""
-        mock_fetch.return_value = "not json at all"
-        result = _extract_bloomberg_article("https://www.bloomberg.com/news/articles/2026-03-08/test-slug")
-        assert result is None
+    @patch("paper_boy.feeds._fetch_bloomberg_api")
+    def test_bloomberg_api_no_data(self, mock_api):
+        """API returning None gives (None, None)."""
+        mock_api.return_value = None
+        html, byline = _extract_bloomberg_article("TEST_ID_123")
+        assert html is None
+        assert byline is None
 
-    @patch("paper_boy.feeds._fetch_page")
-    def test_bloomberg_api_short_body(self, mock_fetch):
-        """Body < MIN_ARTICLE_WORDS returns None."""
-        mock_fetch.return_value = json.dumps({"body": "<p>Too short.</p>"})
-        result = _extract_bloomberg_article("https://www.bloomberg.com/news/articles/2026-03-08/test-slug")
-        assert result is None
+    @patch("paper_boy.feeds._fetch_bloomberg_api")
+    def test_bloomberg_api_short_body(self, mock_api):
+        """HTML < MIN_ARTICLE_WORDS returns None for html."""
+        mock_api.return_value = {"html": "<p>Too short.</p>", "byline": "Author"}
+        html, byline = _extract_bloomberg_article("TEST_ID_123")
+        assert html is None
 
-    def test_bloomberg_api_no_slug(self):
-        """URL with no slug returns None."""
-        result = _extract_bloomberg_article("https://www.bloomberg.com/")
-        assert result is None
+    @patch("paper_boy.feeds._fetch_bloomberg_api")
+    def test_bloomberg_section_stories(self, mock_api):
+        """Section listing extracts deduplicated stories."""
+        mock_api.side_effect = [
+            # Nav API response
+            {"searchNav": [{"items": [
+                {"id": "tech", "title": "Tech", "links": {"self": {"href": "/wssmobile/v1/pages/business/phx-tech"}}}
+            ]}]},
+            # Section listing response
+            {"modules": [
+                {"stories": [
+                    {"type": "article", "internalID": "A1", "title": "Story 1"},
+                    {"type": "article", "internalID": "A1", "title": "Story 1 dup"},
+                    {"type": "article", "internalID": "A2", "title": "Story 2"},
+                    {"type": "video", "internalID": "V1", "title": "Video"},
+                ]},
+            ]},
+        ]
+        stories = _fetch_bloomberg_section_stories("tech")
+        assert len(stories) == 2
+        assert stories[0]["internalID"] == "A1"
+        assert stories[1]["internalID"] == "A2"
 
-    @patch("paper_boy.feeds._extract_bloomberg_article")
-    @patch("paper_boy.feeds._trafilatura_extract", return_value=None)
-    @patch("paper_boy.feeds._fetch_page", return_value=None)
-    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
-    def test_bloomberg_dispatched_in_extract(
-        self, mock_archive, mock_fetch, mock_traf, mock_bloomberg
-    ):
-        """_extract_article_content calls Bloomberg API for bloomberg.com URLs."""
-        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
-        mock_bloomberg.return_value = long_html
-        result = _extract_article_content("https://www.bloomberg.com/news/articles/2026-03-08/slug", True)
-        mock_bloomberg.assert_called_once()
-        assert result is not None
+    @patch("paper_boy.feeds._fetch_bloomberg_api")
+    def test_bloomberg_bw_stories(self, mock_api):
+        """Businessweek latest issue fetches TOC articles."""
+        mock_api.side_effect = [
+            # BW list response
+            {"magazines": [{"id": "26_03"}]},
+            # BW week TOC response
+            {"modules": [
+                {"articles": [{"id": "BW1", "title": "BW Article 1"}]},
+                {"articles": [{"id": "BW2", "title": "BW Article 2"}]},
+            ]},
+        ]
+        stories = _fetch_bloomberg_bw_stories()
+        assert len(stories) == 2
+        assert stories[0]["id"] == "BW1"
 
 
 # --- TestArchiveExtraction ---
 
 
+@patch("paper_boy.feeds._HAS_MODERN_SSL", True)
 class TestArchiveExtraction:
     @patch("paper_boy.feeds._trafilatura_extract_from_html")
     @patch("paper_boy.feeds._fetch_page")
@@ -922,35 +999,75 @@ class TestArchiveExtraction:
         assert result is not None
         assert "word" in result
 
-    @patch("paper_boy.feeds.random.choice", return_value="li")
     @patch("paper_boy.feeds._trafilatura_extract_from_html")
     @patch("paper_boy.feeds._fetch_page")
-    def test_archive_uses_random_tld(self, mock_fetch, mock_traf_html, mock_choice):
-        """Archive URL uses archive.{tld}/latest/ format."""
+    def test_archive_tries_multiple_tlds(self, mock_fetch, mock_traf_html):
+        """Archive tries all TLDs until one succeeds."""
         mock_fetch.return_value = None
         _extract_via_archive("https://example.com/article", True)
-        mock_fetch.assert_called_once_with(
-            "https://archive.li/latest/https://example.com/article",
-            "Mozilla/5.0 (Java) outbrain",
-        )
+        # Should try all 6 TLDs when all fail
+        assert mock_fetch.call_count == len(feeds._ARCHIVE_TLDS)
+        # All calls should use /latest/ URL pattern with browser UA
+        for call in mock_fetch.call_args_list:
+            url, ua = call[0]
+            assert "/latest/https://example.com/article" in url
+            assert "Mozilla/5.0" in ua
 
-    @patch("paper_boy.feeds.random.choice", return_value="fo")
     @patch("paper_boy.feeds._trafilatura_extract_from_html")
     @patch("paper_boy.feeds._fetch_page")
-    def test_archive_strips_query_params(self, mock_fetch, mock_traf_html, mock_choice):
+    def test_archive_stops_on_first_success(self, mock_fetch, mock_traf_html):
+        """Archive stops trying TLDs once one succeeds."""
+        long_html = "<p>" + " ".join(["word"] * 200) + "</p>"
+        mock_fetch.return_value = "<html>page</html>"
+        mock_traf_html.return_value = long_html
+        result = _extract_via_archive("https://example.com/article", True)
+        assert result is not None
+        # Should stop after first successful TLD
+        assert mock_fetch.call_count == 1
+
+    @patch("paper_boy.feeds._trafilatura_extract_from_html")
+    @patch("paper_boy.feeds._fetch_page")
+    def test_archive_strips_query_params(self, mock_fetch, mock_traf_html):
         """Query parameters are stripped before archive lookup."""
         mock_fetch.return_value = None
         _extract_via_archive("https://example.com/article?param=1&foo=bar", True)
-        mock_fetch.assert_called_once_with(
-            "https://archive.fo/latest/https://example.com/article",
-            "Mozilla/5.0 (Java) outbrain",
-        )
+        # All calls should use URL without query params
+        for call in mock_fetch.call_args_list:
+            url, _ = call[0]
+            assert "?param" not in url
+            assert "https://example.com/article" in url
 
     @patch("paper_boy.feeds._fetch_page", return_value=None)
     def test_archive_returns_none_on_failure(self, mock_fetch):
         """Returns None when archive fetch fails."""
         result = _extract_via_archive("https://example.com/article", True)
         assert result is None
+
+
+class TestProjectSyndicateRouting:
+    """Project Syndicate URLs go directly to archive.today."""
+
+    @patch("paper_boy.feeds._extract_via_archive")
+    def test_ps_routes_to_archive(self, mock_archive):
+        """PS URLs skip normal strategies and go straight to archive."""
+        mock_archive.return_value = "<p>full article</p>"
+        result = _extract_article_content(
+            "https://www.project-syndicate.org/commentary/test-article", True
+        )
+        mock_archive.assert_called_once_with(
+            "https://www.project-syndicate.org/commentary/test-article", True
+        )
+        assert result is not None
+
+    @patch("paper_boy.feeds._extract_via_archive", return_value=None)
+    @patch("paper_boy.feeds._trafilatura_extract")
+    def test_ps_does_not_try_normal_strategies(self, mock_traf, mock_archive):
+        """PS URLs don't fall through to trafilatura when archive fails."""
+        result = _extract_article_content(
+            "https://www.project-syndicate.org/commentary/test-article", True
+        )
+        assert result is None
+        mock_traf.assert_not_called()
 
 
 # --- TestPaginatedExtraction ---
@@ -1026,7 +1143,7 @@ class TestHNSelfPostHandling:
         article = _extract_article(entry, local_config)
         assert article is None
 
-    @patch("paper_boy.feeds._extract_article_content", return_value="<p>External article.</p>")
+    @patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT)
     def test_hn_external_link_normal_extraction(self, mock_extract, local_config):
         """HN entry with external link goes through normal extraction."""
         entry = _make_feed_entry(
@@ -1148,3 +1265,222 @@ class TestApplyArticleBudget:
         total = sum(len(s.articles) for s in result)
         assert total <= 8
         assert len(result[0].articles) == 1  # A only had 1
+
+
+# --- Consecutive failure abort ---
+
+
+class TestPremiumTitleSkipping:
+    """Test that entries with premium title prefixes are skipped."""
+
+    def test_stat_plus_detected(self):
+        assert _is_premium_title("STAT+: Some premium article") is True
+
+    def test_regular_title_not_detected(self):
+        assert _is_premium_title("Fresh turmoil at the FDA") is False
+
+    def test_empty_title(self):
+        assert _is_premium_title("") is False
+
+    def test_premium_entries_skipped_in_feed(self, make_config):
+        """Premium entries are skipped without counting as consecutive failures."""
+        entries = [
+            _make_feed_entry(title="STAT+: Premium 1", link="https://example.com/1"),
+            _make_feed_entry(title="STAT+: Premium 2", link="https://example.com/2"),
+            _make_feed_entry(title="STAT+: Premium 3", link="https://example.com/3"),
+            _make_feed_entry(title="STAT+: Premium 4", link="https://example.com/4"),
+            _make_feed_entry(title="Free article", link="https://example.com/5"),
+        ]
+        feed_cfg = MagicMock()
+        feed_cfg.name = "TestFeed"
+        feed_cfg.url = "https://example.com/feed"
+        feed_cfg.category = ""
+        config = make_config()
+
+        with (
+            patch("paper_boy.feeds.feedparser.parse") as mock_parse,
+            patch("paper_boy.feeds._extract_article") as mock_extract,
+            patch("paper_boy.feeds.is_safe_url", return_value=True),
+        ):
+            mock_parse.return_value = _make_parsed_feed(entries=entries)
+            mock_extract.return_value = Article(
+                title="Free article", url="https://example.com/5",
+                html_content=_LONG_CONTENT,
+            )
+
+            section = _fetch_single_feed(feed_cfg, config)
+
+            # Only the free article should be attempted
+            assert mock_extract.call_count == 1
+            assert len(section.articles) == 1
+
+
+class TestConsecutiveFailureAbort:
+    """Test that _fetch_single_feed aborts after consecutive extraction failures."""
+
+    def test_aborts_after_max_consecutive_failures(self, make_config):
+        """Feed stops after _MAX_CONSECUTIVE_FAILURES consecutive failures."""
+        entries = [
+            _make_feed_entry(title=f"Article {i}", link=f"https://example.com/{i}")
+            for i in range(10)
+        ]
+        feed_cfg = MagicMock()
+        feed_cfg.name = "TestFeed"
+        feed_cfg.url = "https://example.com/feed"
+        feed_cfg.category = ""
+        config = make_config()
+
+        with (
+            patch("paper_boy.feeds.feedparser.parse") as mock_parse,
+            patch("paper_boy.feeds._extract_article") as mock_extract,
+            patch("paper_boy.feeds.is_safe_url", return_value=True),
+        ):
+            mock_parse.return_value = _make_parsed_feed(entries=entries)
+            # All extractions fail
+            mock_extract.return_value = None
+
+            section = _fetch_single_feed(feed_cfg, config)
+
+            assert len(section.articles) == 0
+            # Should have stopped after _MAX_CONSECUTIVE_FAILURES, not tried all 10
+            assert mock_extract.call_count == _MAX_CONSECUTIVE_FAILURES
+
+    def test_resets_on_success(self, make_config):
+        """Counter resets when an extraction succeeds — all entries attempted."""
+        entries = [
+            _make_feed_entry(title=f"Article {i}", link=f"https://example.com/{i}")
+            for i in range(8)
+        ]
+        feed_cfg = MagicMock()
+        feed_cfg.name = "TestFeed"
+        feed_cfg.url = "https://example.com/feed"
+        feed_cfg.category = ""
+        config = make_config()
+
+        # Pattern: fail, fail, success, fail, fail, success, fail, fail
+        # Never hits 3 consecutive failures
+        side_effects = [
+            None, None,
+            Article(title="OK", url="https://example.com/ok", html_content=_LONG_CONTENT),
+            None, None,
+            Article(title="OK2", url="https://example.com/ok2", html_content=_LONG_CONTENT),
+            None, None,
+        ]
+
+        with (
+            patch("paper_boy.feeds.feedparser.parse") as mock_parse,
+            patch("paper_boy.feeds._extract_article") as mock_extract,
+            patch("paper_boy.feeds.is_safe_url", return_value=True),
+        ):
+            mock_parse.return_value = _make_parsed_feed(entries=entries)
+            mock_extract.side_effect = side_effects
+
+            section = _fetch_single_feed(feed_cfg, config)
+
+            assert len(section.articles) == 2
+            # All 8 entries should be attempted (never hit 3 consecutive)
+            assert mock_extract.call_count == 8
+
+
+# --- Domain failure tracking ---
+
+
+class TestDomainFailureTracking:
+    """Test domain-level extraction failure tracking."""
+
+    def setup_method(self):
+        _reset_domain_failures()
+
+    def test_record_and_check(self):
+        """Domain is blocked after threshold failures."""
+        url = "https://www.politico.com/news/article-1"
+        assert not _domain_is_blocked(url)
+        _record_domain_failure(url)
+        assert not _domain_is_blocked(url)  # 1 failure, threshold is 2
+        _record_domain_failure(url)
+        assert _domain_is_blocked(url)  # 2 failures, blocked
+
+    def test_different_domains_independent(self):
+        """Failures on one domain don't affect another."""
+        url_a = "https://www.politico.com/article-1"
+        url_b = "https://www.axios.com/article-1"
+        _record_domain_failure(url_a)
+        _record_domain_failure(url_a)
+        assert _domain_is_blocked(url_a)
+        assert not _domain_is_blocked(url_b)
+
+    def test_same_domain_different_paths(self):
+        """Different articles on same domain share the counter."""
+        _record_domain_failure("https://www.politico.com/article-1")
+        _record_domain_failure("https://www.politico.com/article-2")
+        assert _domain_is_blocked("https://www.politico.com/article-3")
+
+    def test_reset_clears_all(self):
+        """_reset_domain_failures clears the tracking dict."""
+        _record_domain_failure("https://www.politico.com/a")
+        _record_domain_failure("https://www.politico.com/b")
+        assert _domain_is_blocked("https://www.politico.com/c")
+        _reset_domain_failures()
+        assert not _domain_is_blocked("https://www.politico.com/c")
+
+    def test_blocked_domain_skips_fallbacks(self):
+        """When domain is blocked, strategies 2-4 are skipped but 1.5 still runs.
+
+        Domain failure is now recorded after both strategy 1 AND 1.5 fail,
+        so strategy 1.5 (browser UA) always gets a chance.  When the domain
+        is blocked, strategies 2 (bot UA), 3 (JSON-LD), and 4 (archive) are
+        skipped to save time.
+        """
+        url = "https://www.politico.com/news/test-article"
+        # Pre-block the domain
+        _record_domain_failure("https://www.politico.com/a")
+        _record_domain_failure("https://www.politico.com/b")
+
+        with (
+            patch("paper_boy.feeds._trafilatura_extract", return_value=None),
+            patch("paper_boy.feeds._fetch_page", return_value=None) as mock_fetch_page,
+            patch("paper_boy.feeds._extract_via_archive") as mock_archive,
+        ):
+            result = _extract_article_content(url, include_images=False)
+
+            assert result is None
+            # _fetch_page called once for strategy 1.5 (browser UA),
+            # but NOT for strategy 2 (bot UA) — that's skipped by domain block
+            assert mock_fetch_page.call_count == 1
+            # archive.today should NOT be called (strategy 4 skipped)
+            mock_archive.assert_not_called()
+
+    def test_paywall_teaser_does_not_record_domain_failure(self):
+        """Paywall teasers (enough words but paywall detected) should NOT
+        trigger domain failure tracking.
+
+        FT pattern: S1 returns ~170 words of paywall text. This is NOT an
+        extraction failure — the site is accessible, it just needs a different
+        UA (bot/outbrain). Recording this as a domain failure would block S2,
+        which is exactly the strategy that works.
+        """
+        paywall_html = (
+            "<p>Subscribe to unlock this article</p>"
+            "<p>" + " ".join(["word"] * 160) + "</p>"
+        )
+        full_article = "<p>" + " ".join(["content"] * 500) + "</p>"
+
+        for i in range(3):
+            url = f"https://www.ft.com/content/article-{i}"
+            with (
+                patch("paper_boy.feeds._trafilatura_extract", return_value=paywall_html),
+                patch("paper_boy.feeds._fetch_page", side_effect=[
+                    "<html>paywall</html>",  # browser UA
+                    "<html>full</html>",      # bot UA
+                ]),
+                patch("paper_boy.feeds._trafilatura_extract_from_html",
+                      side_effect=[paywall_html, full_article]),
+                patch("paper_boy.feeds._extract_from_json_ld", return_value=None),
+                patch("paper_boy.feeds._extract_via_archive", return_value=None),
+            ):
+                result = _extract_article_content(url, include_images=False)
+                assert result is not None
+                assert "content" in result
+
+        # After 3 paywall-teaser articles, domain should NOT be blocked
+        assert not _domain_is_blocked("https://www.ft.com/content/article-4")
