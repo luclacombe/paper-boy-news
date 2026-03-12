@@ -48,7 +48,7 @@ src/paper_boy/
 
 - `main.build_newspaper(config, cache=None) → BuildResult` — Main pipeline: fetch feeds → build EPUB → return result
 - `main.build_and_deliver(config, cache=None) → BuildResult` — Build + deliver EPUB
-- `feeds.fetch_feeds(config, cache=None) → list[Section]` — Fetch all configured feeds, extract articles
+- `feeds.fetch_feeds(config, cache=None, seen_urls=None) → list[Section]` — Fetch all configured feeds, extract articles. `seen_urls` set enables cross-feed URL deduplication (same article in multiple feeds from same publisher)
 - `cache.ContentCache` — In-memory cache for feed entries, article HTML, and image bytes
 - `epub.build_epub(sections, config) → path` — Generate EPUB file
 - `cover.generate_cover(title, sections, issue_date) → bytes` — Generate newspaper-style cover image (600x900 JPEG)
@@ -115,9 +115,13 @@ delivery:
   - Inline paywall detection (`_has_paywall_markers`) runs after each strategy's word count check — prevents paywall teasers (e.g. FT's "Subscribe to unlock") from short-circuiting the fallback chain. Runs `strip_junk()` first to avoid Nature-style false positives
   - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts, zero-width Unicode chars, self-closing blocks, CMS alt-text figcaptions; converts TEI table tags; flattens nested figures)
   - Falls back to RSS feed content if all strategies fail
-- **Premium title pre-filtering**: `_is_premium_title()` skips entries with known premium prefixes (e.g. `STAT+:`) before extraction. Prevents mixed free/premium feeds (like STAT News) from triggering the consecutive failure abort before free articles are reached.
+- **Premium title pre-filtering**: `_is_premium_title()` skips entries with `STAT+` anywhere in the title (not just prefix — handles "Opinion: STAT+: ..." pattern). Prevents mixed free/premium feeds (like STAT News) from triggering the consecutive failure abort before free articles are reached.
+- **Title-based pre-filtering**: `_should_skip_title()` skips non-journalism entries before extraction — corrections/errata notices, affiliate roundup posts (e.g. Electrek "Green Deals"). Runs in `_fetch_single_feed()` before any network calls.
+- **URL pattern pre-filtering**: `_should_skip_url()` skips URLs matching known non-article patterns — Nature research papers (`s41586-*`), ProPublica tools/projects (`projects.propublica.org`). Runs in `_fetch_single_feed()` before extraction.
+- **Word count cap**: `MAX_ARTICLE_WORDS = 10000` rejects database/tracker pages (e.g. Vogue's 24000-word "People Moves Tracker") that pass quality gates but aren't news articles.
 - **Performance safeguards** (prevent wasted time on doomed extractions):
-  - **Consecutive failure abort**: `_MAX_CONSECUTIVE_FAILURES = 3` — if 3 articles in a row fail extraction within a single feed, stop iterating that feed's entries. Counter resets on success. Prevents Nature-like feeds from trying 25 articles when only 5 succeed.
+  - **Domain strategy hints**: `_DOMAIN_STRATEGY_HINTS` dict maps domains to the strategy level they should start at, skipping known-failing earlier strategies. Nature (`nature.com: 2`) skips S1 and starts at S1.5 (browser UA). FT (`ft.com: 3`) skips S1+S1.5 and starts at S2 (bot UA), saving 40 wasted requests/build.
+  - **Consecutive failure abort**: `_MAX_CONSECUTIVE_FAILURES = 3` — if 3 articles in a row fail extraction within a single feed, stop iterating that feed's entries. Counter resets on success. Per-feed overrides in `_CONSECUTIVE_FAILURE_OVERRIDES` (e.g. HN at 10, since it links to diverse external domains where failures are expected).
   - **Domain-level failure tracking**: `_domain_failures` dict tracks extraction failures per domain. After `_DOMAIN_FAILURE_THRESHOLD = 2` strategy-1 (trafilatura) failures, strategies 1.5–4 are skipped for all subsequent articles from that domain. Prevents Politico/Axios-style feeds from spending ~13s per doomed article on the full fallback chain. Reset via `_reset_domain_failures()` at the start of each `fetch_feeds()` call. **Important**: paywall teasers (S1 returns enough words but paywall detected) do NOT record domain failures — the site is accessible, it just needs a different UA (e.g. FT works via S2 bot UA).
   - **Faster redirect detection**: `_LimitedRedirectHandler` caps redirects at 5 (default 10). After opening, `_fetch_page()` checks the final URL for auth patterns (`idp.`, `/login`, `/authorize`, `/signin`, `/auth/`) and returns None immediately if detected. Prevents Nature's idp redirect loop from consuming ~6s per article.
 - `_convert_graphics_to_imgs()` normalises TEI XML `<graphic>` tags to `<img>` before the image pipeline runs (trafilatura emits `<graphic>` instead of `<img>` with `output_format="html"`)
@@ -130,7 +134,7 @@ delivery:
   - `strip_bbc_related(html)` — removes BBC "Related topics" trailing sections
   - `strip_section_junk(html)` — removes multi-element junk sections (heading + list/content). Uses lxml for DOM-aware stripping. Rules in `_SECTION_JUNK_RULES` list (7 rules: Read this next, Recommended Stories, Contact Us/Got a Tip?, Sign up to, Support Our Work/Donate, Subscribe to Kiplinger, What we're reading).
   - `strip_trailing_junk(html)` — removes trailing metadata (wire bylines, editorial credits). Uses lxml. Rules in `_TRAILING_JUNK_RULES` list (3 rules: Got a tip?, BBC trailing email, AP section links).
-  - `detect_paywall(html, url)` — detects paywall phrases (subscribe to read, log in to continue, etc.) and short-URL truncation indicators (prosyn.org, bit.ly — Project Syndicate pattern)
+  - `detect_paywall(html, url)` — detects paywall phrases (subscribe to read, log in to continue, "preview of subscription content", "exclusive to X+ subscribers", etc.) and short-URL truncation indicators (prosyn.org, bit.ly — Project Syndicate pattern)
   - `check_quality(html)` — rejects articles < 200 words post-cleaning (`MIN_CLEAN_WORDS`), and correction-only notices < 100 words
   - Order matters: `strip_junk` → `strip_sciencedaily_metadata` → `strip_bbc_related` → `strip_section_junk` → `strip_trailing_junk` → `detect_paywall` → `check_quality`
 - **Declarative pattern architecture**: Both `feeds.py` and `filters.py` use declarative rule lists for easy extension:
@@ -138,7 +142,7 @@ delivery:
   - `_JUNK_PATTERN_GROUPS` in `filters.py` — grouped pattern strings compiled into `_JUNK_PATTERNS` regex
   - `_SECTION_JUNK_RULES` in `filters.py` — list of `(heading_pattern, scope)` tuples for structural junk
   - `_TRAILING_JUNK_RULES` in `filters.py` — list of compiled patterns for trailing metadata
-- URL filtering: video/podcast/live segments, `.pdf` file extensions, and YouTube URLs (`youtube.com`, `youtu.be`) are skipped before extraction
+- URL filtering: video/podcast/live segments, `.pdf` file extensions, YouTube URLs (`youtube.com`, `youtu.be`), and domain-specific non-article patterns (`_should_skip_url`) are skipped before extraction
 - Image dedup: `seen_urls` set in `_process_article_images()` prevents duplicate images within the same article (Verge double-image bug)
 - Alt text sanitization: stock photo filenames (`STK071_APPLE_D`, `photo_123.jpg`) are cleared to `alt=""` via `_STOCK_ALT_RE` / `_FILENAME_ALT_RE`
 - Image optimization: resize + JPEG compression for e-reader screens
