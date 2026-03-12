@@ -886,11 +886,13 @@ class TestStripDuplicateTitle:
         result = _strip_duplicate_title(html, "Some Title")
         assert result == html
 
-    def test_non_leading_heading_preserved(self):
-        """Only the FIRST heading is checked — later headings are preserved."""
+    def test_non_leading_heading_removed(self):
+        """Non-leading heading matching the title is also removed."""
         html = "<p>Intro.</p><h1>Breaking News Today</h1><p>Body.</p>"
         result = _strip_duplicate_title(html, "Breaking News Today")
-        assert "<h1>Breaking News Today</h1>" in result
+        assert "<h1>" not in result
+        assert "Intro." in result
+        assert "Body." in result
 
     def test_heading_with_inner_tags(self):
         """Heading containing inline HTML (e.g. <em>) still matches."""
@@ -914,6 +916,42 @@ class TestStripDuplicateTitle:
         html = "<h1>Some Heading</h1><p>Body.</p>"
         result = _strip_duplicate_title(html, "")
         assert "<h1>Some Heading</h1>" in result
+
+    def test_removes_non_leading_h2_after_figure(self):
+        """The Verge / Dezeen pattern: <figure> before title heading."""
+        html = '<figure><img src="hero.jpg"/></figure><h2>Article Title</h2><p>Content.</p>'
+        result = _strip_duplicate_title(html, "Article Title")
+        assert "<h2>" not in result
+        assert "<figure>" in result
+        assert "Content." in result
+
+    def test_removes_h2_after_multiple_elements(self):
+        """AP News pattern: figure + figcaption + heading."""
+        html = '<figure><img src="x.jpg"/><figcaption>Photo credit</figcaption></figure><h2>Big Story Here</h2><p>Text.</p>'
+        result = _strip_duplicate_title(html, "Big Story Here")
+        assert "<h2>" not in result
+        assert "Photo credit" in result
+
+    def test_removes_multiple_duplicate_headings(self):
+        """Edge case: same title appears as both h1 and h2."""
+        html = "<h1>My Title</h1><p>Intro.</p><h2>My Title</h2><p>Content.</p>"
+        result = _strip_duplicate_title(html, "My Title")
+        assert "My Title" not in result
+        assert "Intro." in result
+        assert "Content." in result
+
+    def test_html_entity_in_title_still_matches(self):
+        """HTML entities in RSS title (e.g. &#8217;) match Unicode in heading."""
+        html = "<h2>Perplexity\u2019s Computer</h2><p>Content.</p>"
+        result = _strip_duplicate_title(html, "Perplexity&#8217;s Computer")
+        assert "<h2>" not in result
+        assert "Content." in result
+
+    def test_preserves_non_matching_h2_after_figure(self):
+        """Don't remove section headings that don't match the title."""
+        html = '<figure><img src="x.jpg"/></figure><h2>Background</h2><p>Content.</p>'
+        result = _strip_duplicate_title(html, "Different Title")
+        assert "<h2>Background</h2>" in result
 
 
 # --- TestStripDuplicateTitleIntegration ---

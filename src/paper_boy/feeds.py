@@ -204,9 +204,9 @@ _JSON_LD_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
-# Duplicate title detection — matches leading <h1> or <h2> in extracted HTML
-_LEADING_HEADING_RE = re.compile(
-    r"^\s*<(h[12])\b[^>]*>(.*?)</\1>\s*",
+# Duplicate title detection — matches ALL <h1>/<h2> tags in extracted HTML
+_ALL_HEADINGS_RE = re.compile(
+    r"<(h[12])\b[^>]*>(.*?)</\1>",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -1457,35 +1457,37 @@ def _normalize_html(html: str) -> str:
 
 
 def _strip_duplicate_title(html: str, title: str) -> str:
-    """Remove leading <h1>/<h2> from extracted HTML if it matches the article title.
+    """Remove <h1>/<h2> from extracted HTML if it matches the article title.
 
-    trafilatura often includes the article title as an <h1> in the extracted
-    HTML, but epub.py already adds its own <h1> from the Article.title field.
-    This prevents the title from appearing twice.
-
-    Uses fuzzy matching: lowercased, stripped of punctuation, and checks
-    containment in both directions to handle minor editorial differences.
+    Scans ALL h1/h2 tags in the body (not just leading), removing any that
+    fuzzy-match the title. This handles cases where a <figure> or other
+    element precedes the title heading.
     """
-    match = _LEADING_HEADING_RE.match(html)
-    if not match:
+    if not title or not html:
         return html
 
-    heading_text = re.sub(r"<[^>]+>", "", match.group(2)).strip()
-
-    def _normalize_for_compare(s: str) -> str:
-        return re.sub(r"[^\w\s]", "", s).lower().strip()
-
-    norm_heading = _normalize_for_compare(heading_text)
-    norm_title = _normalize_for_compare(title)
-
-    if not norm_heading or not norm_title:
+    # Normalize title for comparison (unescape HTML entities first —
+    # feedparser may leave &#8217; etc. as literal strings)
+    title_clean = re.sub(r"[^\w\s]", "", _html_mod.unescape(title).lower()).strip()
+    if not title_clean:
         return html
 
-    # Exact match or containment in either direction
-    if norm_heading == norm_title or norm_heading in norm_title or norm_title in norm_heading:
-        return html[match.end():]
+    def _is_match(heading_html: str) -> bool:
+        heading_text = re.sub(r"<[^>]+>", "", heading_html).strip()
+        heading_clean = re.sub(
+            r"[^\w\s]", "", _html_mod.unescape(heading_text).lower()
+        ).strip()
+        if not heading_clean:
+            return False
+        # Containment in both directions
+        return heading_clean in title_clean or title_clean in heading_clean
 
-    return html
+    def _replace(match: re.Match) -> str:
+        if _is_match(match.group(2)):
+            return ""
+        return match.group(0)
+
+    return _ALL_HEADINGS_RE.sub(_replace, html)
 
 
 def _downgrade_body_headings(html: str) -> str:
