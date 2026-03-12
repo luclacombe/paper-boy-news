@@ -68,13 +68,38 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
   cache.py               # In-memory content cache (feeds, articles, images)
+  filters.py             # Post-extraction content filters (paywall, junk, quality)
 web/                     # Next.js web app (see web/CLAUDE.md)
+  src/app/api/opds/      # OPDS feed + EPUB download proxy (token-based auth)
 scripts/                 # Build script for GitHub Actions
 legacy/streamlit/        # Archived Streamlit prototype
 legacy/api/              # Archived FastAPI backend (replaced by GitHub Actions)
 tests/                   # Python tests for core lib
 .github/workflows/       # CI + build-newspaper
 ```
+
+## Source Audit Workflow
+
+Two-skill workflow for auditing EPUB output quality across all sources:
+
+1. **`/build-audit`** — runs a full `--no-limit` build, extracts the EPUB, updates `BUILD-INFO.md` with per-source stats (article counts, timing, strategies, failures)
+2. **`/source-audit [Category]`** — deep quality audit of one category at a time against the extracted EPUB
+
+**Source audit process** (5 phases per category):
+1. Bootstrap — reads `SOURCE-AUDIT-DISCOVERIES.md` (check library) + `SOURCE-AUDIT-ISSUES.md` (tracker) + `BUILD-INFO.md`
+2. Automated sweep — Python script checks all articles for 11+ patterns (title dup, junk, figcaption quality, word count outliers, etc.)
+3. Build log analysis — strategy efficiency, timing, failure patterns per source
+4. RSS feed analysis — live fetch to check category metadata, date formats, content richness
+5. Deep read — 3 sampled articles per source, exploratory checks, cross-article comparison
+
+**Key files** (all in `audit/`, gitignored — local working files):
+- `audit/SOURCE-AUDIT-DISCOVERIES.md` — growing library of "what to check for" (DISC-* IDs)
+- `audit/SOURCE-AUDIT-ISSUES.md` — issue tracker with cross-source (XSRC-*) and per-source (SRC-*) issues + audit progress table
+- `audit/BUILD-INFO.md` — latest build stats baseline
+- `audit/STRATEGY-MAP.md` — per-source optimal extraction strategy profiles
+- `audit/build-audit.log` — verbose build output for log analysis
+
+Run one category per session. Findings persist across sessions via the two tracker files.
 
 ## Tech Stack
 
@@ -152,6 +177,23 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 
 **Note**: Google OAuth sign-in doesn't work locally — use email/password instead (no email confirmation required). Google Drive/Gmail delivery testing still requires real OAuth tokens.
 
+## Documentation Rules
+
+When making code changes, keep documentation in sync automatically — no user reminder needed:
+- **Update** the relevant CLAUDE.md file(s) when changes affect documented architecture, features, conventions, or status
+- **Remove** documented items that no longer exist (deleted features, renamed files, removed modules)
+- **Add** documentation for new features, modules, or patterns that are on par with what's already documented
+- **Create** a new CLAUDE.md if a new significant subdirectory emerges that warrants its own docs
+- **Delete** a CLAUDE.md if its directory is removed or archived
+
+Each subdirectory has its own CLAUDE.md:
+- `CLAUDE.md` (root) — architecture, build pipeline, edition model, current status
+- `src/paper_boy/CLAUDE.md` — Python library modules, config format, design decisions
+- `web/CLAUDE.md` — web app structure, DB schema, auth, key patterns
+- `tests/CLAUDE.md` — test organization, run commands, conventions
+
+Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only for behavioral rules and cross-session gotchas not covered in any CLAUDE.md.
+
 ## Conventions
 
 - TypeScript strict mode, path alias `@/*` → `src/*`
@@ -163,7 +205,8 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 - Core Python library uses `paper_boy` package namespace
 - Config is YAML-based for CLI (`config.yaml`), Supabase DB for web app
 - EPUB metadata: `calibre:series` for Kobo, standard EPUB3 for all devices
-- EPUB structure: category-grouped when feeds have categories (web app), flat when no categories (CLI). Cover page first in spine with guide landmarks for proper opening behavior
+- EPUB structure: category-grouped when feeds have categories (web app), flat when no categories (CLI). Cover page first in spine with EPUB3 landmarks nav + EPUB2 guide for proper opening behavior
+- Post-extraction content filtering pipeline: junk stripping → paywall detection → quality gate (see `filters.py`)
 - Cover images: 600x900px, generated with Pillow, category-aware labels
 - Secrets: never commit `.env.local`, use env vars in CI/deployment
 
@@ -171,7 +214,7 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 
 | Service | Platform | Config |
 |---------|----------|--------|
-| Web app | Vercel | `web/` directory, `paper-boy-news.vercel.app` |
+| Web app | Vercel | `web/` directory, `www.paper-boy-news.com` |
 | EPUB builds | GitHub Actions | `.github/workflows/build-newspaper.yml` |
 | Database | Supabase | PostgreSQL + Auth + Storage |
 
@@ -197,6 +240,7 @@ Key files:
 - Core library, auth, and server actions are complete
 - Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
 - Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Account section: email display, password change (email users), account deletion with confirmation
+- OPDS wireless sync — per-user token-authenticated OPDS feed (`/api/opds/[token]/feed.xml`) + EPUB download proxy (`/api/opds/[token]/download/[editionId]`). Pull-based, no build pipeline changes. Enables KOReader on any Kobo, reMarkable, PocketBook, or jailbroken Kindle to auto-download daily editions. Toggle in Delivery settings (immediate action, not batch-saved)
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional

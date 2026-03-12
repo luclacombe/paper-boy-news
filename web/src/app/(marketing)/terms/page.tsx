@@ -19,7 +19,7 @@ export default function TermsPage() {
           Terms of Service
         </h1>
         <p className="mt-2 font-body text-sm italic text-caption">
-          Last updated: March 8, 2026
+          Last updated: March 12, 2026
         </p>
       </header>
 
@@ -107,14 +107,15 @@ export default function TermsPage() {
             Account Termination
           </h2>
           <p>
-            You can stop using Paper Boy at any time. We reserve the right to
-            suspend accounts that abuse the service. If you want your data
-            deleted, email{" "}
+            You can stop using Paper Boy at any time and delete your account
+            from Settings &gt; Account. Deletion is immediate and removes all
+            your data. We reserve the right to suspend accounts that abuse the
+            service. For questions, contact{" "}
             <a
-              href="mailto:luc.c.lacombe@gmail.com"
+              href="mailto:contact@paper-boy-news.com"
               className="underline hover:no-underline"
             >
-              luc.c.lacombe@gmail.com
+              contact@paper-boy-news.com
             </a>
             .
           </p>

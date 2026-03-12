@@ -25,17 +25,12 @@ token.pickle
 *.key
 *.bak
 
-# Research notes
-RESEARCH.md
-RESEARCH-EBOOK-GENERATION.md
-EBOOK-REVAMP*.md
-design-spec.md
-web-product-research.md
-README-FUTURE.md
+# Audit data (local working files)
+audit/
 
-# Private docs (not for public repo)
-SECURITY.md
-SETUP-GUIDE.md
+# Research docs (in docs/)
+docs/RESEARCH.md
+docs/RESEARCH-EBOOK-GENERATION.md
 
 # Test output files
 *.opf
@@ -47,8 +42,6 @@ SETUP-GUIDE.md
 
 # Streamlit (archived to legacy/streamlit/)
 .streamlit/
-user_config.json
-delivery_history.json
 
 # Claude Code
 .claude/

@@ -6,10 +6,10 @@ Paper Boy: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, a
 
 [![CI](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml/badge.svg)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](web/tsconfig.json)
-[![Deploy: Vercel](https://img.shields.io/badge/Web_App-Vercel-black?logo=vercel)](https://paper-boy-news.vercel.app)
+[![Deploy: Vercel](https://img.shields.io/badge/Web_App-Vercel-black?logo=vercel)](https://www.paper-boy-news.com)
 [![Deploy: Railway](https://img.shields.io/badge/API-Railway-purple?logo=railway)](https://railway.app)
 
-[Live Demo](https://paper-boy-news.vercel.app) &middot; [Report Bug](https://github.com/luclacombe/paper-boy/issues) &middot; [Request Feature](https://github.com/luclacombe/paper-boy/issues)
+[Live Demo](https://www.paper-boy-news.com) &middot; [Report Bug](https://github.com/luclacombe/paper-boy/issues) &middot; [Request Feature](https://github.com/luclacombe/paper-boy/issues)
 
 </div>
 
@@ -95,7 +95,7 @@ graph LR
 
 ### Web App (Recommended)
 
-**[paper-boy-news.vercel.app](https://paper-boy-news.vercel.app)** — sign up and build your first edition in minutes.
+**[www.paper-boy-news.com](https://www.paper-boy-news.com)** — sign up and build your first edition in minutes.
 
 #### Local development
 
