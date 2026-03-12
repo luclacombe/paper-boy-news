@@ -13,6 +13,7 @@ from paper_boy.feeds import (
     _MAX_CONSECUTIVE_FAILURES,
     Article,
     _count_words,
+    _dedup_consecutive_paragraphs,
     _domain_failures,
     _domain_is_blocked,
     _downgrade_body_headings,
@@ -710,6 +711,15 @@ class TestNormalizeHtml:
         ("  <p>Text.</p>  ", "<p>Text.</p>"),
         # Clean passthrough
         ("<p>Already clean content.</p>", "<p>Already clean content.</p>"),
+        # Zero-width character stripping
+        ("<p>Hello\u200bworld</p>", "<p>Helloworld</p>"),
+        ("<p>Test\u200c\u2060text</p>", "<p>Testtext</p>"),
+        ("<p>BOM\ufeffhere</p>", "<p>BOMhere</p>"),
+        # Self-closing empty tags
+        ("<p/><p>Text.</p>", "<p>Text.</p>"),
+        ("<div/><p>Text.</p>", "<p>Text.</p>"),
+        # TEI table conversion
+        ("<row><cell>Data</cell></row>", "<tr><td>Data</td></tr>"),
     ])
     def test_normalize_exact(self, input_html, expected):
         assert _normalize_html(input_html) == expected
@@ -732,6 +742,63 @@ class TestNormalizeHtml:
         assert "</body>" not in result
         assert "<h1>Title</h1>" in result
         assert "<p>Content.</p>" in result
+
+    def test_flattens_nested_figure(self):
+        html = '<figure><figure><img src="x.jpg"/></figure><figcaption>Caption</figcaption></figure>'
+        result = _normalize_html(html)
+        assert "<figure><figure>" not in result
+        assert "<img" in result
+        assert "Caption" in result
+
+    def test_removes_cms_alt_figcaption(self):
+        html = '<figure><img src="x.jpg"/><figcaption>Image may contain Person Standing</figcaption></figure>'
+        result = _normalize_html(html)
+        assert "Image may contain" not in result
+        assert "<img" in result
+
+
+# --- TestDedupConsecutiveParagraphs ---
+
+
+class TestDedupConsecutiveParagraphs:
+    def test_removes_consecutive_duplicate_p(self):
+        html = "<p>Same text.</p><p>Same text.</p><p>Different.</p>"
+        result = _dedup_consecutive_paragraphs(html)
+        assert result.count("Same text.") == 1
+        assert "Different." in result
+
+    def test_removes_consecutive_duplicate_heading(self):
+        html = "<h2>Title</h2><h2>Title</h2><p>Content.</p>"
+        result = _dedup_consecutive_paragraphs(html)
+        assert result.count("Title") == 1
+
+    def test_preserves_non_consecutive_duplicates(self):
+        html = "<p>Text A.</p><p>Text B.</p><p>Text A.</p>"
+        result = _dedup_consecutive_paragraphs(html)
+        assert result.count("Text A.") == 2
+
+    def test_passthrough_no_duplicates(self):
+        html = "<p>First.</p><p>Second.</p><p>Third.</p>"
+        result = _dedup_consecutive_paragraphs(html)
+        assert result == html
+
+    def test_handles_inner_tags(self):
+        html = "<p><strong>Bold</strong> text.</p><p><strong>Bold</strong> text.</p>"
+        result = _dedup_consecutive_paragraphs(html)
+        assert result.count("Bold") == 1
+
+    def test_dedup_across_figure(self):
+        """Verge pattern: subtitle duplicated with a <figure> in between."""
+        html = (
+            "<h2>Title</h2><p>Subtitle.</p>"
+            '<figure><img src="x.jpg"/></figure>'
+            "<h2>Title</h2><p>Subtitle.</p>"
+            "<p>Body text.</p>"
+        )
+        result = _dedup_consecutive_paragraphs(html)
+        assert result.count("Title") == 1
+        assert result.count("Subtitle.") == 1
+        assert "Body text." in result
 
 
 # --- TestVideoUrlFilter ---

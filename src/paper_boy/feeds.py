@@ -219,13 +219,45 @@ _CAPTION_ARTIFACT_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Zero-width Unicode characters (Reuters, Al Jazeera, DW, The Verge)
+_ZERO_WIDTH_RE = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff]")
+
+# TEI table artifacts from trafilatura (row → tr, cell → td)
+_TEI_ROW_OPEN_RE = re.compile(r"<row\b([^>]*)>", re.IGNORECASE)
+_TEI_ROW_CLOSE_RE = re.compile(r"</row>", re.IGNORECASE)
+_TEI_CELL_OPEN_RE = re.compile(r"<cell\b([^>]*)>", re.IGNORECASE)
+_TEI_CELL_CLOSE_RE = re.compile(r"</cell>", re.IGNORECASE)
+
+# Nested <figure><figure> from Reuters mobile API
+_NESTED_FIGURE_RE = re.compile(
+    r"<figure\b[^>]*>\s*<figure\b[^>]*>(.*?)</figure>(.*?)</figure>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# Self-closing empty tags: <p/>, <div/>, etc.
+_SELF_CLOSING_BLOCK_RE = re.compile(r"<(p|div|span)\s*/>", re.IGNORECASE)
+
+# CMS auto-generated alt-text figcaptions ("Image may contain...")
+_CMS_ALT_FIGCAPTION_RE = re.compile(
+    r"<figcaption[^>]*>\s*Image may contain\b[^<]*</figcaption>",
+    re.IGNORECASE,
+)
+
 # Declarative normalization rules: (compiled_pattern, replacement)
 # Applied sequentially — order matters (e.g. body wrapper must be first).
 _NORMALIZE_RULES: list[tuple[re.Pattern, str]] = [
-    (_HTML_BODY_WRAPPER_RE, ""),    # Strip <html>/<body> wrappers (must be first)
-    (_EMPTY_TAG_RE, ""),            # Remove empty tags
-    (_INLINE_STYLE_RE, ""),         # Strip inline styles
-    (_CAPTION_ARTIFACT_RE, ""),     # Remove NPR caption artifacts
+    (_HTML_BODY_WRAPPER_RE, ""),        # Strip <html>/<body> wrappers (must be first)
+    (_ZERO_WIDTH_RE, ""),               # Strip zero-width Unicode chars
+    (_SELF_CLOSING_BLOCK_RE, ""),       # Remove self-closing <p/>, <div/>, <span/>
+    (_EMPTY_TAG_RE, ""),                # Remove empty tags
+    (_INLINE_STYLE_RE, ""),             # Strip inline styles
+    (_CAPTION_ARTIFACT_RE, ""),         # Remove NPR caption artifacts
+    (_CMS_ALT_FIGCAPTION_RE, ""),      # Remove "Image may contain" figcaptions
+    (_TEI_ROW_OPEN_RE, r"<tr\1>"),     # Convert TEI <row> → <tr>
+    (_TEI_ROW_CLOSE_RE, "</tr>"),       # Convert </row> → </tr>
+    (_TEI_CELL_OPEN_RE, r"<td\1>"),    # Convert TEI <cell> → <td>
+    (_TEI_CELL_CLOSE_RE, "</td>"),      # Convert </cell> → </td>
+    (_NESTED_FIGURE_RE, r"<figure>\1\2</figure>"),  # Flatten nested figures
 ]
 
 
@@ -478,6 +510,7 @@ def _extract_article(
 
     # Downgrade any remaining <h1> to <h2> — epub.py adds its own <h1>
     html_content = _downgrade_body_headings(html_content)
+    html_content = _dedup_consecutive_paragraphs(html_content)
 
     # Content filtering pipeline
     html_content = strip_junk(html_content)
@@ -1466,6 +1499,58 @@ def _downgrade_body_headings(html: str) -> str:
     return html
 
 
+def _dedup_consecutive_paragraphs(html: str) -> str:
+    """Remove consecutive duplicate block sequences.
+
+    Detects repeated sequences of 1–4 block elements (p, h1–h6) with identical
+    text content. Non-block elements (figures, divs) between blocks are skipped
+    so that patterns like ``<h2>T</h2><p>S</p><figure/><h2>T</h2><p>S</p>``
+    are caught (Verge subtitle duplication).
+
+    Uses lxml for reliable DOM manipulation.
+    """
+    from lxml import html as lxml_html
+    from lxml import etree
+
+    doc = lxml_html.fragment_fromstring(html, create_parent="div")
+    block_tags = frozenset({"p", "h1", "h2", "h3", "h4", "h5", "h6"})
+
+    # Collect block elements with their text
+    blocks: list[tuple[str, object]] = []
+    for child in doc:
+        if child.tag in block_tags:
+            text = (child.text_content() or "").strip()
+            blocks.append((text, child))
+
+    to_remove: list[object] = []
+    i = 0
+    while i < len(blocks):
+        # Try sequence lengths 1–4 (longest first for greedy matching)
+        matched = False
+        for seq_len in range(min(4, (len(blocks) - i) // 2), 0, -1):
+            seq_texts = [blocks[i + k][0] for k in range(seq_len)]
+            next_texts = [blocks[i + seq_len + k][0] for k in range(seq_len)]
+            if all(t for t in seq_texts) and seq_texts == next_texts:
+                # Remove the duplicate (second occurrence)
+                for k in range(seq_len):
+                    to_remove.append(blocks[i + seq_len + k][1])
+                i += seq_len * 2  # skip past both original + duplicate
+                matched = True
+                break
+        if not matched:
+            i += 1
+
+    if not to_remove:
+        return html
+    for el in to_remove:
+        el.getparent().remove(el)
+
+    result = etree.tostring(doc, encoding="unicode", method="html")
+    if result.startswith("<div>") and result.endswith("</div>"):
+        result = result[5:-6]
+    return result
+
+
 def _get_feed_content(entry) -> str | None:
     """Extract content from the RSS feed entry itself (fallback)."""
     # Try content field first (often has full HTML)
@@ -1576,6 +1661,10 @@ def _process_article_images(
     new_html = re.sub(
         r"<figure>\s*</figure>", "", new_html, flags=re.IGNORECASE
     )
+
+    # Flatten nested <figure> tags created when _replace_img wraps an <img>
+    # that was already inside a <figure> from the source HTML
+    new_html = _NESTED_FIGURE_RE.sub(r"<figure>\1\2</figure>", new_html)
 
     return new_html, images
 

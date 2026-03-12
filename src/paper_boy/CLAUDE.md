@@ -113,7 +113,7 @@ delivery:
   - HN self-posts (`news.ycombinator.com/item`) use RSS feed content directly
   - `MIN_ARTICLE_WORDS = 150` threshold to detect truncated/paywalled content
   - Inline paywall detection (`_has_paywall_markers`) runs after each strategy's word count check — prevents paywall teasers (e.g. FT's "Subscribe to unlock") from short-circuiting the fallback chain. Runs `strip_junk()` first to avoid Nature-style false positives
-  - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts)
+  - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts, zero-width Unicode chars, self-closing blocks, CMS alt-text figcaptions; converts TEI table tags; flattens nested figures)
   - Falls back to RSS feed content if all strategies fail
 - **Premium title pre-filtering**: `_is_premium_title()` skips entries with known premium prefixes (e.g. `STAT+:`) before extraction. Prevents mixed free/premium feeds (like STAT News) from triggering the consecutive failure abort before free articles are reached.
 - **Performance safeguards** (prevent wasted time on doomed extractions):
@@ -123,6 +123,7 @@ delivery:
 - `_convert_graphics_to_imgs()` normalises TEI XML `<graphic>` tags to `<img>` before the image pipeline runs (trafilatura emits `<graphic>` instead of `<img>` with `output_format="html"`)
 - `_strip_duplicate_title()` removes leading `<h1>`/`<h2>` from extracted HTML when it matches the article title (fuzzy: case-insensitive, punctuation-stripped, containment check) — prevents double headings since `epub.py` adds its own `<h1>` from `Article.title`
 - `_downgrade_body_headings()` converts all remaining `<h1>` to `<h2>` in article body — epub.py owns the `<h1>` via `Article.title`, so body `<h1>` tags would create duplicate top-level headings
+- `_dedup_consecutive_paragraphs()` removes consecutive duplicate `<p>` and heading blocks using lxml DOM comparison — fixes Foreign Policy/Eater paragraph duplication from trafilatura double-extraction
 - **Content filtering pipeline** (`filters.py`): Runs after extraction, before image processing. Five general-purpose filters:
   - `strip_junk(html)` — removes boilerplate `<p>`/`<div>` blocks by matching entire paragraph text against `_JUNK_PATTERN_GROUPS` (organized by category: generic boilerplate, social CTAs, newsletter CTAs, Wired/Space.com/ScienceDaily, Fox News). Adding a pattern = appending one string to the right group.
   - `strip_sciencedaily_metadata(html)` — removes ScienceDaily metadata `<ul>` blocks (Date/Source/Summary/Share fields)
