@@ -128,8 +128,8 @@ delivery:
   - `strip_junk(html)` — removes boilerplate `<p>`/`<div>` blocks by matching entire paragraph text against `_JUNK_PATTERN_GROUPS` (organized by category: generic boilerplate, social CTAs, newsletter CTAs, Wired/Space.com/ScienceDaily, Fox News). Adding a pattern = appending one string to the right group.
   - `strip_sciencedaily_metadata(html)` — removes ScienceDaily metadata `<ul>` blocks (Date/Source/Summary/Share fields)
   - `strip_bbc_related(html)` — removes BBC "Related topics" trailing sections
-  - `strip_section_junk(html)` — removes multi-element junk sections (heading + list/content). Uses lxml for DOM-aware stripping. Rules in `_SECTION_JUNK_RULES` list (currently empty — populated by audit batches).
-  - `strip_trailing_junk(html)` — removes trailing metadata (wire bylines, editorial credits). Uses lxml. Rules in `_TRAILING_JUNK_RULES` list (currently empty — populated by audit batches).
+  - `strip_section_junk(html)` — removes multi-element junk sections (heading + list/content). Uses lxml for DOM-aware stripping. Rules in `_SECTION_JUNK_RULES` list (7 rules: Read this next, Recommended Stories, Contact Us/Got a Tip?, Sign up to, Support Our Work/Donate, Subscribe to Kiplinger, What we're reading).
+  - `strip_trailing_junk(html)` — removes trailing metadata (wire bylines, editorial credits). Uses lxml. Rules in `_TRAILING_JUNK_RULES` list (3 rules: Got a tip?, BBC trailing email, AP section links).
   - `detect_paywall(html, url)` — detects paywall phrases (subscribe to read, log in to continue, etc.) and short-URL truncation indicators (prosyn.org, bit.ly — Project Syndicate pattern)
   - `check_quality(html)` — rejects articles < 200 words post-cleaning (`MIN_CLEAN_WORDS`), and correction-only notices < 100 words
   - Order matters: `strip_junk` → `strip_sciencedaily_metadata` → `strip_bbc_related` → `strip_section_junk` → `strip_trailing_junk` → `detect_paywall` → `check_quality`

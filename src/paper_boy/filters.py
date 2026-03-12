@@ -193,7 +193,22 @@ def strip_bbc_related(html: str) -> str:
 # scope: "to_end" = remove heading + all siblings after
 #        "to_next_heading" = remove heading + siblings until next h2/h3/h4
 # Populated by future batches — empty list means no-op.
-_SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = []
+_SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = [
+    # Rock Paper Shotgun "Read this next" + article list
+    (re.compile(r"^Read this next$", re.IGNORECASE), "to_end"),
+    # Al Jazeera "Recommended Stories" + article list
+    (re.compile(r"^Recommended Stories$", re.IGNORECASE), "to_end"),
+    # TechCrunch / Wired "Contact Us" / "Got a Tip?" sections
+    (re.compile(r"^(?:Contact Us|Got a Tip\??)$", re.IGNORECASE), "to_next_heading"),
+    # New Scientist newsletter signup blocks (h4 "Sign up to [Name]")
+    (re.compile(r"^Sign up to\b", re.IGNORECASE), "to_next_heading"),
+    # Inside Climate News donation block — anchored to ICN-specific phrasing
+    (re.compile(r"^(?:Support Our (?:Work|Mission|Reporting)|Donate to\b)", re.IGNORECASE), "to_next_heading"),
+    # Kiplinger subscription CTA sections
+    (re.compile(r"^(?:Subscribe|Join)\s+(?:to|for)\s+Kiplinger", re.IGNORECASE), "to_next_heading"),
+    # STAT "What we're reading" trailing list
+    (re.compile(r"^What we(?:'re|.re) reading$", re.IGNORECASE), "to_end"),
+]
 
 
 def strip_section_junk(html: str) -> str:
@@ -252,7 +267,17 @@ def strip_section_junk(html: str) -> str:
 
 # Patterns matching text of trailing elements; strips from match to end.
 # Populated by future batches — empty list means no-op.
-_TRAILING_JUNK_RULES: list[re.Pattern] = []
+_TRAILING_JUNK_RULES: list[re.Pattern] = [
+    # The Drive tip-line: "Got a tip? tips@thedrive.com"
+    re.compile(r"^Got a tip\??", re.IGNORECASE),
+    # BBC trailing email solicitation (multi-sentence)
+    re.compile(
+        r"^If you have information about this story",
+        re.IGNORECASE,
+    ),
+    # AP News section link after separator
+    re.compile(r"^AP\s+\w+:", re.IGNORECASE),
+]
 
 
 def strip_trailing_junk(html: str) -> str:

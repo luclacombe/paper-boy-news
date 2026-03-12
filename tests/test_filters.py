@@ -218,37 +218,127 @@ class TestStripBbcRelated:
 
 
 class TestStripSectionJunk:
-    def test_passthrough_with_empty_rules(self):
-        """With no rules configured, input passes through unchanged."""
-        html = "<p>Content.</p><h2>Some Heading</h2><ul><li>item</li></ul>"
+    def test_removes_read_this_next_section(self):
+        html = (
+            "<p>Article content.</p>"
+            "<h2>Read this next</h2>"
+            "<ul><li>Related article 1</li><li>Related article 2</li></ul>"
+        )
         result = strip_section_junk(html)
-        assert result == html
+        assert "Article content" in result
+        assert "Read this next" not in result
+        assert "Related article" not in result
 
-    def test_passthrough_preserves_all_content(self):
-        html = "<p>First.</p><p>Second.</p><h3>Third</h3><p>Fourth.</p>"
+    def test_removes_recommended_stories(self):
+        html = (
+            "<p>Article content.</p>"
+            "<h2>Recommended Stories</h2>"
+            "<ul><li>Story 1</li></ul>"
+            "<p>More junk.</p>"
+        )
         result = strip_section_junk(html)
-        assert "First" in result
-        assert "Second" in result
-        assert "Third" in result
-        assert "Fourth" in result
+        assert "Article content" in result
+        assert "Recommended Stories" not in result
+
+    def test_removes_contact_us_to_next_heading(self):
+        html = (
+            "<p>Content.</p>"
+            "<h4>Contact Us</h4>"
+            "<p>You can reach us at tips@example.com or on Signal.</p>"
+            "<h2>Related Stories</h2>"
+            "<p>More content here.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Content." in result
+        assert "Contact Us" not in result
+        assert "Signal" not in result
+        assert "Related Stories" in result
+        assert "More content here" in result
+
+    def test_removes_got_a_tip_section(self):
+        html = (
+            "<p>Article text.</p>"
+            "<h4>Got a Tip?</h4>"
+            "<p>Send tips to tips@wired.com</p>"
+            "<h3>Next Section</h3>"
+            "<p>More article.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Article text" in result
+        assert "Got a Tip" not in result
+        assert "Next Section" in result
+
+    def test_removes_newsletter_signup_block(self):
+        """New Scientist pattern: h4 Sign up to [Name] + description."""
+        html = (
+            "<p>Science content.</p>"
+            "<h4>Sign up to Our Human Story</h4>"
+            "<p>Get the latest discoveries about human evolution.</p>"
+            "<figure><figcaption>New Scientist</figcaption></figure>"
+            "<h3>Next heading</h3>"
+            "<p>More science.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Science content" in result
+        assert "Sign up to" not in result
+        assert "Next heading" in result
+
+    def test_preserves_content_with_no_matching_headings(self):
+        html = "<p>Content.</p><h2>Analysis</h2><p>More content.</p>"
+        result = strip_section_junk(html)
+        assert "Analysis" in result
+        assert "More content" in result
+
+    def test_removes_what_were_reading(self):
+        html = (
+            "<p>Newsletter content.</p>"
+            "<h2>What we're reading</h2>"
+            "<ul><li>Link 1</li><li>Link 2</li></ul>"
+        )
+        result = strip_section_junk(html)
+        assert "Newsletter content" in result
+        assert "What we" not in result
+        assert "Link 1" not in result
 
 
 # --- strip_trailing_junk (stub — no-op with empty rules) ---
 
 
 class TestStripTrailingJunk:
-    def test_passthrough_with_empty_rules(self):
-        """With no rules configured, input passes through unchanged."""
-        html = "<p>Content.</p><p>Trailing text.</p>"
+    def test_preserves_reuters_byline_credit(self):
+        """Reuters wire bylines are legitimate journalist credits — must be kept."""
+        html = (
+            "<p>Article content here.</p>"
+            "<p>Final paragraph of story.</p>"
+            "<small>Reporting by John Smith; editing by Jane Doe</small>"
+        )
         result = strip_trailing_junk(html)
-        assert result == html
+        assert "Reporting by" in result
 
-    def test_passthrough_preserves_all_content(self):
+    def test_removes_got_a_tip_trailing(self):
+        html = (
+            "<p>Article text.</p>"
+            "<p>Got a tip? tips@thedrive.com</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Article text" in result
+        assert "Got a tip" not in result
+
+    def test_preserves_content_with_no_trailing_junk(self):
         html = "<p>First.</p><p>Second.</p><p>Third.</p>"
         result = strip_trailing_junk(html)
         assert "First" in result
         assert "Second" in result
         assert "Third" in result
+
+    def test_removes_ap_section_link(self):
+        html = (
+            "<p>Story conclusion.</p>"
+            "<p>AP Sports: https://apnews.com/sports</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Story conclusion" in result
+        assert "AP Sports" not in result
 
 
 # --- detect_paywall ---
