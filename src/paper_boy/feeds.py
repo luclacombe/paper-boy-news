@@ -45,6 +45,23 @@ logger = logging.getLogger(__name__)
 # Abort a feed after this many consecutive extraction failures
 _MAX_CONSECUTIVE_FAILURES = 3
 
+# Per-feed-domain overrides for consecutive failure threshold.
+# HN links to random external domains — failures are expected and don't
+# indicate a broken feed, so we tolerate more before aborting.
+_CONSECUTIVE_FAILURE_OVERRIDES: dict[str, int] = {
+    "hnrss.org": 10,
+}
+
+# Domains where early strategies always fail — skip directly to the strategy
+# that works. Avoids wasting time on doomed attempts.
+# Values: 2 = start at S1.5 (skip S1), 3 = start at S2 (skip S1 + S1.5)
+_DOMAIN_STRATEGY_HINTS: dict[str, int] = {
+    # Nature: S1 always fails (idp redirect loop), S1.5 browser UA works
+    "nature.com": 2,  # Start at S1.5
+    # FT: S1/S1.5 always hit paywall, S2 (bot UA) works for all articles
+    "ft.com": 3,  # Start at S2 — saves 40 wasted requests/build
+}
+
 # Domain-level extraction failure tracking.
 # After _DOMAIN_FAILURE_THRESHOLD failures on strategy 1 (trafilatura),
 # skip strategies 1.5–4 for all subsequent articles from that domain.
@@ -190,8 +207,37 @@ _SKIP_URL_SEGMENTS = ("/video/", "/program/", "/podcasts/", "/live/")
 _PREMIUM_TITLE_PREFIXES = ("STAT+:",)
 
 
+_SKIP_TITLE_PATTERNS = [
+    re.compile(r"\bcorrection\b", re.IGNORECASE),  # Nature corrections
+    re.compile(r"\berrat(?:um|a)\b", re.IGNORECASE),  # Nature errata
+    re.compile(r"\bgreen\s+deals?\s*:", re.IGNORECASE),  # Electrek affiliate roundups
+]
+
+
+def _should_skip_title(title: str) -> bool:
+    """Skip entries with titles indicating non-journalism content."""
+    return any(p.search(title) for p in _SKIP_TITLE_PATTERNS)
+
+
+_SKIP_URL_PATTERNS = [
+    re.compile(r"nature\.com/articles/s\d+"),  # Nature research papers (s41586-*)
+    re.compile(r"projects\.propublica\.org"),  # ProPublica interactive tools
+]
+
+
+def _should_skip_url(url: str) -> bool:
+    """Skip URLs matching known non-article patterns."""
+    return any(p.search(url) for p in _SKIP_URL_PATTERNS)
+
+
+MAX_ARTICLE_WORDS = 10000
+
+
 def _is_premium_title(title: str) -> bool:
     """Check if a title indicates premium/subscriber-only content."""
+    # Check for STAT+ anywhere in title (not just prefix — catches "Opinion: STAT+: ...")
+    if "STAT+" in title.upper():
+        return True
     return any(title.startswith(prefix) for prefix in _PREMIUM_TITLE_PREFIXES)
 
 # Stock photo / internal alt text patterns (should be cleared to "")
@@ -296,10 +342,11 @@ class Section:
 def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Section]:
     """Fetch all configured feeds and extract article content."""
     _reset_domain_failures()
+    seen_urls: set[str] = set()  # Cross-feed URL dedup
     sections = []
     for feed_cfg in config.feeds:
         try:
-            section = _fetch_single_feed(feed_cfg, config, cache=cache)
+            section = _fetch_single_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
         except Exception:
             logger.exception("Unexpected error fetching %s — skipping", feed_cfg.name)
             continue
@@ -368,16 +415,17 @@ _FETCH_CAP_PER_FEED = 20  # safety net — actual trimming done by apply_article
 
 
 def _fetch_single_feed(
-    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
 ) -> Section:
     """Fetch a single RSS feed and extract articles."""
     # Bloomberg and Reuters use mobile APIs instead of RSS
     if "bloomberg.com" in urlparse(feed_cfg.url).netloc:
-        return _fetch_bloomberg_feed(feed_cfg, config, cache=cache)
+        return _fetch_bloomberg_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
     if "reuters.com" in urlparse(feed_cfg.url).netloc:
-        return _fetch_reuters_feed(feed_cfg, config, cache=cache)
+        return _fetch_reuters_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
     if "scientificamerican.com" in urlparse(feed_cfg.url).netloc:
-        return _fetch_sciam_feed(feed_cfg, config, cache=cache)
+        return _fetch_sciam_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
 
     section = Section(name=feed_cfg.name, category=feed_cfg.category)
 
@@ -414,6 +462,12 @@ def _fetch_single_feed(
 
         entries = feed.entries[: _FETCH_CAP_PER_FEED]
 
+    # Look up per-feed consecutive failure threshold override
+    feed_domain = urlparse(feed_cfg.url).netloc
+    max_failures = _CONSECUTIVE_FAILURE_OVERRIDES.get(
+        feed_domain, _MAX_CONSECUTIVE_FAILURES
+    )
+
     consecutive_failures = 0
     for entry in entries:
         # Skip entries explicitly marked as premium/subscriber-only by title
@@ -421,13 +475,13 @@ def _fetch_single_feed(
         if _is_premium_title(entry_title):
             logger.debug("Skipping premium entry: %s", entry_title)
             continue
-        article = _extract_article(entry, config, cache=cache)
+        article = _extract_article(entry, config, cache=cache, seen_urls=seen_urls)
         if article:
             section.articles.append(article)
             consecutive_failures = 0
         else:
             consecutive_failures += 1
-            if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+            if consecutive_failures >= max_failures:
                 logger.info(
                     "Aborting %s after %d consecutive extraction failures",
                     feed_cfg.name,
@@ -439,13 +493,31 @@ def _fetch_single_feed(
 
 
 def _extract_article(
-    entry, config: Config, cache: ContentCache | None = None
+    entry, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
 ) -> Article | None:
     """Extract full article content from a feed entry."""
     url = entry.get("link", "")
     title = entry.get("title", "Untitled")
 
     if not url or not is_safe_url(url):
+        return None
+
+    # Cross-feed URL deduplication
+    if seen_urls is not None:
+        if url in seen_urls:
+            logger.debug("Skipping duplicate URL: %s", url)
+            return None
+        seen_urls.add(url)
+
+    # Skip non-article URL patterns (Nature papers, ProPublica tools)
+    if _should_skip_url(url):
+        logger.debug("Skipping non-article URL pattern: %s", url)
+        return None
+
+    # Skip non-journalism titles (corrections, errata, affiliate roundups)
+    if _should_skip_title(title):
+        logger.debug("Skipping non-journalism title: %s", title)
         return None
 
     # Skip non-article pages (video, podcasts, live streams, PDFs, YouTube)
@@ -523,6 +595,12 @@ def _extract_article(
         return None
     if check_quality(html_content):
         logger.debug("Quality check failed, skipping: %s", title)
+        return None
+
+    # Reject oversized articles (database/tracker pages)
+    word_count = _count_words(html_content)
+    if word_count > MAX_ARTICLE_WORDS:
+        logger.debug("Rejecting oversized article (%d words): %s", word_count, title)
         return None
 
     # Process images: download, optimize, rewrite HTML
@@ -610,8 +688,16 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     if "project-syndicate.org" in domain:
         return _extract_via_archive(url, include_images)
 
-    # Strategy 1: Standard trafilatura extraction
-    result = _trafilatura_extract(url, include_images)
+    # Check domain strategy hints — skip S1 for domains where it always fails
+    hint_start = 0
+    for hint_domain, hint_level in _DOMAIN_STRATEGY_HINTS.items():
+        if hint_domain in domain:
+            hint_start = hint_level
+            logger.debug("Domain hint: skipping to strategy level %d for %s", hint_level, url)
+            break
+
+    # Strategy 1: Standard trafilatura extraction (hint_start=2 → skip to S1.5)
+    result = None if hint_start >= 2 else _trafilatura_extract(url, include_images)
     if result and _count_words(result) >= MIN_ARTICLE_WORDS:
         if not _has_paywall_markers(result, url):
             # Paginated articles: fetch continuation pages (e.g. Ars Technica)
@@ -627,14 +713,15 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
 
     # Strategy 1.5: Re-fetch with browser UA (bypasses interstitials like
     # Nature's idp.nature.com cookie-setting redirect chain)
-    browser_page = _fetch_page(url, _BROWSER_USER_AGENT)
-    if browser_page:
-        browser_result = _trafilatura_extract_from_html(browser_page, include_images)
-        if browser_result and _count_words(browser_result) >= MIN_ARTICLE_WORDS:
-            if not _has_paywall_markers(browser_result, url):
-                logger.debug("Extraction strategy 'browser_ua' succeeded for %s", url)
-                return _normalize_html(browser_result)
-            logger.debug("Paywall detected in S1.5 result, trying fallbacks: %s", url)
+    if hint_start < 3:
+        browser_page = _fetch_page(url, _BROWSER_USER_AGENT)
+        if browser_page:
+            browser_result = _trafilatura_extract_from_html(browser_page, include_images)
+            if browser_result and _count_words(browser_result) >= MIN_ARTICLE_WORDS:
+                if not _has_paywall_markers(browser_result, url):
+                    logger.debug("Extraction strategy 'browser_ua' succeeded for %s", url)
+                    return _normalize_html(browser_result)
+                logger.debug("Paywall detected in S1.5 result, trying fallbacks: %s", url)
 
     # Strategies 1 and 1.5 both failed — record domain failure for adaptive
     # skipping of the more expensive strategies 2-4.  Recording here (after
@@ -786,7 +873,8 @@ def _resolve_bloomberg_section(section_name: str) -> str | None:
 
 
 def _fetch_bloomberg_feed(
-    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
 ) -> Section:
     """Fetch articles from Bloomberg via the mobile app API.
 
@@ -822,6 +910,13 @@ def _fetch_bloomberg_feed(
 
         # Build a canonical URL for cache keying and display
         long_url = story.get("longURL", f"https://www.bloomberg.com/news/articles/{story_id}")
+
+        # Cross-feed URL dedup
+        if seen_urls is not None:
+            if long_url in seen_urls:
+                logger.debug("Skipping duplicate URL: %s", long_url)
+                continue
+            seen_urls.add(long_url)
 
         # Check cache
         byline = story.get("byline")
@@ -965,7 +1060,8 @@ def _fetch_reuters_api(path: str) -> dict | list | None:
 
 
 def _fetch_reuters_feed(
-    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
 ) -> Section:
     """Fetch articles from Reuters via the mobile app API.
 
@@ -995,14 +1091,21 @@ def _fetch_reuters_feed(
             for story in item.get("data", {}).get("stories", []):
                 stories.append(story)
 
-    seen_urls: set[str] = set()
+    local_seen: set[str] = set()
     for story in stories[:_FETCH_CAP_PER_FEED]:
         story_url = story.get("url", "")
-        if not story_url or story_url in seen_urls:
+        if not story_url or story_url in local_seen:
             continue
-        seen_urls.add(story_url)
+        local_seen.add(story_url)
 
         full_url = _REUTERS_BASE + story_url
+
+        # Cross-feed URL dedup
+        if seen_urls is not None:
+            if full_url in seen_urls:
+                logger.debug("Skipping duplicate URL: %s", full_url)
+                continue
+            seen_urls.add(full_url)
 
         # Check cache
         include_images = config.newspaper.include_images
@@ -1116,7 +1219,8 @@ def _extract_reuters_article(story_path: str, include_images: bool) -> str | Non
 
 
 def _fetch_sciam_feed(
-    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
 ) -> Section:
     """Fetch articles from Scientific American's latest magazine issue.
 
@@ -1157,7 +1261,7 @@ def _fetch_sciam_feed(
             "published": meta.get("date_published"),
         }
 
-        article = _extract_article(entry, config, cache=cache)
+        article = _extract_article(entry, config, cache=cache, seen_urls=seen_urls)
         if article:
             section.articles.append(article)
             consecutive_failures = 0

@@ -333,6 +333,8 @@ _PAYWALL_PHRASES = re.compile(
     r"|this\s+content\s+is\s+available\s+to\s+subscribers"
     r"|register\s+for\s+free"
     r"|create\s+a\s+free\s+account\s+to\s+continue"
+    r"|this\s+is\s+a\s+preview\s+of\s+subscription\s+content"
+    r"|exclusive\s+to\s+\w+\+?\s+subscribers"
     r")",
     re.IGNORECASE,
 )

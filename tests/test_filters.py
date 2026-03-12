@@ -391,6 +391,14 @@ class TestDetectPaywall:
         )
         assert detect_paywall(html) is False
 
+    def test_nature_subscription_preview(self):
+        html = "<p>Abstract text.</p><p>This is a preview of subscription content, access via your institution.</p>"
+        assert detect_paywall(html) is True
+
+    def test_stat_plus_exclusive(self):
+        html = "<p>Teaser.</p><p>This article is exclusive to STAT+ subscribers.</p>"
+        assert detect_paywall(html) is True
+
     def test_clean_article(self):
         html = "<p>This is a normal article about technology and science.</p>"
         assert detect_paywall(html) is False

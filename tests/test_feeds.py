@@ -10,6 +10,8 @@ import pytest
 from paper_boy.cache import ContentCache
 from paper_boy import feeds
 from paper_boy.feeds import (
+    _CONSECUTIVE_FAILURE_OVERRIDES,
+    _DOMAIN_STRATEGY_HINTS,
     _MAX_CONSECUTIVE_FAILURES,
     Article,
     _count_words,
@@ -30,6 +32,9 @@ from paper_boy.feeds import (
     _fetch_single_feed,
     _get_feed_content,
     _is_premium_title,
+    _should_skip_title,
+    _should_skip_url,
+    MAX_ARTICLE_WORDS,
     _normalize_html,
     _record_domain_failure,
     _reset_domain_failures,
@@ -91,7 +96,7 @@ class TestFetchFeeds:
         self, mock_parse, mock_fetch_url, mock_extract, local_config
     ):
         """fetch_feeds returns a list of non-empty Section objects."""
-        entries = [_make_feed_entry(title=f"Art {i}") for i in range(3)]
+        entries = [_make_feed_entry(title=f"Art {i}", link=f"https://example.com/article/{i}") for i in range(3)]
         mock_parse.return_value = _make_parsed_feed(entries=entries)
 
         sections = fetch_feeds(local_config)
@@ -124,7 +129,17 @@ class TestFetchFeeds:
                 FeedConfig(name="Feed B", url="https://b.com/rss"),
             ]
         )
-        mock_parse.return_value = _make_parsed_feed(entries=[_make_feed_entry()])
+        # Use different URLs per feed to avoid cross-feed dedup
+        call_count = [0]
+        orig_parse = mock_parse.side_effect
+
+        def _parse_feed(url):
+            call_count[0] += 1
+            return _make_parsed_feed(entries=[
+                _make_feed_entry(link=f"https://example.com/article/feed{call_count[0]}")
+            ])
+
+        mock_parse.side_effect = _parse_feed
 
         sections = fetch_feeds(config)
         assert len(sections) == 2
@@ -570,7 +585,7 @@ class TestExtractArticleContent:
         ]
         mock_traf_html.side_effect = [paywall_teaser, full_article]
 
-        result = _extract_article_content("https://www.ft.com/content/abc123", True)
+        result = _extract_article_content("https://www.paywalled-news.com/content/abc123", True)
         assert result is not None
         assert "article" in result
         assert "Subscribe to unlock" not in result
@@ -1376,6 +1391,12 @@ class TestPremiumTitleSkipping:
     def test_regular_title_not_detected(self):
         assert _is_premium_title("Fresh turmoil at the FDA") is False
 
+    def test_stat_plus_in_middle_of_title(self):
+        assert _is_premium_title("Opinion: STAT+: The Himsification") is True
+
+    def test_stat_plus_case_insensitive(self):
+        assert _is_premium_title("stat+: some title") is True
+
     def test_empty_title(self):
         assert _is_premium_title("") is False
 
@@ -1478,6 +1499,99 @@ class TestConsecutiveFailureAbort:
             # All 8 entries should be attempted (never hit 3 consecutive)
             assert mock_extract.call_count == 8
 
+    def test_hn_uses_higher_threshold(self, make_config):
+        """Hacker News feeds should tolerate more consecutive failures."""
+        entries = [
+            _make_feed_entry(
+                title=f"Article {i}",
+                link=f"https://broken-{i}.example.com/post",
+            )
+            for i in range(5)
+        ]
+        feed_cfg = MagicMock()
+        feed_cfg.name = "Hacker News"
+        feed_cfg.url = "https://hnrss.org/frontpage"
+        feed_cfg.category = "Technology"
+        config = make_config()
+
+        with (
+            patch("paper_boy.feeds.feedparser.parse") as mock_parse,
+            patch("paper_boy.feeds._extract_article") as mock_extract,
+            patch("paper_boy.feeds.is_safe_url", return_value=True),
+        ):
+            mock_parse.return_value = _make_parsed_feed(entries=entries)
+            # All extractions fail
+            mock_extract.return_value = None
+
+            section = _fetch_single_feed(feed_cfg, config)
+
+            # With default threshold (3), only 3 entries would be attempted.
+            # With HN override (10), all 5 should be attempted.
+            assert mock_extract.call_count == 5
+
+
+# --- Domain strategy hints ---
+
+
+class TestDomainStrategyHints:
+    """Test domain-level strategy hint optimization."""
+
+    def setup_method(self):
+        _reset_domain_failures()
+
+    def test_nature_skips_s1(self):
+        """Nature should skip S1 (trafilatura) and start at S1.5 (browser UA)."""
+        with (
+            patch("paper_boy.feeds._trafilatura_extract") as mock_traf,
+            patch("paper_boy.feeds._fetch_page") as mock_fetch,
+            patch("paper_boy.feeds._trafilatura_extract_from_html") as mock_traf_html,
+        ):
+            mock_traf_html.return_value = _LONG_CONTENT
+            mock_fetch.return_value = "<html><body>" + _LONG_CONTENT + "</body></html>"
+
+            result = _extract_article_content(
+                "https://www.nature.com/articles/d41586-025-00789-1", True
+            )
+
+            # S1 (trafilatura.extract via _trafilatura_extract) should NOT be called
+            mock_traf.assert_not_called()
+            # S1.5 (browser UA fetch) should have been called
+            assert mock_fetch.called
+            assert result is not None
+
+    def test_ft_skips_s1_and_s1_5(self):
+        """FT should skip S1 and S1.5, start at S2 (bot UA)."""
+        with (
+            patch("paper_boy.feeds._trafilatura_extract") as mock_traf,
+            patch("paper_boy.feeds._fetch_page") as mock_fetch,
+            patch("paper_boy.feeds._trafilatura_extract_from_html") as mock_traf_html,
+        ):
+            # S2 bot UA fetch returns content
+            mock_fetch.return_value = "<html><body>" + _LONG_CONTENT + "</body></html>"
+            mock_traf_html.return_value = _LONG_CONTENT
+
+            result = _extract_article_content(
+                "https://www.ft.com/content/some-article", True
+            )
+
+            # S1 should NOT be called
+            mock_traf.assert_not_called()
+            # _fetch_page should be called only once (S2 bot UA), not twice (S1.5 + S2)
+            assert mock_fetch.call_count == 1
+            assert result is not None
+
+    def test_unknown_domain_uses_default_chain(self):
+        """Domains not in hints use the full fallback chain starting from S1."""
+        with patch(
+            "paper_boy.feeds._trafilatura_extract", return_value=_LONG_CONTENT
+        ) as mock_traf:
+            result = _extract_article_content(
+                "https://www.example.com/article", True
+            )
+            # trafilatura extract should be called (S1 attempted)
+            assert mock_traf.called
+            assert result is not None
+
 
 # --- Domain failure tracking ---
 
@@ -1551,7 +1665,7 @@ class TestDomainFailureTracking:
         """Paywall teasers (enough words but paywall detected) should NOT
         trigger domain failure tracking.
 
-        FT pattern: S1 returns ~170 words of paywall text. This is NOT an
+        Pattern: S1 returns ~170 words of paywall text. This is NOT an
         extraction failure — the site is accessible, it just needs a different
         UA (bot/outbrain). Recording this as a domain failure would block S2,
         which is exactly the strategy that works.
@@ -1563,7 +1677,7 @@ class TestDomainFailureTracking:
         full_article = "<p>" + " ".join(["content"] * 500) + "</p>"
 
         for i in range(3):
-            url = f"https://www.ft.com/content/article-{i}"
+            url = f"https://www.paywalled-news.com/content/article-{i}"
             with (
                 patch("paper_boy.feeds._trafilatura_extract", return_value=paywall_html),
                 patch("paper_boy.feeds._fetch_page", side_effect=[
@@ -1580,4 +1694,96 @@ class TestDomainFailureTracking:
                 assert "content" in result
 
         # After 3 paywall-teaser articles, domain should NOT be blocked
-        assert not _domain_is_blocked("https://www.ft.com/content/article-4")
+        assert not _domain_is_blocked("https://www.paywalled-news.com/content/article-4")
+
+
+# --- Cross-feed URL deduplication ---
+
+
+class TestCrossFeedDedup:
+    def test_skips_duplicate_url_across_feeds(self, make_config):
+        seen_urls = {"https://example.com/article/1"}
+        entry = _make_feed_entry(link="https://example.com/article/1")
+        config = make_config()
+        with patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT):
+            result = _extract_article(entry, config, seen_urls=seen_urls)
+        assert result is None
+
+    def test_allows_new_url(self, make_config):
+        seen_urls: set[str] = set()
+        entry = _make_feed_entry(link="https://example.com/article/new")
+        config = make_config()
+        with patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT):
+            result = _extract_article(entry, config, seen_urls=seen_urls)
+        assert result is not None
+        assert "https://example.com/article/new" in seen_urls
+
+    def test_without_seen_urls_no_dedup(self, make_config):
+        entry = _make_feed_entry(link="https://example.com/article/1")
+        config = make_config()
+        with patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT):
+            result = _extract_article(entry, config, seen_urls=None)
+        assert result is not None
+
+
+# --- Title filtering ---
+
+
+class TestTitleFiltering:
+    @pytest.mark.parametrize("title", [
+        "Author Correction: Gut stem cell necroptosis",
+        "Erratum: Solar cell efficiency measurement",
+        "Green Deals: Best solar panel discounts this week",
+    ])
+    def test_skips_non_journalism_titles(self, title):
+        assert _should_skip_title(title) is True
+
+    @pytest.mark.parametrize("title", [
+        "Scientists Discover New Species in Deep Ocean",
+        "The Green New Deal Explained",
+        "How to Track Your Fitness Goals",
+        "EU Green Deal Faces New Opposition",
+        "The Vogue Business People Moves Tracker",
+        "COVID Tracker Shows Declining Cases",
+    ])
+    def test_allows_journalism_titles(self, title):
+        assert _should_skip_title(title) is False
+
+
+# --- URL filtering ---
+
+
+class TestUrlFiltering:
+    @pytest.mark.parametrize("url", [
+        "https://www.nature.com/articles/s41586-025-08923-z",
+        "https://projects.propublica.org/climate-migration",
+    ])
+    def test_skips_non_article_urls(self, url):
+        assert _should_skip_url(url) is True
+
+    @pytest.mark.parametrize("url", [
+        "https://www.nature.com/articles/d41586-025-00789-1",
+        "https://www.propublica.org/article/some-investigation",
+    ])
+    def test_allows_article_urls(self, url):
+        assert _should_skip_url(url) is False
+
+
+# --- Word count cap ---
+
+
+class TestWordCountCap:
+    def test_rejects_oversized_article(self, make_config):
+        huge_content = "<p>" + " ".join(["word"] * 15000) + "</p>"
+        entry = _make_feed_entry()
+        config = make_config()
+        with patch("paper_boy.feeds._extract_article_content", return_value=huge_content):
+            result = _extract_article(entry, config)
+        assert result is None
+
+    def test_allows_normal_article(self, make_config):
+        entry = _make_feed_entry()
+        config = make_config()
+        with patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT):
+            result = _extract_article(entry, config)
+        assert result is not None
