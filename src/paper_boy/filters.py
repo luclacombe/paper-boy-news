@@ -1,7 +1,9 @@
 """Post-extraction content filters for article quality control.
 
-Three general-purpose filters that operate on extracted HTML:
+Five general-purpose filters that operate on extracted HTML:
 - strip_junk(): removes boilerplate paragraphs (ads, social, newsletters)
+- strip_section_junk(): removes multi-element junk sections (heading + list/content)
+- strip_trailing_junk(): removes trailing metadata (wire bylines, editorial credits)
 - detect_paywall(): detects paywalled/truncated articles
 - check_quality(): enforces minimum quality standards
 """
@@ -12,42 +14,56 @@ import re
 
 # --- Junk stripping ---
 
-# Patterns that match entire paragraph content (case-insensitive).
-# Each pattern is anchored to match the full stripped text of a <p>/<div>.
+# Grouped junk patterns — each group has a category comment.
+# Adding a new pattern = appending one string to the right group.
+# The compiled regex is built automatically at import time.
+_JUNK_PATTERN_GROUPS: list[list[str]] = [
+    # --- Generic boilerplate ---
+    [
+        r"advertisement",
+        r"share\s+this\s+article",
+        r"share\s+on\s+\w+",
+        r"related\s+articles?",
+        r"read\s+more\s*:",
+        r"more\s+from\b.*",
+        r"you\s+may\s+also\s+be\s+interested\s+in",
+    ],
+    # --- Social / follow CTAs ---
+    [
+        r"follow\s+us\s+on\s+\w+.*",
+        r"go\s+to\s+bbc\w*\.com\s+for\s+more\b.*",
+    ],
+    # --- Newsletter / subscription CTAs ---
+    [
+        r"sign\s+up\s+(for|to)\b.*",
+        r"subscribe\s+to\s+our\s+newsletter",
+        r"you\s+are\s+now\s+subscribed",
+        r"your\s+newsletter\s+sign.up\s+was\s+successful",
+        r"want\s+to\s+add\s+more\s+newsletters\??",
+        r"enjoying\s+our\s+latest\s+content\b.*",
+        r"access\s+the\s+most\s+recent\s+journalism\b.*",
+        r"explore\s+the\s+latest\s+features\b.*",
+        r"thank\s+you\s+for\s+visiting\s+nature\.com\b.*",
+    ],
+    # --- Wired / Space.com / ScienceDaily ---
+    [
+        r"power\s+up\s+with\s+unlimited\s+access\b.*",
+        r"breaking\s+space\s+news\b.*",
+        r"story\s+source:",
+        r"cite\s+this\s+page:",
+    ],
+    # --- Fox News CTAs ---
+    [
+        r"click\s+here\s+to\s+(?:download|sign\s+up|get)\b.*",
+        r"click\s+here\s+for\s+more\b.*",
+        r"like\s+what\s+you(?:'re|.re)\s+reading\??\s*click\s+here\b.*",
+        r"follow\s+fox\s+news\b.*",
+    ],
+]
+
+# Compile once at import time — same regex as before, just organized
 _JUNK_PATTERNS = re.compile(
-    r"^("
-    r"advertisement"
-    r"|follow\s+us\s+on\s+\w+.*"
-    r"|go\s+to\s+bbc\w*\.com\s+for\s+more\b.*"
-    r"|share\s+this\s+article"
-    r"|share\s+on\s+\w+"
-    r"|sign\s+up\s+(for|to)\b.*"
-    r"|subscribe\s+to\s+our\s+newsletter"
-    r"|related\s+articles?"
-    r"|you\s+may\s+also\s+be\s+interested\s+in"
-    r"|more\s+from\b.*"
-    r"|read\s+more\s*:"
-    r"|enjoying\s+our\s+latest\s+content\b.*"
-    r"|access\s+the\s+most\s+recent\s+journalism\b.*"
-    r"|explore\s+the\s+latest\s+features\b.*"
-    r"|thank\s+you\s+for\s+visiting\s+nature\.com\b.*"
-    # Wired subscription CTA
-    r"|power\s+up\s+with\s+unlimited\s+access\b.*"
-    # Space.com newsletter boilerplate
-    r"|breaking\s+space\s+news\b.*"
-    r"|you\s+are\s+now\s+subscribed"
-    r"|your\s+newsletter\s+sign.up\s+was\s+successful"
-    r"|want\s+to\s+add\s+more\s+newsletters\??"
-    # ScienceDaily inline labels (caught as <p> blocks)
-    r"|story\s+source:"
-    r"|cite\s+this\s+page:"
-    # Fox News all-caps CTAs
-    r"|click\s+here\s+to\s+(?:download|sign\s+up|get)\b.*"
-    r"|click\s+here\s+for\s+more\b.*"
-    r"|like\s+what\s+you(?:'re|.re)\s+reading\??\s*click\s+here\b.*"
-    # Fox News sports/follow CTAs
-    r"|follow\s+fox\s+news\b.*"
-    r")$",
+    r"^(" + "|".join(p for group in _JUNK_PATTERN_GROUPS for p in group) + r")$",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -114,6 +130,112 @@ _BBC_RELATED_RE = re.compile(
 def strip_bbc_related(html: str) -> str:
     """Remove BBC 'Related topics' trailing sections."""
     return _BBC_RELATED_RE.sub("", html)
+
+
+# --- Structural junk stripping (multi-element) ---
+
+# Rules: (heading_text_pattern, scope)
+# scope: "to_end" = remove heading + all siblings after
+#        "to_next_heading" = remove heading + siblings until next h2/h3/h4
+# Populated by future batches — empty list means no-op.
+_SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = []
+
+
+def strip_section_junk(html: str) -> str:
+    """Remove multi-element junk sections identified by heading text.
+
+    Handles patterns that strip_junk() can't: heading + list,
+    heading + multiple paragraphs, etc. Uses lxml for DOM-aware stripping.
+
+    Returns html unchanged when _SECTION_JUNK_RULES is empty.
+    """
+    if not _SECTION_JUNK_RULES:
+        return html
+
+    from lxml import html as lxml_html  # lxml is installed via trafilatura
+
+    doc = lxml_html.fragment_fromstring(html, create_parent="div")
+    for pattern, scope in _SECTION_JUNK_RULES:
+        for heading in doc.iter("h2", "h3", "h4"):
+            text = (heading.text_content() or "").strip()
+            if not pattern.match(text):
+                continue
+            if scope == "to_end":
+                # Remove heading + all following siblings
+                parent = heading.getparent()
+                if parent is None:
+                    continue
+                remove = False
+                for child in list(parent):
+                    if child is heading:
+                        remove = True
+                    if remove:
+                        parent.remove(child)
+            elif scope == "to_next_heading":
+                # Remove heading + siblings until next h2/h3/h4
+                parent = heading.getparent()
+                if parent is None:
+                    continue
+                to_remove = [heading]
+                for sibling in heading.itersiblings():
+                    if sibling.tag in ("h2", "h3", "h4"):
+                        break
+                    to_remove.append(sibling)
+                for el in to_remove:
+                    parent.remove(el)
+
+    from lxml import etree
+
+    result = etree.tostring(doc, encoding="unicode", method="html")
+    # Strip the wrapper <div> we added
+    if result.startswith("<div>") and result.endswith("</div>"):
+        result = result[5:-6]
+    return result
+
+
+# --- Trailing junk stripping ---
+
+# Patterns matching text of trailing elements; strips from match to end.
+# Populated by future batches — empty list means no-op.
+_TRAILING_JUNK_RULES: list[re.Pattern] = []
+
+
+def strip_trailing_junk(html: str) -> str:
+    """Remove trailing metadata (wire bylines, editorial credits, social handles).
+
+    Walks the last N elements; if any match a trailing rule,
+    removes from that element to the end. Uses lxml for DOM-aware stripping.
+
+    Returns html unchanged when _TRAILING_JUNK_RULES is empty.
+    """
+    if not _TRAILING_JUNK_RULES:
+        return html
+
+    from lxml import html as lxml_html
+
+    doc = lxml_html.fragment_fromstring(html, create_parent="div")
+    children = list(doc)
+    # Walk from the end, check last 10 elements
+    cutoff = None
+    for i in range(len(children) - 1, max(len(children) - 11, -1), -1):
+        text = (children[i].text_content() or "").strip()
+        for pattern in _TRAILING_JUNK_RULES:
+            if pattern.match(text):
+                cutoff = i
+                break
+        if cutoff is not None:
+            break
+
+    if cutoff is not None:
+        for child in children[cutoff:]:
+            doc.remove(child)
+
+    from lxml import etree
+
+    result = etree.tostring(doc, encoding="unicode", method="html")
+    if result.startswith("<div>") and result.endswith("</div>"):
+        result = result[5:-6]
+    return result
 
 
 # --- Paywall detection ---

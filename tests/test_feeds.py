@@ -699,33 +699,29 @@ class TestExtractFromJsonLd:
 
 
 class TestNormalizeHtml:
-    def test_removes_empty_tags(self):
-        assert _normalize_html("<p></p><p>Real content.</p>") == "<p>Real content.</p>"
+    @pytest.mark.parametrize("input_html,expected", [
+        # Empty tag removal
+        ("<p></p><p>Real content.</p>", "<p>Real content.</p>"),
+        ("<div></div><p>Text.</p>", "<p>Text.</p>"),
+        ("<span></span><p>Text.</p>", "<p>Text.</p>"),
+        # Inline style stripping
+        ('<p style="color:red; font-size:14px">Hello</p>', "<p>Hello</p>"),
+        # Whitespace stripping
+        ("  <p>Text.</p>  ", "<p>Text.</p>"),
+        # Clean passthrough
+        ("<p>Already clean content.</p>", "<p>Already clean content.</p>"),
+    ])
+    def test_normalize_exact(self, input_html, expected):
+        assert _normalize_html(input_html) == expected
 
-    def test_removes_empty_div(self):
-        assert _normalize_html("<div></div><p>Text.</p>") == "<p>Text.</p>"
-
-    def test_removes_empty_span(self):
-        assert _normalize_html("<span></span><p>Text.</p>") == "<p>Text.</p>"
-
-    def test_strips_inline_styles(self):
-        result = _normalize_html('<p style="color:red; font-size:14px">Hello</p>')
-        assert result == "<p>Hello</p>"
-
-    def test_removes_hide_caption(self):
-        result = _normalize_html("<p>Image text hide caption more text</p>")
-        assert "hide caption" not in result
-
-    def test_removes_toggle_caption(self):
-        result = _normalize_html("<p>toggle caption</p>")
-        assert "toggle caption" not in result
-
-    def test_removes_enlarge_this_image(self):
-        result = _normalize_html("<p>Enlarge this image</p>")
-        assert "Enlarge this image" not in result
-
-    def test_strips_whitespace(self):
-        assert _normalize_html("  <p>Text.</p>  ") == "<p>Text.</p>"
+    @pytest.mark.parametrize("artifact", [
+        "hide caption",
+        "toggle caption",
+        "Enlarge this image",
+    ])
+    def test_removes_caption_artifacts(self, artifact):
+        result = _normalize_html(f"<p>{artifact}</p>")
+        assert artifact.lower() not in result.lower()
 
     def test_strips_html_body_wrapper(self):
         html = '<html>\n  <body>\n    <h1>Title</h1>\n    <p>Content.</p>\n  </body>\n</html>'
@@ -736,10 +732,6 @@ class TestNormalizeHtml:
         assert "</body>" not in result
         assert "<h1>Title</h1>" in result
         assert "<p>Content.</p>" in result
-
-    def test_passthrough_clean_html(self):
-        html = "<p>Already clean content.</p>"
-        assert _normalize_html(html) == html
 
 
 # --- TestVideoUrlFilter ---

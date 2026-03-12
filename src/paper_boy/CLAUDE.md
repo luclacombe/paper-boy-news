@@ -123,12 +123,20 @@ delivery:
 - `_convert_graphics_to_imgs()` normalises TEI XML `<graphic>` tags to `<img>` before the image pipeline runs (trafilatura emits `<graphic>` instead of `<img>` with `output_format="html"`)
 - `_strip_duplicate_title()` removes leading `<h1>`/`<h2>` from extracted HTML when it matches the article title (fuzzy: case-insensitive, punctuation-stripped, containment check) — prevents double headings since `epub.py` adds its own `<h1>` from `Article.title`
 - `_downgrade_body_headings()` converts all remaining `<h1>` to `<h2>` in article body — epub.py owns the `<h1>` via `Article.title`, so body `<h1>` tags would create duplicate top-level headings
-- **Content filtering pipeline** (`filters.py`): Runs after extraction, before image processing. Three general-purpose filters:
-  - `strip_junk(html)` — removes boilerplate `<p>`/`<div>` blocks (Advertisement, Follow us on..., Go to BBC*.com for more, Subscribe, Related articles, Share, etc.) by matching entire paragraph text against patterns
+- **Content filtering pipeline** (`filters.py`): Runs after extraction, before image processing. Five general-purpose filters:
+  - `strip_junk(html)` — removes boilerplate `<p>`/`<div>` blocks by matching entire paragraph text against `_JUNK_PATTERN_GROUPS` (organized by category: generic boilerplate, social CTAs, newsletter CTAs, Wired/Space.com/ScienceDaily, Fox News). Adding a pattern = appending one string to the right group.
   - `strip_sciencedaily_metadata(html)` — removes ScienceDaily metadata `<ul>` blocks (Date/Source/Summary/Share fields)
+  - `strip_bbc_related(html)` — removes BBC "Related topics" trailing sections
+  - `strip_section_junk(html)` — removes multi-element junk sections (heading + list/content). Uses lxml for DOM-aware stripping. Rules in `_SECTION_JUNK_RULES` list (currently empty — populated by audit batches).
+  - `strip_trailing_junk(html)` — removes trailing metadata (wire bylines, editorial credits). Uses lxml. Rules in `_TRAILING_JUNK_RULES` list (currently empty — populated by audit batches).
   - `detect_paywall(html, url)` — detects paywall phrases (subscribe to read, log in to continue, etc.) and short-URL truncation indicators (prosyn.org, bit.ly — Project Syndicate pattern)
   - `check_quality(html)` — rejects articles < 200 words post-cleaning (`MIN_CLEAN_WORDS`), and correction-only notices < 100 words
-  - Order matters: `strip_junk` → `strip_sciencedaily_metadata` → `detect_paywall` → `check_quality` (junk removal reduces word count before quality check)
+  - Order matters: `strip_junk` → `strip_sciencedaily_metadata` → `strip_bbc_related` → `strip_section_junk` → `strip_trailing_junk` → `detect_paywall` → `check_quality`
+- **Declarative pattern architecture**: Both `feeds.py` and `filters.py` use declarative rule lists for easy extension:
+  - `_NORMALIZE_RULES` in `feeds.py` — list of `(pattern, replacement)` tuples for HTML normalization
+  - `_JUNK_PATTERN_GROUPS` in `filters.py` — grouped pattern strings compiled into `_JUNK_PATTERNS` regex
+  - `_SECTION_JUNK_RULES` in `filters.py` — list of `(heading_pattern, scope)` tuples for structural junk
+  - `_TRAILING_JUNK_RULES` in `filters.py` — list of compiled patterns for trailing metadata
 - URL filtering: video/podcast/live segments, `.pdf` file extensions, and YouTube URLs (`youtube.com`, `youtu.be`) are skipped before extraction
 - Image dedup: `seen_urls` set in `_process_article_images()` prevents duplicate images within the same article (Verge double-image bug)
 - Alt text sanitization: stock photo filenames (`STK071_APPLE_D`, `photo_123.jpg`) are cleared to `alt=""` via `_STOCK_ALT_RE` / `_FILENAME_ALT_RE`
