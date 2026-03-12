@@ -81,7 +81,8 @@ UPDATE public.user_profiles SET
   delivery_time = '06:00',
   timezone = 'America/New_York',
   google_drive_folder = 'Rakuten Kobo',
-  onboarding_complete = true
+  onboarding_complete = true,
+  opds_token = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 WHERE auth_id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 
 -- Add feeds for onboarded user

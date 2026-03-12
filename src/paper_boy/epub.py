@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import email.utils
 import uuid
 from collections import OrderedDict
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from ebooklib import epub
 
@@ -15,6 +17,7 @@ from paper_boy.feeds import IMG_PLACEHOLDER_PREFIX, Section
 
 # CSS optimized for e-reader displays (Kobo, Kindle, reMarkable)
 # Avoids CSS Grid/Flexbox, complex selectors, and custom fonts (poorly supported)
+# Minimum gray = #555 for e-ink readability
 STYLESHEET = """
 body {
     font-family: serif;
@@ -32,6 +35,25 @@ h2 {
     font-size: 1.2em;
     margin-bottom: 0.2em;
 }
+h3 {
+    font-size: 1.1em;
+    margin: 1em 0 0.3em;
+}
+h4 {
+    font-size: 1.05em;
+    margin: 0.8em 0 0.2em;
+}
+h5 {
+    font-size: 1em;
+    font-weight: bold;
+    margin: 0.6em 0 0.2em;
+}
+h6 {
+    font-size: 0.95em;
+    font-weight: bold;
+    font-style: italic;
+    margin: 0.6em 0 0.2em;
+}
 p {
     margin: 0.6em 0;
     text-align: justify;
@@ -46,7 +68,7 @@ p {
 }
 .article-meta {
     font-size: 0.85em;
-    color: #666;
+    color: #444;
     margin-bottom: 1em;
     font-style: italic;
 }
@@ -56,38 +78,46 @@ p {
 }
 .article-source {
     font-size: 0.75em;
-    color: #999;
+    color: #555;
     margin-top: 2em;
     padding-top: 0.5em;
-    border-top: 1px solid #ddd;
+    border-top: 1px solid #555;
+}
+.front-title {
+    text-align: center;
+    border-bottom: 2px solid #333;
+    padding-bottom: 0.3em;
+}
+.front-date {
+    text-align: center;
+    color: #444;
+    font-style: italic;
 }
 .section-title {
-    font-size: 1.6em;
+    font-size: 1.3em;
     text-align: center;
     margin: 2em 0 1em 0;
     padding: 0.5em 0;
-    border-top: 3px solid #333;
-    border-bottom: 1px solid #999;
+    border-top: 1px solid #555;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
+    page-break-before: always;
 }
 .toc-category {
-    margin: 1.5em 0 0.3em 0;
+    margin: 2em 0 0.3em 0;
     font-weight: bold;
-    font-size: 1.2em;
+    font-size: 1.5em;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: #1a1a1a;
-    border-bottom: 1px solid #ccc;
+    border-bottom: 2px solid #333;
     padding-bottom: 0.2em;
 }
 .toc-section {
     margin: 1em 0 0.3em 0;
-    font-weight: bold;
-    font-size: 1.1em;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #333;
+    font-size: 0.95em;
+    font-style: italic;
+    color: #444;
 }
 .toc-article {
     margin: 0.15em 0 0.15em 1.2em;
@@ -101,26 +131,27 @@ p {
 .category-divider {
     margin-top: 35%;
     text-align: center;
+    page-break-before: always;
 }
 .category-rule-top {
-    border-top: 2px solid #333;
-    width: 60%;
+    border-top: 3px solid #333;
+    width: 80%;
     margin: 0 auto 0.6em;
 }
 .category-rule-bottom {
-    border-top: 1px solid #999;
-    width: 60%;
+    border-top: 1px solid #555;
+    width: 80%;
     margin: 0.3em auto;
 }
 .category-name {
-    font-size: 1.8em;
+    font-size: 2.2em;
     text-transform: uppercase;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.2em;
     font-weight: bold;
 }
 .category-sources {
-    font-size: 0.8em;
-    color: #888;
+    font-size: 0.85em;
+    color: #555;
     margin-top: 1em;
 }
 img {
@@ -142,7 +173,7 @@ figure img {
 }
 figcaption {
     font-size: 0.8em;
-    color: #666;
+    color: #444;
     font-style: italic;
     margin-top: 0.3em;
     text-align: center;
@@ -151,9 +182,9 @@ figcaption {
 blockquote {
     margin: 1em 1.5em;
     font-style: italic;
-    border-left: 3px solid #ccc;
+    border-left: 3px solid #555;
     padding-left: 1em;
-    color: #333;
+    color: #222;
 }
 """
 
@@ -207,8 +238,18 @@ def build_epub(
 
     if output_path is None:
         date_str = issue_date.strftime("%Y-%m-%d")
-        filename = f"paper-boy-{date_str}.epub"
-        output_path = Path(filename)
+        base = Path(f"paper-boy-{date_str}.epub")
+        if base.exists():
+            # Auto-increment to avoid overwriting previous builds
+            n = 2
+            while True:
+                candidate = Path(f"paper-boy-{date_str}-build{n}.epub")
+                if not candidate.exists():
+                    break
+                n += 1
+            output_path = candidate
+        else:
+            output_path = base
     else:
         output_path = Path(output_path)
 
@@ -355,14 +396,20 @@ def build_epub(
 
             # Build TOC entry for this feed section
             if section_chapters:
+                section_link = epub.Link(
+                    divider.file_name, section.name, divider.id
+                )
                 cat_toc_children.append(
-                    (epub.Section(section.name), section_chapters)
+                    (section_link, section_chapters)
                 )
 
         # Nest feed sections under category in TOC
         if has_categories and cat_toc_children:
+            cat_link = epub.Link(
+                cat_divider.file_name, cat_name, cat_divider.id
+            )
             toc_entries.append(
-                (epub.Section(cat_name), [item for pair in cat_toc_children for item in ([pair[0]] if not isinstance(pair, tuple) else [pair])])
+                (cat_link, [item for pair in cat_toc_children for item in ([pair[0]] if not isinstance(pair, tuple) else [pair])])
             )
         else:
             toc_entries.extend(cat_toc_children)
@@ -372,19 +419,32 @@ def build_epub(
 
     # --- Navigation files ---
     book.add_item(epub.EpubNcx())
-    book.add_item(epub.EpubNav())
+
+    # Find the first article file for bodymatter landmark
+    first_article_href = "front_page.xhtml"
+    for item in spine_items:
+        if isinstance(item, epub.EpubHtml) and item.file_name.startswith("article_"):
+            first_article_href = item.file_name
+            break
+
+    # Nav document — ebooklib generates TOC + landmarks from book.guide
+    nav = epub.EpubNav()
+    nav.add_item(css)
+    book.add_item(nav)
 
     # --- Spine (reading order) ---
     book.spine = spine_items
 
-    # --- Guide / Landmarks ---
+    # --- Guide / Landmarks (EPUB2 compat + EPUB3 bodymatter) ---
     book.guide = [
         {"type": "cover", "title": "Cover", "href": "cover_page.xhtml"},
         {"type": "toc", "title": "Table of Contents", "href": "front_page.xhtml"},
+        {"type": "text", "title": "Start of Content", "href": first_article_href},
     ]
 
     # --- Write ---
-    epub.write_epub(str(output_path), book)
+    opts = {"epub3_landmark": True}
+    epub.write_epub(str(output_path), book, opts)
     return output_path
 
 
@@ -399,16 +459,15 @@ def _build_front_page(
     date_str = issue_date.strftime("%A, %B %d, %Y")
 
     html_parts = [
-        f'<h1 style="text-align:center; border-bottom: 2px solid #333; '
-        f'padding-bottom: 0.3em;">{config.newspaper.title}</h1>',
-        f'<p style="text-align:center; color:#666; font-style:italic;">{date_str}</p>',
+        f'<h1 class="front-title">{config.newspaper.title}</h1>',
+        f'<p class="front-date">{date_str}</p>',
         "<hr/>",
     ]
 
     article_index = 0
     for cat_name, cat_sections in category_groups:
         if has_categories:
-            html_parts.append(f'<p class="toc-category">{cat_name}</p>')
+            html_parts.append(f'<h2 class="toc-category">{cat_name}</h2>')
 
         for section in cat_sections:
             if not section.articles:
@@ -465,21 +524,48 @@ def _build_section_divider(section: Section, section_idx: int) -> epub.EpubHtml:
     return divider
 
 
+def _format_article_date(date_str: str) -> str:
+    """Normalize article date to human-readable format (e.g. 'March 7, 2026').
+
+    Tries RFC 2822 (RSS dates) and ISO 8601. Falls back to raw string.
+    """
+    # Try RFC 2822 (e.g. "Fri, 07 Mar 2026 12:00:00 GMT")
+    try:
+        dt = email.utils.parsedate_to_datetime(date_str)
+        return dt.strftime("%B %-d, %Y")
+    except (ValueError, TypeError):
+        pass
+
+    # Try ISO 8601 (e.g. "2026-03-07T12:00:00Z")
+    try:
+        # Handle trailing Z
+        cleaned = date_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(cleaned)
+        return dt.strftime("%B %-d, %Y")
+    except (ValueError, TypeError):
+        pass
+
+    return date_str
+
+
 def _build_article_chapter(article, article_index: int, section_name: str) -> epub.EpubHtml:
     """Build an article page."""
     meta_parts = []
     if article.author:
         meta_parts.append(f'<span class="author">{article.author}</span>')
     if article.date:
-        meta_parts.append(article.date)
+        meta_parts.append(_format_article_date(article.date))
     meta_line = " &middot; ".join(meta_parts) if meta_parts else ""
+
+    # Show domain instead of full URL
+    domain = urlparse(article.url).netloc.removeprefix("www.")
 
     html = f"""<h1>{article.title}</h1>
 <p class="article-meta">{meta_line}</p>
 <div class="article-body">
 {article.html_content}
 </div>
-<p class="article-source">Source: {article.url}</p>"""
+<p class="article-source">via {domain}</p>"""
 
     chapter = epub.EpubHtml(
         title=article.title,
@@ -487,3 +573,5 @@ def _build_article_chapter(article, article_index: int, section_name: str) -> ep
     )
     chapter.content = html.encode("utf-8")
     return chapter
+
+

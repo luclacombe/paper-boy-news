@@ -19,7 +19,7 @@ export default function PrivacyPage() {
           Privacy Policy
         </h1>
         <p className="mt-2 font-body text-sm italic text-caption">
-          Last updated: March 8, 2026
+          Last updated: March 12, 2026
         </p>
       </header>
 
@@ -55,9 +55,14 @@ export default function PrivacyPage() {
               type, delivery method, delivery time, and timezone
             </li>
             <li>
-              <strong>Delivery credentials</strong> — if you choose email
-              delivery, your SMTP settings; if you choose Google Drive, an OAuth
-              token scoped to Google Drive file creation only
+              <strong>Delivery credentials</strong> — if you choose Google
+              Drive or Gmail delivery, an OAuth token scoped to file creation
+              (drive.file) and/or email sending (gmail.send); if you choose
+              SMTP email delivery, your SMTP settings
+            </li>
+            <li>
+              <strong>OPDS sync token</strong> — if you enable wireless sync,
+              a randomly generated access token for your personal OPDS feed
             </li>
             <li>
               <strong>Delivery history</strong> — a log of your past newspaper
@@ -140,15 +145,18 @@ export default function PrivacyPage() {
             Deleting Your Data
           </h2>
           <p>
-            You can request deletion of your account and all associated data by
-            emailing{" "}
+            You can delete your account and all associated data directly from
+            Settings &gt; Account in the app. Deletion is immediate and
+            permanent — your profile, feeds, delivery history, stored EPUBs,
+            and any Google OAuth tokens are removed. You can also contact us
+            at{" "}
             <a
-              href="mailto:luc.c.lacombe@gmail.com"
+              href="mailto:contact@paper-boy-news.com"
               className="underline hover:no-underline"
             >
-              luc.c.lacombe@gmail.com
-            </a>
-            . We will delete your data within 30 days.
+              contact@paper-boy-news.com
+            </a>{" "}
+            if you need assistance.
           </p>
         </section>
 
