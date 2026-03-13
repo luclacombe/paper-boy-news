@@ -61,6 +61,7 @@ class TestStripJunk:
         "These highlights were written by the reporters and editors of ProPublica.",
         "We've lifted the paywall. Foreign Policy's best stories, accessible for all.",
         "Roula Khalaf, Editor of the FT, selects her favourite stories in this weekly newsletter.",
+        "Roula Khalaf selects her favourite stories to read in this newsletter.",
         "Get your daily dose of health and medicine every weekday with STAT's free newsletter Morning Rounds. Sign up here.",
         "Good morning and welcome to The Downshift, your daily briefing.",
         # Navigation CTAs

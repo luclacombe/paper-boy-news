@@ -65,6 +65,7 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"these\s+highlights\s+were\s+written\s+by\s+the\s+reporters\b.*",  # ProPublica
         r"we(?:'ve|.ve)\s+lifted\s+the\s+paywall\.?\s+foreign\s+policy(?:'s|.s)\b.*",  # Foreign Policy
         r"roula\s+khalaf,?\s+editor\s+of\s+the\s+ft,?\s+selects\b.*",  # FT
+        r"roula\s+khalaf.*?selects\s+her\s+favourite\s+stories.*?newsletter.*",  # FT newsletter preamble variant
         r"get\s+your\s+daily\s+dose\s+of\s+health\b.*",  # STAT Morning Rounds
         r"good\s+morning\s+and\s+welcome\s+to\s+the\s+downshift\b.*",  # The Drive TDS
     ],

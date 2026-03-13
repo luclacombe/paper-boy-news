@@ -62,8 +62,6 @@ _CONSECUTIVE_FAILURE_OVERRIDES: dict[str, int] = {
 _DOMAIN_STRATEGY_HINTS: dict[str, int] = {
     # Nature: S1 always fails (idp redirect loop), S1.5 browser UA works
     "nature.com": 2,  # Start at S1.5
-    # FT: moved to Strategy 0d (direct archive.today routing) — all direct
-    # UAs now return a JS-disabled stub since March 2026.
 }
 
 # Domain-level extraction failure tracking.
@@ -463,6 +461,10 @@ def _fetch_single_feed(
         return _fetch_reuters_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
     if "scientificamerican.com" in urlparse(feed_cfg.url).netloc:
         return _fetch_sciam_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
+    if "ft.com" in urlparse(feed_cfg.url).netloc:
+        return _extract_ft_articles(feed_cfg, config, cache=cache, seen_urls=seen_urls)
+    if "businessoffashion.com" in urlparse(feed_cfg.url).netloc:
+        return _fetch_bof_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
 
     section = Section(name=feed_cfg.name, category=feed_cfg.category)
 
@@ -741,12 +743,8 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     if "project-syndicate.org" in domain:
         return _extract_via_archive(url, include_images)
 
-    # Strategy 0d: Financial Times — all direct UAs now return a JS-disabled
-    # stub (3101 bytes, ~50 words).  FT switched to client-side rendering in
-    # March 2026.  Only archive.today can extract content.  Works on GitHub
-    # Actions (Ubuntu/OpenSSL); returns None on macOS (LibreSSL).
-    if "ft.com" in domain:
-        return _extract_via_archive(url, include_images)
+    # FT is now handled by _extract_ft_articles() feed-level handler
+    # (Playwright headless Chromium to solve Cloudflare JS challenge)
 
     # Check domain strategy hints — skip S1 for domains where it always fails
     hint_start = 0
@@ -1449,6 +1447,304 @@ def _fetch_sciam_issue_articles(feed_url: str) -> list[dict]:
         len(articles),
     )
     return articles
+
+
+def _fetch_bof_feed(
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
+) -> Section:
+    """Fetch articles from Business of Fashion via homepage + Fusion JSON.
+
+    BoF's RSS feed is broken (500 error on Arc Publishing outboundfeeds
+    endpoint). The site uses Arc Publishing (same as WaPo). Full article
+    content is embedded in each page as a Fusion.globalContent JavaScript
+    object, regardless of paywall status (client-side JS paywall only).
+    """
+    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    include_images = config.newspaper.include_images
+
+    # Scrape article links from homepage
+    homepage_url = "https://www.businessoffashion.com/"
+    homepage = _fetch_page(homepage_url, _BROWSER_USER_AGENT)
+    if not homepage:
+        logger.warning("BoF homepage fetch failed")
+        return section
+
+    links = sorted(set(re.findall(r'href="(/articles/[^"]+)"', homepage)))
+    if not links:
+        logger.warning("No article links found on BoF homepage")
+        return section
+
+    for link in links[:_FETCH_CAP_PER_FEED]:
+        url = f"https://www.businessoffashion.com{link}"
+
+        if _should_skip_url(url):
+            continue
+
+        # Cross-feed URL dedup
+        if seen_urls is not None:
+            if url in seen_urls:
+                logger.debug("Skipping duplicate URL: %s", url)
+                continue
+            seen_urls.add(url)
+
+        # Check article cache
+        if cache:
+            found, cached_html = cache.get_article(url, include_images)
+            if found:
+                if cached_html:
+                    # Build article from cached HTML — we don't have metadata
+                    # cached, so use minimal defaults
+                    section.articles.append(Article(
+                        title="Untitled", url=url, html_content=cached_html,
+                    ))
+                continue
+
+        page = _fetch_page(url, _BROWSER_USER_AGENT)
+        if not page:
+            if cache:
+                cache.set_article(url, include_images, None)
+            continue
+
+        # Parse Fusion.globalContent JSON
+        m = re.search(
+            r"Fusion\.globalContent\s*=\s*(\{.*?\});\s*Fusion",
+            page, re.DOTALL,
+        )
+        if not m:
+            if cache:
+                cache.set_article(url, include_images, None)
+            continue
+
+        try:
+            data = json.loads(m.group(1))
+        except json.JSONDecodeError:
+            if cache:
+                cache.set_article(url, include_images, None)
+            continue
+
+        # Build HTML from content_elements (same structure as WaPo)
+        elements = data.get("content_elements", [])
+        html_parts: list[str] = []
+        for el in elements:
+            el_type = el.get("type", "")
+            content = el.get("content", "")
+            if el_type in ("text", "header", "raw_html") and content:
+                html_parts.append(content)
+            elif el_type == "list":
+                list_items = el.get("list_items", [])
+                if list_items:
+                    items_html = "".join(
+                        f"<li>{item.get('content', '')}</li>"
+                        for item in list_items
+                    )
+                    list_type = el.get("list_type", "unordered")
+                    tag = "ol" if list_type == "ordered" else "ul"
+                    html_parts.append(f"<{tag}>{items_html}</{tag}>")
+
+        if not html_parts:
+            if cache:
+                cache.set_article(url, include_images, None)
+            continue
+
+        html_content = "\n".join(html_parts)
+        html_content = _normalize_html(html_content)
+
+        # Extract metadata from Fusion JSON
+        title = data.get("headlines", {}).get("basic", "") or "Untitled"
+        author = None
+        credits = data.get("credits", {}).get("by", [])
+        if credits:
+            author = credits[0].get("name")
+        date = data.get("display_date")
+
+        # Title dedup + heading downgrade
+        html_content = _strip_duplicate_title(html_content, title)
+        html_content = _downgrade_body_headings(html_content)
+        html_content = _dedup_consecutive_paragraphs(html_content)
+
+        # Content filtering pipeline
+        html_content = strip_junk(html_content)
+        html_content = strip_lede_dupe(html_content)
+        html_content = strip_section_junk(html_content)
+        html_content = strip_trailing_junk(html_content)
+        if detect_paywall(html_content, url):
+            if cache:
+                cache.set_article(url, include_images, None)
+            continue
+        if check_quality(html_content):
+            if cache:
+                cache.set_article(url, include_images, None)
+            continue
+
+        # Process images
+        images: list[ArticleImage] = []
+        if include_images and html_content:
+            html_content, images = _process_article_images(
+                html_content, config, cache=cache, article_url=url
+            )
+            html_content = strip_figcaption_paragraph_dupe(html_content)
+
+        if cache:
+            cache.set_article(url, include_images, html_content)
+
+        section.articles.append(Article(
+            title=title,
+            url=url,
+            author=author,
+            date=date,
+            html_content=html_content,
+            images=images,
+        ))
+
+    return section
+
+
+def _extract_ft_articles(
+    feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
+    seen_urls: set[str] | None = None,
+) -> Section:
+    """Fetch FT articles using Playwright headless Chromium.
+
+    FT is behind Cloudflare bot protection — only a real browser can solve
+    the JS challenge. The outbrain UA grants full-text access once past CF.
+
+    Returns empty section if playwright is not installed (graceful degradation).
+    """
+    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        logger.info("Playwright not installed — skipping FT extraction")
+        return section
+
+    include_images = config.newspaper.include_images
+
+    # Parse RSS feed (no browser needed for this — Cloudflare doesn't block RSS)
+    cached_entries = cache.get_feed(feed_cfg.url) if cache else None
+    if cached_entries is not None:
+        entries = cached_entries[:_FETCH_CAP_PER_FEED]
+    else:
+        try:
+            feed = feedparser.parse(feed_cfg.url)
+        except Exception:
+            logger.warning("FT RSS feed fetch failed: %s", feed_cfg.name)
+            return section
+        if feed.bozo and not feed.entries:
+            logger.error("Failed to parse FT feed %s: %s", feed_cfg.name, feed.bozo_exception)
+            return section
+        if cache:
+            cache.set_feed(feed_cfg.url, feed.entries)
+        entries = feed.entries[:_FETCH_CAP_PER_FEED]
+
+    if not entries:
+        return section
+
+    UA = "Mozilla/5.0 (Java) outbrain"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(user_agent=UA)
+
+        for entry in entries:
+            url = entry.get("link", "")
+            title = entry.get("title", "Untitled")
+
+            if not url or not is_safe_url(url):
+                continue
+            if _should_skip_url(url) or _should_skip_title(title):
+                continue
+            if _is_stale_entry(entry):
+                continue
+            if _is_premium_title(title):
+                continue
+
+            # Cross-feed URL dedup
+            if seen_urls is not None:
+                if url in seen_urls:
+                    continue
+                seen_urls.add(url)
+
+            # Check article cache
+            if cache:
+                found, cached_html = cache.get_article(url, include_images)
+                if found:
+                    if cached_html:
+                        author = entry.get("author")
+                        if not author and entry.get("authors"):
+                            author = entry["authors"][0].get("name")
+                        if author and author.startswith("By "):
+                            author = author[3:]
+                        date = entry.get("published") or entry.get("updated")
+                        section.articles.append(Article(
+                            title=title, url=url, author=author, date=date,
+                            html_content=cached_html,
+                        ))
+                    continue
+
+            page = context.new_page()
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_selector(
+                    "#article-body, .barrier, .o-cookie-message",
+                    timeout=10000,
+                )
+                article_el = page.query_selector("#article-body")
+                if article_el:
+                    html_content = article_el.inner_html()
+                    html_content = _normalize_html(html_content)
+
+                    # Title dedup + heading downgrade
+                    html_content = _strip_duplicate_title(html_content, title)
+                    html_content = _downgrade_body_headings(html_content)
+                    html_content = _dedup_consecutive_paragraphs(html_content)
+
+                    # Content filtering pipeline
+                    html_content = strip_junk(html_content)
+                    html_content = strip_lede_dupe(html_content)
+                    html_content = strip_section_junk(html_content)
+                    html_content = strip_trailing_junk(html_content)
+
+                    if not detect_paywall(html_content, url) and not check_quality(html_content):
+                        # Process images
+                        images: list[ArticleImage] = []
+                        if include_images:
+                            html_content, images = _process_article_images(
+                                html_content, config, cache=cache, article_url=url
+                            )
+                            html_content = strip_figcaption_paragraph_dupe(html_content)
+
+                        if cache:
+                            cache.set_article(url, include_images, html_content)
+
+                        author = entry.get("author")
+                        if not author and entry.get("authors"):
+                            author = entry["authors"][0].get("name")
+                        if author and author.startswith("By "):
+                            author = author[3:]
+                        date = entry.get("published") or entry.get("updated")
+
+                        section.articles.append(Article(
+                            title=title, url=url, author=author, date=date,
+                            html_content=html_content, images=images,
+                        ))
+                        continue
+
+                # Failed extraction — cache as None
+                if cache:
+                    cache.set_article(url, include_images, None)
+
+            except Exception:
+                logger.debug("FT extraction failed: %s", url)
+                if cache:
+                    cache.set_article(url, include_images, None)
+            finally:
+                page.close()
+
+        browser.close()
+
+    return section
 
 
 def _extract_via_archive(url: str, include_images: bool) -> str | None:

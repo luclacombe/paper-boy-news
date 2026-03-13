@@ -18,7 +18,7 @@ pytest -k "test_build"           # By name pattern
 - `test_config.py` — YAML config loading + validation
 - `test_cover.py` — Cover image generation
 - `test_epub.py` — EPUB creation + metadata
-- `test_feeds.py` — RSS fetching + article extraction + cache integration
+- `test_feeds.py` — RSS fetching + article extraction + cache integration + FT Playwright handler + BoF Arc Publishing handler
 - `test_filters.py` — Post-extraction content filters (paywall, junk stripping, section/trailing junk, quality gate)
 - `test_images.py` — Image optimization
 - `test_main.py` — Build pipeline orchestration + cache threading
@@ -35,6 +35,8 @@ pytest -k "test_build"           # By name pattern
 - **Content dedup tests**: `TestStripLedeDupe` (6 tests) and `TestStripFigcaptionParagraphDupe` (4 tests) verify lede and figcaption deduplication.
 - **Stale entry tests**: `TestIsStaleEntry` (7 tests) verifies feed freshness gate (old/recent/no-date/boundary/invalid entries, integration with `_fetch_single_feed`).
 - **Image recovery tests**: `TestRecoverImagesFromHtml` (11 tests) verifies raw HTML image recovery (already-has-images passthrough, container detection, ad filtering, dedup, lazy-loading, URL validation, cap).
+- **FT handler tests**: Verify Playwright graceful degradation (ImportError → empty list), cache integration (hit skips browser), and filter pipeline on extracted HTML. Uses mocked Playwright to avoid real browser dependency in CI.
+- **BoF handler tests**: Verify Fusion.globalContent JSON parsing, homepage link scraping, and filter pipeline on extracted HTML. Uses mocked `_fetch_page` to avoid real network calls.
 
 ## Notes
 
