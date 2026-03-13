@@ -124,6 +124,8 @@ class TestStripJunk:
         "Marketing Brew informs marketing pros of the latest on brand strategy, social media, and ad tech.",
         # Eater sponsored content label (Batch 11)
         "Partner content from Apple Card",
+        # FT on-site newsletter preamble (Batch 12)
+        "This article is an on-site version of our FirstFT newsletter. Subscribers can sign up here to get it delivered to their inbox.",
     ])
     def test_removes_junk_paragraph(self, junk_text):
         html = f"<p>Good content here.</p><p>{junk_text}</p>"
@@ -509,6 +511,20 @@ class TestStripSectionJunk:
         assert "Article conclusion" in result
         assert "Related content" not in result
         assert "Author bio" not in result
+
+
+    def test_strip_ft_recommended_newsletters(self):
+        """FT 'Recommended newsletters for you' footer stripped."""
+        html = (
+            "<p>The Bank of England held rates steady at 4.5%.</p>"
+            "<h2>Recommended newsletters for you</h2>"
+            "<p>FirstFT — Start your day with a global briefing.</p>"
+            "<p>Unhedged — Markets analysis from Robert Armstrong.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Bank of England" in result
+        assert "Recommended newsletters" not in result
+        assert "FirstFT" not in result
 
 
 # --- strip_trailing_junk (stub — no-op with empty rules) ---

@@ -14,6 +14,8 @@ from paper_boy.feeds import (
     _DOMAIN_STRATEGY_HINTS,
     _MAX_CONSECUTIVE_FAILURES,
     Article,
+    Section,
+    _clean_ft_html,
     _count_words,
     _dedup_consecutive_paragraphs,
     _domain_failures,
@@ -45,6 +47,8 @@ from paper_boy.feeds import (
     _should_skip_image,
     _strip_duplicate_title,
     apply_article_budget,
+    apply_reading_time_budget,
+    WORDS_PER_MINUTE,
     fetch_feeds,
 )
 
@@ -1422,6 +1426,108 @@ class TestApplyArticleBudget:
         assert len(result[0].articles) == 1  # A only had 1
 
 
+class TestApplyReadingTimeBudget:
+    """Tests for the reading-time-based budget distribution."""
+
+    def _make_section(self, name: str, num_articles: int, words_per_article: int = 500):
+        """Create a section with articles of known word count."""
+        articles = [
+            Article(
+                title=f"{name} Art {i}",
+                url=f"https://example.com/{name}/{i}",
+                html_content="<p>" + " ".join(["word"] * words_per_article) + "</p>",
+                word_count=words_per_article,
+            )
+            for i in range(num_articles)
+        ]
+        return Section(name=name, articles=articles)
+
+    def test_no_trimming_when_under_budget(self):
+        """If total reading time <= budget, return all articles."""
+        # 2 articles × 238 words = 2 min total
+        sections = [self._make_section("A", 1, 238), self._make_section("B", 1, 238)]
+        result = apply_reading_time_budget(sections, 5)
+        assert sum(len(s.articles) for s in result) == 2
+
+    def test_trims_to_fit_budget(self):
+        """Articles are trimmed to fit within reading time target."""
+        # 3 sources × 5 articles × 476 words = 30 min total, budget = 10 min
+        sections = [self._make_section(f"S{i}", 5, 476) for i in range(3)]
+        result = apply_reading_time_budget(sections, 10)
+        total_words = sum(a.word_count for s in result for a in s.articles)
+        total_minutes = total_words / WORDS_PER_MINUTE
+        # Should be approximately 10 min (allow overshoot from last article)
+        assert total_minutes <= 14  # 10 + one 2-min article overshoot
+        assert total_minutes >= 6   # at least 3 articles (1 per source)
+
+    def test_each_source_gets_at_least_one(self):
+        """Phase 1 guarantees 1 article per source when budget allows."""
+        # 4 sources × 238 words/article = 4 min for phase 1, budget = 8 min
+        sections = [self._make_section(f"S{i}", 3, 238) for i in range(4)]
+        result = apply_reading_time_budget(sections, 8)
+        assert len(result) == 4
+        for s in result:
+            assert len(s.articles) >= 1
+
+    def test_stops_phase1_when_budget_hit(self):
+        """Phase 1 stops adding sources when budget is exhausted."""
+        # 5 sources × 1190 words (5 min each) = 25 min phase 1, budget = 10 min
+        sections = [self._make_section(f"S{i}", 3, 1190) for i in range(5)]
+        result = apply_reading_time_budget(sections, 10)
+        # Should include ~2 sources (10 min / 5 min each)
+        assert len(result) <= 3
+        assert len(result) >= 1
+
+    def test_empty_sections(self):
+        """Empty input returns empty output."""
+        result = apply_reading_time_budget([], 20)
+        assert result == []
+
+    def test_zero_budget(self):
+        """Zero budget returns input unchanged (no trimming)."""
+        sections = [self._make_section("A", 3, 500)]
+        result = apply_reading_time_budget(sections, 0)
+        assert sum(len(s.articles) for s in result) == 3
+
+    def test_short_articles_yield_more(self):
+        """Short articles (news briefs) should yield more articles than long ones."""
+        # 100-word briefs (~0.42 min each) vs 1000-word features (~4.2 min each)
+        short_sections = [self._make_section(f"S{i}", 10, 100) for i in range(3)]
+        long_sections = [self._make_section(f"L{i}", 10, 1000) for i in range(3)]
+
+        short_result = apply_reading_time_budget(short_sections, 10)
+        long_result = apply_reading_time_budget(long_sections, 10)
+
+        short_count = sum(len(s.articles) for s in short_result)
+        long_count = sum(len(s.articles) for s in long_result)
+        assert short_count > long_count
+
+    def test_round_robin_fills_evenly(self):
+        """Phase 2 distributes articles across sources, not front-loaded."""
+        # 2 sources with identical articles, budget for ~4 articles
+        sections = [self._make_section("A", 5, 238), self._make_section("B", 5, 238)]
+        result = apply_reading_time_budget(sections, 4)
+        # Both sources should have articles (round-robin)
+        assert len(result) == 2
+        for s in result:
+            assert len(s.articles) >= 1
+
+    def test_mixed_lengths_respects_time(self):
+        """With mixed article lengths, budget is time-based not count-based."""
+        # Source A: 5 short articles (119 words = 0.5 min each)
+        # Source B: 5 long articles (1190 words = 5 min each)
+        # Budget: 6 min — should get more from A than B
+        sections = [
+            self._make_section("Short", 5, 119),
+            self._make_section("Long", 5, 1190),
+        ]
+        result = apply_reading_time_budget(sections, 6)
+        short_sec = next(s for s in result if s.name == "Short")
+        long_sec = next(s for s in result if s.name == "Long")
+        # Long source gets 1 (phase 1), short source gets more due to time budget
+        assert len(short_sec.articles) >= len(long_sec.articles)
+
+
 # --- Consecutive failure abort ---
 
 
@@ -2297,3 +2403,75 @@ class TestFetchBofFeed:
                 config.feeds[0], config, cache=None, seen_urls=set()
             )
             mock_bof.assert_called_once()
+
+
+class TestCleanFtHtml:
+    def test_removes_video_elements(self):
+        html = '<p>Content</p><video src="video.mp4"><source type="video/mp4"/></video><p>More</p>'
+        result = _clean_ft_html(html)
+        assert "<video" not in result
+        assert "Content" in result
+        assert "More" in result
+
+    def test_removes_iframe_elements(self):
+        html = '<p>Content</p><iframe src="https://flo.uri.sh/..."></iframe><p>More</p>'
+        result = _clean_ft_html(html)
+        assert "<iframe" not in result
+        assert "Content" in result
+
+    def test_removes_button_elements(self):
+        html = '<p>Content</p><button>Show more</button><p>More</p>'
+        result = _clean_ft_html(html)
+        assert "<button" not in result
+
+    def test_unwraps_picture_keeps_img(self):
+        html = '<picture><source srcset="large.jpg" media="(min-width:800px)"/><img src="small.jpg" alt="Chart"/></picture>'
+        result = _clean_ft_html(html)
+        assert "<picture" not in result
+        assert "<source" not in result
+        assert "<img" in result
+        assert 'src="small.jpg"' in result
+
+    def test_flattens_n_content_layout(self):
+        html = '<div class="n-content-layout"><p>Paragraph one</p><p>Paragraph two</p></div>'
+        result = _clean_ft_html(html)
+        assert "n-content-layout" not in result
+        assert "Paragraph one" in result
+        assert "Paragraph two" in result
+
+    def test_removes_flourish_containers(self):
+        html = '<p>Content</p><div class="flourish-embed"><p>Some content could not load</p></div><p>More</p>'
+        result = _clean_ft_html(html)
+        assert "flourish" not in result
+        assert "could not load" not in result
+
+    def test_prefers_editorial_figcaption(self):
+        html = (
+            '<figure>'
+            '<img src="photo.jpg" alt="Markets chart showing decline"/>'
+            '<figcaption>Markets chart showing decline</figcaption>'
+            '<figcaption class="n-content-picture__caption">FTSE 100 fell 2% on Tuesday</figcaption>'
+            '</figure>'
+        )
+        result = _clean_ft_html(html)
+        assert "FTSE 100 fell" in result
+        # Alt-text figcaption removed; alt attribute on <img> preserved
+        assert "<figcaption>Markets chart showing decline</figcaption>" not in result
+        assert 'alt="Markets chart showing decline"' in result
+
+    def test_strips_alt_dup_figcaption_single(self):
+        html = (
+            '<figure>'
+            '<img src="photo.jpg" alt="A factory in Germany"/>'
+            '<figcaption>A factory in Germany</figcaption>'
+            '</figure>'
+        )
+        result = _clean_ft_html(html)
+        assert "<figcaption" not in result
+        assert "<img" in result
+
+    def test_removes_empty_li(self):
+        html = '<ul><li>Real item</li><li/><li/></ul>'
+        result = _clean_ft_html(html)
+        assert "Real item" in result
+        assert result.count("<li") == 1

@@ -89,6 +89,18 @@ def _domain_is_blocked(url: str) -> bool:
     return _domain_failures.get(domain, 0) >= _DOMAIN_FAILURE_THRESHOLD
 
 
+# --- Reading time ---
+
+# Average adult reading speed for non-fiction (widely cited in UX research)
+WORDS_PER_MINUTE = 238
+
+
+def _article_read_minutes(article: "Article") -> float:
+    """Estimate reading time in minutes for a single article."""
+    wc = article.word_count if article.word_count > 0 else _count_words(article.html_content)
+    return wc / WORDS_PER_MINUTE
+
+
 # --- Stale entry filtering ---
 
 # Skip RSS entries older than this many days (saves extraction time on
@@ -511,8 +523,11 @@ def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Secti
             _compute_observation(feed_cfg.url, feed_cfg.name, section)
         )
 
+    reading_minutes = config.newspaper.reading_time_minutes
     budget = config.newspaper.total_article_budget
-    if budget > 0:
+    if reading_minutes > 0:
+        sections = apply_reading_time_budget(sections, reading_minutes)
+    elif budget > 0:
         sections = apply_article_budget(sections, budget)
 
     return sections
@@ -558,6 +573,69 @@ def apply_article_budget(sections: list[Section], budget: int) -> list[Section]:
         section.articles = section.articles[: allocations[i]]
 
     return sections
+
+
+def apply_reading_time_budget(
+    sections: list[Section], target_minutes: int
+) -> list[Section]:
+    """Trim sections to fit within a reading time budget (in minutes).
+
+    Same fairness guarantees as apply_article_budget:
+    - Phase 1: 1 article per source (in order, stops if budget is hit)
+    - Phase 2: fill remaining time round-robin across sources
+
+    Uses word count / WORDS_PER_MINUTE to estimate per-article reading time.
+    The last article added may overshoot the target slightly — the target is
+    approximate by design.
+    """
+    if not sections or target_minutes <= 0:
+        return sections
+
+    total_minutes = sum(
+        _article_read_minutes(a) for s in sections for a in s.articles
+    )
+    if total_minutes <= target_minutes:
+        return sections
+
+    allocations = [0] * len(sections)
+    used_minutes = 0.0
+
+    # Phase 1: guarantee 1 article per source (stop when budget hit)
+    for i, section in enumerate(sections):
+        if not section.articles:
+            continue
+        t = _article_read_minutes(section.articles[0])
+        used_minutes += t
+        allocations[i] = 1
+        if used_minutes >= target_minutes:
+            break
+
+    # Phase 2: distribute remaining time round-robin.
+    # Skip articles that would overshoot by more than 3 minutes — try
+    # smaller articles from other sources first.
+    _OVERSHOOT_CAP = 3.0  # minutes
+    changed = True
+    while used_minutes < target_minutes and changed:
+        changed = False
+        for i in range(len(sections)):
+            if used_minutes >= target_minutes:
+                break
+            if allocations[i] < len(sections[i].articles):
+                next_idx = allocations[i]
+                t = _article_read_minutes(sections[i].articles[next_idx])
+                if used_minutes + t > target_minutes + _OVERSHOOT_CAP:
+                    continue  # too long — try other sources
+                allocations[i] += 1
+                used_minutes += t
+                changed = True
+
+    # Apply allocations — drop sections with 0 articles
+    result = []
+    for i, section in enumerate(sections):
+        if allocations[i] > 0:
+            section.articles = section.articles[: allocations[i]]
+            result.append(section)
+    return result
 
 
 # --- Feed fetching ---
@@ -1745,6 +1823,82 @@ def _fetch_bof_feed(
     return section
 
 
+def _clean_ft_html(html: str) -> str:
+    """Strip FT-specific CMS elements that don't render on e-readers."""
+    try:
+        from lxml.html import fragment_fromstring as _fragment
+        from lxml import etree
+    except ImportError:
+        return html
+
+    try:
+        doc = _fragment(html, create_parent="div")
+    except Exception:
+        return html
+
+    # 1. Remove non-renderable elements entirely
+    for tag in ("video", "iframe", "button", "svg"):
+        for el in doc.xpath(f"//{tag}"):
+            el.getparent().remove(el)
+
+    # 2. Remove Flourish chart containers (show error messages on e-readers)
+    for el in doc.xpath('//*[contains(@class,"flourish")]'):
+        el.getparent().remove(el)
+
+    # 3. Remove o-expander widgets
+    for el in doc.xpath('//*[contains(@class,"o-expander")]'):
+        el.getparent().remove(el)
+
+    # 4. Unwrap <picture> → keep inner <img>, remove <source> tags
+    for picture in doc.xpath("//picture"):
+        img = picture.find(".//img")
+        if img is not None:
+            picture.getparent().replace(picture, img)
+        else:
+            picture.getparent().remove(picture)
+
+    # 5. Flatten n-content-layout wrappers (keep children)
+    for el in doc.xpath('//*[contains(@class,"n-content-layout")]'):
+        parent = el.getparent()
+        if parent is not None:
+            idx = list(parent).index(el)
+            for child in reversed(list(el)):
+                parent.insert(idx, child)
+            parent.remove(el)
+
+    # 6. Remove empty <li/> tags
+    for li in doc.xpath("//li"):
+        if li.text is None and len(li) == 0 and not (li.tail and li.tail.strip()):
+            parent = li.getparent()
+            if parent is not None:
+                parent.remove(li)
+
+    # 7. Prefer editorial figcaption over alt-text figcaption
+    for figure in doc.xpath("//figure"):
+        figcaptions = figure.findall("figcaption")
+        if len(figcaptions) >= 2:
+            editorial = [fc for fc in figcaptions
+                         if fc.get("class") and "caption" in fc.get("class", "")]
+            if editorial:
+                for fc in figcaptions:
+                    if fc not in editorial:
+                        figure.remove(fc)
+        elif len(figcaptions) == 1:
+            fc = figcaptions[0]
+            img = figure.find(".//img")
+            if img is not None:
+                alt = (img.get("alt") or "").strip()
+                fc_text = fc.text_content().strip()
+                if alt and fc_text and alt == fc_text:
+                    figure.remove(fc)
+
+    # Serialize back to HTML, stripping the wrapper <div>
+    raw = etree.tostring(doc, encoding="unicode", method="html")
+    if raw.startswith("<div>") and raw.endswith("</div>"):
+        raw = raw[5:-6]
+    return raw
+
+
 def _extract_ft_articles(
     feed_cfg: FeedConfig, config: Config, cache: ContentCache | None = None,
     seen_urls: set[str] | None = None,
@@ -1805,6 +1959,12 @@ def _extract_ft_articles(
             if _is_premium_title(title):
                 continue
 
+            # Skip live blogs
+            title_lower = title.lower()
+            if "live:" in title_lower or "liveblog" in title_lower:
+                logger.debug("Skipping FT live blog: %s", title)
+                continue
+
             # Cross-feed URL dedup
             if seen_urls is not None:
                 if url in seen_urls:
@@ -1838,6 +1998,7 @@ def _extract_ft_articles(
                 article_el = page.query_selector("#article-body")
                 if article_el:
                     html_content = article_el.inner_html()
+                    html_content = _clean_ft_html(html_content)
                     html_content = _normalize_html(html_content)
 
                     # Title dedup + heading downgrade
