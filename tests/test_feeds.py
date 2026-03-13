@@ -803,6 +803,17 @@ class TestNormalizeHtml:
         assert "Article content" in result
         assert "More content" in result
 
+    def test_strip_url_figcaption(self):
+        """Figcaptions containing only a URL are stripped."""
+        html = (
+            '<figure><img src="logo.png"/>'
+            '<figcaption>https://cdn.mos.cms.futurecdn.net/flexiimages/y99mlvgqmn1763972420.png</figcaption>'
+            '</figure>'
+        )
+        result = _normalize_html(html)
+        assert "cdn.mos.cms" not in result
+        assert "<img" in result
+
 
 # --- TestDedupConsecutiveParagraphs ---
 

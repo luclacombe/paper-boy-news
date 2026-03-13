@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import sys
+from dataclasses import asdict
 
 import click
 
 from paper_boy.config import load_config
+
+# Well-known path for feed observations (gitignored via audit/)
+_OBSERVATIONS_PATH = os.path.join("audit", "feed-observations.json")
+
+
+def _dump_feed_observations(observations: list) -> None:
+    """Write feed observations to audit/feed-observations.json."""
+    if not observations:
+        return
+    try:
+        os.makedirs(os.path.dirname(_OBSERVATIONS_PATH), exist_ok=True)
+        data = [asdict(obs) for obs in observations]
+        with open(_OBSERVATIONS_PATH, "w") as f:
+            json.dump(data, f, indent=2)
+        click.echo(f"Feed observations saved: {_OBSERVATIONS_PATH} ({len(data)} feeds)")
+    except Exception as e:
+        click.echo(f"Warning: could not save feed observations: {e}", err=True)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -58,6 +78,7 @@ def build(config_path: str, output_path: str | None, no_limit: bool) -> None:
             config.newspaper.total_article_budget = 0
         result = build_newspaper(config, output_path)
         click.echo(f"Newspaper built: {result.epub_path}")
+        _dump_feed_observations(result.feed_observations)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
@@ -95,6 +116,7 @@ def deliver(config_path: str, output_path: str | None, no_limit: bool) -> None:
             config.newspaper.total_article_budget = 0
         result = build_and_deliver(config, output_path)
         click.echo(f"Newspaper built and delivered: {result.epub_path}")
+        _dump_feed_observations(result.feed_observations)
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
