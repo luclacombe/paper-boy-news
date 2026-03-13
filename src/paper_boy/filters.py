@@ -27,6 +27,7 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"read\s+more\s*:",
         r"more\s+from\b.*",
         r"you\s+may\s+also\s+be\s+interested\s+in",
+        r"partner\s+content\s+from\b.*",  # Eater sponsored content label
     ],
     # --- Social / follow CTAs ---
     [
@@ -44,6 +45,8 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"access\s+the\s+most\s+recent\s+journalism\b.*",
         r"explore\s+the\s+latest\s+features\b.*",
         r"thank\s+you\s+for\s+visiting\s+nature\.com\b.*",
+        r"we(?:'d|.d)\s+love\s+to\s+hear\s+from\s+you\b.*",  # SciAm email CTA
+        r"marketing\s+brew\s+informs\s+marketing\s+pros\b.*",  # Morning Brew newsletter CTA
     ],
     # --- Wired / Space.com / ScienceDaily ---
     [
@@ -96,6 +99,7 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
     # --- AP News section links ---
     [
         r"_{3,}",  # AP horizontal rule separator (3+ underscores)
+        r"the\s+associated\s+press(?:'|.)\s+\w+\s+(?:and\s+\w+\s+)?coverage\s+receives\s+(?:financial\s+)?support\b.*",  # AP philanthropy boilerplate
     ],
     # --- Wired engagement sections ---
     [
@@ -119,6 +123,7 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
     [
         r"this\s+coverage\s+is\s+made\s+possible\s+through\s+a\s+partnership\b.*",  # Grist
         r"if\s+you(?:'ve|.ve)\s+ever\s+considered\s+going\s+solar\b.*",  # Electrek affiliate
+        r"ftc:\s+we\s+use\s+income\s+earning\s+auto\s+affiliate\s+links\b.*",  # Electrek FTC disclosure
     ],
     # --- Free newsletter label ---
     [
@@ -248,6 +253,16 @@ _SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^Behind the Scenes$", re.IGNORECASE), "to_end"),
     # Electrek "Top comment by [username]" (to_next_heading — reader comment, not editorial)
     (re.compile(r"^Top comment by\b", re.IGNORECASE), "to_next_heading"),
+    # SciAm "On supporting science journalism" heading + subscription paragraph
+    (re.compile(r"^On supporting science journalism$", re.IGNORECASE), "next_1"),
+    # ICN donation block — "This story is funded by readers like you" + everything after
+    (re.compile(r"^This story is funded by readers like you\.?$", re.IGNORECASE), "to_end"),
+    # ICN "About This Story" trailing section
+    (re.compile(r"^About This Story$", re.IGNORECASE), "to_end"),
+    # Morning Brew newsletter CTA — heading + up to 2 elements (description + branding)
+    (re.compile(r"^Get marketing news you.ll actually want to read$", re.IGNORECASE), "next_2"),
+    # Kiplinger subscription heading + block
+    (re.compile(r"^From just\b.*Kiplinger\b", re.IGNORECASE), "next_2"),
 ]
 
 
@@ -334,6 +349,20 @@ _TRAILING_JUNK_RULES: list[re.Pattern] = [
     ),
     # AP News section link after separator
     re.compile(r"^AP\s+\w+:", re.IGNORECASE),
+    # Wire byline tails: "Reporting by X; editing by Y"
+    re.compile(r"^(?:Reporting|Writing|Compiled)\s+by\b", re.IGNORECASE),
+    # Wire "Edited by: Name"
+    re.compile(r"^Edited\s+by:?\s+\w", re.IGNORECASE),
+    # Wire "Additional reporting by"
+    re.compile(r"^Additional\s+reporting\s+by\b", re.IGNORECASE),
+    # AP author bio + social links
+    re.compile(r"^\w[\w\s]+ writes (?:about|for|on)\b.+(?:the AP|Associated Press)\b", re.IGNORECASE),
+    # PetaPixel "Image credits:"
+    re.compile(r"^Image\s+credits?:", re.IGNORECASE),
+    # Space.com author bio
+    re.compile(r"^\w[\w\s.]+ is Space\.com.s\b", re.IGNORECASE),
+    # Correction notes
+    re.compile(r"^Correction:", re.IGNORECASE),
 ]
 
 
