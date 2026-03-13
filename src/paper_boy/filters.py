@@ -69,6 +69,7 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"we(?:'ve|.ve)\s+lifted\s+the\s+paywall\.?\s+foreign\s+policy(?:'s|.s)\b.*",  # Foreign Policy
         r"roula\s+khalaf,?\s+editor\s+of\s+the\s+ft,?\s+selects\b.*",  # FT
         r"roula\s+khalaf.*?selects\s+her\s+favourite\s+stories.*?newsletter.*",  # FT newsletter preamble variant
+        r"this\s+article\s+is\s+an?\s+on[- ]site\s+version\s+of\s+our\b.*newsletter\b.*",  # FT on-site newsletter version
         r"get\s+your\s+daily\s+dose\s+of\s+health\b.*",  # STAT Morning Rounds
         r"good\s+morning\s+and\s+welcome\s+to\s+the\s+downshift\b.*",  # The Drive TDS
     ],
@@ -263,6 +264,8 @@ _SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^Get marketing news you.ll actually want to read$", re.IGNORECASE), "next_2"),
     # Kiplinger subscription heading + block
     (re.compile(r"^From just\b.*Kiplinger\b", re.IGNORECASE), "next_2"),
+    # FT "Recommended newsletters for you" footer — everything after is promo
+    (re.compile(r"^Recommended newsletters?\s+for\s+you$", re.IGNORECASE), "to_end"),
 ]
 
 

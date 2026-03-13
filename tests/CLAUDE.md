@@ -31,11 +31,11 @@ pytest -k "test_build"           # By name pattern
 ## Test Patterns
 
 - **Parametrized tests**: `test_filters.py` and `test_feeds.py` use `@pytest.mark.parametrize` for pattern-based tests (junk text removal, normalization rules, caption artifacts). Adding a test case = appending one string to the parametrize list.
-- **Section/trailing junk tests**: `TestStripSectionJunk` (19 tests) and `TestStripTrailingJunk` (13 tests) verify structural junk removal patterns (headings + lists, trailing tip-lines, AP section links, Rolling Stone credits, Electrek comments, bounded `next_N` scope, HTML comment handling, SciAm subscription nag, ICN donation block, Morning Brew CTA, Kiplinger subscription, wire bylines, image credits, author bios, correction notes).
+- **Section/trailing junk tests**: `TestStripSectionJunk` (20 tests) and `TestStripTrailingJunk` (13 tests) verify structural junk removal patterns (headings + lists, trailing tip-lines, AP section links, Rolling Stone credits, Electrek comments, bounded `next_N` scope, HTML comment handling, SciAm subscription nag, ICN donation block, Morning Brew CTA, Kiplinger subscription, FT recommended newsletters, wire bylines, image credits, author bios, correction notes).
 - **Content dedup tests**: `TestStripLedeDupe` (6 tests) and `TestStripFigcaptionParagraphDupe` (4 tests) verify lede and figcaption deduplication.
 - **Stale entry tests**: `TestIsStaleEntry` (7 tests) verifies feed freshness gate (old/recent/no-date/boundary/invalid entries, integration with `_fetch_single_feed`).
 - **Image recovery tests**: `TestRecoverImagesFromHtml` (11 tests) verifies raw HTML image recovery (already-has-images passthrough, container detection, ad filtering, dedup, lazy-loading, URL validation, cap).
-- **FT handler tests**: Verify Playwright graceful degradation (ImportError → empty list), cache integration (hit skips browser), and filter pipeline on extracted HTML. Uses mocked Playwright to avoid real browser dependency in CI.
+- **FT handler tests**: Verify Playwright graceful degradation (ImportError → empty list), cache integration (hit skips browser), and filter pipeline on extracted HTML. Uses mocked Playwright to avoid real browser dependency in CI. `TestCleanFtHtml` (9 tests) covers CMS element removal (video, iframe, button), picture unwrapping, n-content-layout flattening, Flourish container removal, figcaption deduplication, and empty li cleanup.
 - **BoF handler tests**: Verify Fusion.globalContent JSON parsing, homepage link scraping, and filter pipeline on extracted HTML. Uses mocked `_fetch_page` to avoid real network calls.
 
 ## Notes
