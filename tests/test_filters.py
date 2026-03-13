@@ -114,6 +114,16 @@ class TestStripJunk:
         "Pack your bags and earn rewards. Kiplinger chose the best travel rewards cards for airline, hotel and other perks to help you save money.",
         "Interested in more information for financial professionals? Sign up for Kiplinger\u2019s twice-monthly free newsletter, Adviser Intel.",
         "From just $107.88 $24.99 for Kiplinger Personal Finance",
+        # AP philanthropy boilerplate (Batch 11)
+        "The Associated Press' climate and environmental coverage receives financial support from multiple private foundations. AP is solely responsible for all content.",
+        # Electrek FTC disclosure (Batch 11)
+        "FTC: We use income earning auto affiliate links. More.",
+        # SciAm email CTA (Batch 11)
+        "We'd love to hear from you! E-mail us at games@sciam.com to share your experience.",
+        # Morning Brew newsletter CTA (Batch 11)
+        "Marketing Brew informs marketing pros of the latest on brand strategy, social media, and ad tech.",
+        # Eater sponsored content label (Batch 11)
+        "Partner content from Apple Card",
     ])
     def test_removes_junk_paragraph(self, junk_text):
         html = f"<p>Good content here.</p><p>{junk_text}</p>"
@@ -408,6 +418,84 @@ class TestStripSectionJunk:
         assert "Market Analysis" in result
         assert "Stocks fell today" in result
 
+    def test_strip_sciam_subscription_nag(self):
+        """SciAm 'On supporting science journalism' heading + paragraph stripped."""
+        html = (
+            "<p>Article content before the nag.</p>"
+            "<h2>On supporting science journalism</h2>"
+            "<p>If you're enjoying this article, consider supporting our award-winning "
+            "journalism by subscribing.</p>"
+            "<p>Article content continues after.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "On supporting science journalism" not in result
+        assert "consider supporting" not in result
+        assert "Article content before" in result
+        assert "Article content continues" in result
+
+    def test_strip_icn_donation_block_h3(self):
+        """ICN 'This story is funded by readers like you' + everything after stripped."""
+        html = (
+            "<p>The EPA announced new regulations on Tuesday.</p>"
+            "<p>Environmental groups praised the decision.</p>"
+            "<h3>This story is funded by readers like you.</h3>"
+            "<p>Our nonprofit newsroom provides award-winning climate coverage.</p>"
+            "<p>Donate Now</p>"
+            "<h2>About This Story</h2>"
+            "<p>Inside Climate News is a Pulitzer Prize-winning nonprofit.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "EPA announced" in result
+        assert "groups praised" in result
+        assert "This story is funded" not in result
+        assert "Donate Now" not in result
+        assert "About This Story" not in result
+        assert "Pulitzer" not in result
+
+    def test_strip_icn_about_this_story(self):
+        """ICN 'About This Story' heading alone triggers to_end strip."""
+        html = (
+            "<p>Scientists warned of rising sea levels.</p>"
+            "<h2>About This Story</h2>"
+            "<p>Inside Climate News is a nonprofit news organization.</p>"
+            "<p>Make a tax-deductible donation today.</p>"
+            "<p>Thank you,</p>"
+        )
+        result = strip_section_junk(html)
+        assert "sea levels" in result
+        assert "About This Story" not in result
+        assert "tax-deductible" not in result
+
+    def test_strip_morning_brew_cta(self):
+        """Morning Brew 'Get marketing news' CTA block stripped."""
+        html = (
+            "<p>The campaign generated a 35% increase in engagement.</p>"
+            "<h3>Get marketing news you'll actually want to read</h3>"
+            "<p>Marketing Brew informs marketing pros of the latest on brand strategy.</p>"
+            "<figure><img src='brew.png'/></figure>"
+            "<p>New developments in social media advertising emerged this week.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Get marketing news" not in result
+        assert "Marketing Brew informs" not in result
+        assert "campaign generated" in result
+        assert "social media advertising" in result
+
+    def test_strip_kiplinger_subscription_block(self):
+        """Kiplinger 'From just...' subscription heading + block stripped."""
+        html = (
+            "<p>Investors should consider tax-loss harvesting strategies.</p>"
+            "<h2>From just $24.99 for Kiplinger Personal Finance</h2>"
+            "<p>Get the best of Kiplinger delivered to your inbox.</p>"
+            "<figure><img src='logo.png'/><figcaption>Kiplinger</figcaption></figure>"
+            "<p>The market outlook for Q2 remains uncertain.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "From just" not in result
+        assert "best of Kiplinger" not in result
+        assert "tax-loss harvesting" in result
+        assert "market outlook" in result
+
     def test_removes_related_content_to_end(self):
         """Kiplinger 'Related content' trailing section stripped entirely."""
         html = (
@@ -427,15 +515,16 @@ class TestStripSectionJunk:
 
 
 class TestStripTrailingJunk:
-    def test_preserves_reuters_byline_credit(self):
-        """Reuters wire bylines are legitimate journalist credits — must be kept."""
+    def test_strips_reuters_byline_credit(self):
+        """Reuters wire bylines are trailing metadata — now stripped."""
         html = (
             "<p>Article content here.</p>"
             "<p>Final paragraph of story.</p>"
             "<small>Reporting by John Smith; editing by Jane Doe</small>"
         )
         result = strip_trailing_junk(html)
-        assert "Reporting by" in result
+        assert "Reporting by" not in result
+        assert "Final paragraph" in result
 
     def test_removes_got_a_tip_trailing(self):
         html = (
@@ -461,6 +550,79 @@ class TestStripTrailingJunk:
         result = strip_trailing_junk(html)
         assert "Story conclusion" in result
         assert "AP Sports" not in result
+
+    def test_strip_reuters_byline_tail(self):
+        """Reuters 'Reporting by X; editing by Y' trailing metadata stripped."""
+        html = (
+            "<p>Article content paragraph one.</p>"
+            "<p>Article content paragraph two.</p>"
+            "<p>Reporting by John Smith in London; editing by Jane Doe</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Reporting by John Smith" not in result
+        assert "Article content paragraph two" in result
+
+    def test_strip_dw_edited_by(self):
+        """DW 'Edited by: Name' trailing metadata stripped."""
+        html = (
+            "<p>Article content about trade policy.</p>"
+            "<p>Edited by: Hardy Graupner</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Edited by" not in result
+        assert "trade policy" in result
+
+    def test_strip_additional_reporting(self):
+        """FT 'Additional reporting by' trailing metadata stripped."""
+        html = (
+            "<p>The markets reacted sharply to the announcement.</p>"
+            "<p>Additional reporting by Tom Wilson in New York</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Additional reporting" not in result
+        assert "markets reacted" in result
+
+    def test_strip_ap_author_bio(self):
+        """AP author bio + social links stripped from article end."""
+        html = (
+            "<p>The investigation revealed new details about the program.</p>"
+            "<p>David Bauder writes about the intersection of media and "
+            "entertainment for the AP. Follow him at http://x.com/dbauder</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "David Bauder writes" not in result
+        assert "investigation revealed" in result
+
+    def test_strip_petapixel_image_credits(self):
+        """PetaPixel 'Image credits:' trailing paragraph stripped."""
+        html = (
+            "<p>The new camera sensor represents a significant advancement.</p>"
+            "<p>Image credits: ESA/DLR/FU Berlin</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Image credits" not in result
+        assert "camera sensor" in result
+
+    def test_strip_spacecom_author_bio(self):
+        """Space.com author bio trailing paragraph stripped."""
+        html = (
+            "<p>The eclipse will be visible across North America.</p>"
+            "<p>Joe Rao is Space.com's skywatching columnist. He has been writing about "
+            "astronomy since 1975.</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Joe Rao is Space" not in result
+        assert "eclipse" in result
+
+    def test_strip_correction_note(self):
+        """Trailing 'Correction:' note stripped."""
+        html = (
+            "<p>The policy was enacted in 2024.</p>"
+            "<p>Correction: This story originally misstated the number of affected states.</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Correction:" not in result
+        assert "policy" in result
 
     def test_handles_html_comments_without_crashing(self):
         """AV Club fix: HTML comments in children must not crash text_content()."""
