@@ -8,7 +8,9 @@ from paper_boy.filters import (
     check_quality,
     detect_paywall,
     strip_bbc_related,
+    strip_figcaption_paragraph_dupe,
     strip_junk,
+    strip_lede_dupe,
     strip_sciencedaily_metadata,
     strip_section_junk,
     strip_trailing_junk,
@@ -87,6 +89,30 @@ class TestStripJunk:
         "If you've ever considered going solar, there's no better time than right now.",
         # Free newsletter label
         "Free newsletter",
+        # Space.com ad break / comment system (Batch 9)
+        "Article continues below",
+        "You must confirm your public display name before commenting",
+        "Please logout and then login again, you will then be prompted to enter your display name.",
+        # FT myFT Digest (Batch 9)
+        "Simply sign up to the US Morning Briefing myFT Digest -- delivered directly to your inbox.",
+        # Bloomberg podcast (Batch 9)
+        "Subscribe to the Bloomberg Daybreak Podcast on Apple, Spotify and other Podcast Platforms",
+        # Politico Playbook (Batch 9)
+        "Like this content? Consider signing up for POLITICO's Playbook newsletter.",
+        # Kiplinger subscription CTA (Batch 8)
+        "Become a smarter, better informed investor. Subscribe from just $24.99, plus get up to 4 Special Issues",
+        # Kiplinger mid-article newsletter CTA (Batch 8) — matches any "Sign up for [X], our free [Y] newsletter"
+        "Looking for more timely stock market news to help gauge the health of your portfolio? Sign up for Closing Bell, our free newsletter that's delivered straight to your inbox at the close of each trading day.",
+        "Looking for expert tips to grow and preserve your wealth? Sign up for Adviser Intel, our free, twice-weekly newsletter.",
+        # Kiplinger Adviser Intel heading/boilerplate (Batch 8)
+        "About Adviser Intel",
+        "The author of this article is a participant in Kiplinger\u2019s Adviser Intel program, a curated network of trusted financial professionals who share expert insights on wealth building and preservation.",
+        # Kiplinger newsletter/magazine CTAs (Batch 8)
+        "Get practical help to make better financial decisions in your everyday life, from spending to savings on top deals. Subscribe to Kiplinger\u2019s free newsletter, A Step Ahead.",
+        "Note: This item first appeared in Kiplinger Personal Finance Magazine, a monthly, trustworthy source of advice and guidance. Subscribe to help you make more money and keep more of the money you make here.",
+        "Pack your bags and earn rewards. Kiplinger chose the best travel rewards cards for airline, hotel and other perks to help you save money.",
+        "Interested in more information for financial professionals? Sign up for Kiplinger\u2019s twice-monthly free newsletter, Adviser Intel.",
+        "From just $107.88 $24.99 for Kiplinger Personal Finance",
     ])
     def test_removes_junk_paragraph(self, junk_text):
         html = f"<p>Good content here.</p><p>{junk_text}</p>"
@@ -101,6 +127,10 @@ class TestStripJunk:
         "The company provided materials for the research project.",
         "She decided to sign up for the marathon next month.",
         "The editor originally published the story in 2020.",
+        # Batch 9 — contextual uses that must NOT be stripped
+        "The article continues below the fold with more analysis.",
+        "Users must confirm their identity before accessing the system.",
+        "She decided to subscribe to the Bloomberg Terminal for market data.",
     ])
     def test_preserves_contextual_mentions(self, safe_text):
         html = f"<p>{safe_text}</p>"
@@ -240,6 +270,22 @@ class TestStripSectionJunk:
         assert "Article content" in result
         assert "Recommended Stories" not in result
 
+    def test_recommended_stories_preserves_content_after_next_heading(self):
+        """Al Jazeera fix: to_next_heading scope keeps content past next heading."""
+        html = (
+            "<p>Main article body.</p>"
+            "<h3>Recommended Stories</h3>"
+            "<ul><li>Rec 1</li></ul>"
+            "<h2>Analysis</h2>"
+            "<p>Important analysis content.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Main article body" in result
+        assert "Recommended Stories" not in result
+        assert "Rec 1" not in result
+        assert "Analysis" in result
+        assert "Important analysis content" in result
+
     def test_removes_contact_us_to_next_heading(self):
         html = (
             "<p>Content.</p>"
@@ -269,19 +315,36 @@ class TestStripSectionJunk:
         assert "Next Section" in result
 
     def test_removes_newsletter_signup_block(self):
-        """New Scientist pattern: h4 Sign up to [Name] + description."""
+        """New Scientist pattern: h4 Sign up to [Name] + up to 3 siblings."""
         html = (
             "<p>Science content.</p>"
             "<h4>Sign up to Our Human Story</h4>"
             "<p>Get the latest discoveries about human evolution.</p>"
             "<figure><figcaption>New Scientist</figcaption></figure>"
-            "<h3>Next heading</h3>"
-            "<p>More science.</p>"
+            "<p>More science content that should be kept.</p>"
+            "<p>Even more content that should also survive.</p>"
         )
         result = strip_section_junk(html)
         assert "Science content" in result
         assert "Sign up to" not in result
-        assert "Next heading" in result
+        assert "human evolution" not in result  # within 3 siblings
+        # 4th sibling should survive the bounded strip
+        assert "Even more content" in result
+
+    def test_newsletter_signup_stops_at_heading(self):
+        """next_3 scope still stops at headings even before limit."""
+        html = (
+            "<p>Content.</p>"
+            "<h4>Sign up to Weekly</h4>"
+            "<p>Description.</p>"
+            "<h3>Next Section</h3>"
+            "<p>Preserved.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Sign up to" not in result
+        assert "Description" not in result
+        assert "Next Section" in result
+        assert "Preserved" in result
 
     def test_preserves_content_with_no_matching_headings(self):
         html = "<p>Content.</p><h2>Analysis</h2><p>More content.</p>"
@@ -299,6 +362,64 @@ class TestStripSectionJunk:
         assert "Newsletter content" in result
         assert "What we" not in result
         assert "Link 1" not in result
+
+    def test_removes_behind_the_scenes(self):
+        """Rolling Stone production credits stripped from heading onward."""
+        html = (
+            "<p>The interview concluded with a discussion about her next album.</p>"
+            "<h2>Behind the Scenes</h2>"
+            "<h5>Photographs by Dario Calmese</h5>"
+            "<p>Styling by Solange Franklin. Hair by Jawara. Makeup by Priscilla Ono.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "interview concluded" in result
+        assert "Behind the Scenes" not in result
+        assert "Styling by" not in result
+
+    def test_removes_top_comment_by(self):
+        """Electrek reader comments stripped, next heading preserved."""
+        html = (
+            "<p>Tesla reported strong quarterly deliveries.</p>"
+            "<h2>Top comment by EV_Wisconsin</h2>"
+            "<p>Great to see the numbers improving quarter over quarter.</p>"
+            "<h2>Related Articles</h2>"
+            "<p>More EV news.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Tesla reported" in result
+        assert "Top comment by" not in result
+        assert "EV_Wisconsin" not in result
+        assert "Related Articles" in result
+        assert "More EV news" in result
+
+    def test_removes_kiplinger_signup_heading(self):
+        """Kiplinger 'Sign up for Kiplinger's Free Newsletters' heading."""
+        html = (
+            "<p>Investment advice.</p>"
+            "<h2>Sign up for Kiplinger's Free Newsletters</h2>"
+            "<p>Profit and prosper with expert advice.</p>"
+            "<h2>Market Analysis</h2>"
+            "<p>Stocks fell today.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Investment advice" in result
+        assert "Sign up for Kiplinger" not in result
+        assert "Market Analysis" in result
+        assert "Stocks fell today" in result
+
+    def test_removes_related_content_to_end(self):
+        """Kiplinger 'Related content' trailing section stripped entirely."""
+        html = (
+            "<p>Article conclusion.</p>"
+            "<h3>Related content</h3>"
+            "<ul><li>Article 1</li><li>Article 2</li></ul>"
+            "<figure><figcaption>Author Name</figcaption></figure>"
+            "<p>Author bio paragraph.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "Article conclusion" in result
+        assert "Related content" not in result
+        assert "Author bio" not in result
 
 
 # --- strip_trailing_junk (stub — no-op with empty rules) ---
@@ -339,6 +460,160 @@ class TestStripTrailingJunk:
         result = strip_trailing_junk(html)
         assert "Story conclusion" in result
         assert "AP Sports" not in result
+
+    def test_handles_html_comments_without_crashing(self):
+        """AV Club fix: HTML comments in children must not crash text_content()."""
+        html = (
+            "<p>Article body text.</p>"
+            "<!-- CMS editorial comment -->"
+            "<p>Got a tip? tips@example.com</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "Article body text" in result
+        assert "Got a tip" not in result
+
+    def test_preserves_content_around_html_comments(self):
+        """HTML comments between content paragraphs are harmless."""
+        html = (
+            "<p>First paragraph.</p>"
+            "<!-- analytics tag -->"
+            "<p>Second paragraph.</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "First paragraph" in result
+        assert "Second paragraph" in result
+
+
+# --- strip_lede_dupe ---
+
+
+class TestStripLedeDupe:
+    def test_removes_reuters_style_lede_duplicate(self):
+        """Reuters pattern: <em>Summary</em> <small>By Author</small> <p>Summary</p>."""
+        html = (
+            "<em>Oil prices rose on Monday as tensions in the Middle East escalated.</em>"
+            "<small>By John Smith</small>"
+            "<p>Oil prices rose on Monday as tensions in the Middle East escalated.</p>"
+            "<p>Brent crude futures gained 1.2% to $82.50 a barrel.</p>"
+        )
+        result = strip_lede_dupe(html)
+        assert "Oil prices rose" in result  # <em> kept
+        assert result.count("Oil prices rose") == 1  # duplicate <p> removed
+        assert "Brent crude" in result  # rest of article preserved
+
+    def test_removes_reuters_wrapped_em_in_p(self):
+        """Reuters actual pattern: <p><em>Summary</em></p> <p><small>By</small></p> <p>Summary</p>."""
+        html = (
+            "<p><em>Oil prices rose on Monday as tensions in the Middle East escalated.</em></p>"
+            "<p><small>By John Smith</small></p>"
+            "<p>Oil prices rose on Monday as tensions in the Middle East escalated.</p>"
+            "<p>Brent crude futures gained 1.2% to $82.50 a barrel.</p>"
+        )
+        result = strip_lede_dupe(html)
+        assert "Oil prices rose" in result
+        assert result.count("Oil prices rose") == 1
+        assert "Brent crude" in result
+
+    def test_removes_reuters_with_long_byline(self):
+        """Reuters with multi-author byline in <p><small> still deduplicates."""
+        html = (
+            "<p><em>Iran will fight on and keep the Strait of Hormuz shut as leverage.</em></p>"
+            "<p><small>By Parisa Hafezi, Maya Gebeily</small></p>"
+            "<p>Iran will fight on and keep the Strait of Hormuz shut as leverage.</p>"
+            "<p>More article content here.</p>"
+        )
+        result = strip_lede_dupe(html)
+        assert "Iran will fight" in result
+        assert result.count("Iran will fight") == 1
+        assert "More article content" in result
+
+    def test_preserves_non_matching_opening(self):
+        """Don't strip if <em> and <p> text differ."""
+        html = (
+            "<em>Summary of the story.</em>"
+            "<p>The actual article begins here with different text.</p>"
+            "<p>Second paragraph.</p>"
+        )
+        result = strip_lede_dupe(html)
+        assert "actual article" in result
+        assert "Second paragraph" in result
+
+    def test_preserves_article_without_leading_em(self):
+        """Normal articles without opening <em> are untouched."""
+        html = (
+            "<p>First paragraph of a normal article.</p>"
+            "<p>Second paragraph.</p>"
+        )
+        result = strip_lede_dupe(html)
+        assert "First paragraph" in result
+        assert "Second paragraph" in result
+
+    def test_ignores_short_em(self):
+        """Short <em> text (< 20 chars) is ignored — likely inline emphasis."""
+        html = (
+            "<em>Breaking:</em>"
+            "<p>Breaking: Oil prices rose sharply today.</p>"
+        )
+        result = strip_lede_dupe(html)
+        assert result.count("Breaking") == 2  # both kept — em too short
+
+
+# --- strip_figcaption_paragraph_dupe ---
+
+
+class TestStripFigcaptionParagraphDupe:
+    def test_removes_npr_style_caption_paragraph(self):
+        """NPR pattern: <figure>...<figcaption>Caption</figcaption></figure><p>Caption. Credit</p>."""
+        html = (
+            "<figure><img src='photo.jpg'/>"
+            "<figcaption>Mourners carry the casket at the funeral service.</figcaption>"
+            "</figure>"
+            "<p>Mourners carry the casket at the funeral service. Anna Moneymaker/Getty Images</p>"
+            "<p>The ceremony was held on Tuesday morning.</p>"
+        )
+        result = strip_figcaption_paragraph_dupe(html)
+        assert "Mourners carry" in result  # figcaption kept
+        assert result.count("Mourners carry") == 1  # duplicate <p> removed
+        assert "ceremony was held" in result  # next paragraph preserved
+
+    def test_preserves_non_matching_paragraph(self):
+        """Don't strip <p> that doesn't start with figcaption text."""
+        html = (
+            "<figure><img src='photo.jpg'/>"
+            "<figcaption>A scenic view of the mountains.</figcaption>"
+            "</figure>"
+            "<p>The hikers set out early in the morning for the summit.</p>"
+        )
+        result = strip_figcaption_paragraph_dupe(html)
+        assert "scenic view" in result
+        assert "hikers set out" in result
+
+    def test_preserves_short_figcaption(self):
+        """Short figcaptions (< 10 chars) are ignored — could be a credit."""
+        html = (
+            "<figure><img src='photo.jpg'/>"
+            "<figcaption>Reuters</figcaption>"
+            "</figure>"
+            "<p>Reuters reported that the deal was finalized on Monday.</p>"
+        )
+        result = strip_figcaption_paragraph_dupe(html)
+        assert result.count("Reuters") == 2  # both kept — caption too short
+
+    def test_handles_multiple_figures(self):
+        """Dedup works across multiple figures in the same article."""
+        html = (
+            "<figure><figcaption>First image caption text here.</figcaption></figure>"
+            "<p>First image caption text here. Photo by John Smith</p>"
+            "<p>Article content between images.</p>"
+            "<figure><figcaption>Second image shows the building exterior.</figcaption></figure>"
+            "<p>Second image shows the building exterior. Jane Doe/AP</p>"
+            "<p>The building was completed in 2024.</p>"
+        )
+        result = strip_figcaption_paragraph_dupe(html)
+        assert result.count("First image caption") == 1
+        assert result.count("Second image shows") == 1
+        assert "Article content between" in result
+        assert "building was completed" in result
 
 
 # --- detect_paywall ---

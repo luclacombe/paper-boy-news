@@ -104,6 +104,15 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
     # --- Kiplinger subscription/tagline ---
     [
         r"profit\s+and\s+prosper\b.*",  # Kiplinger tagline
+        r"become\s+a\s+smarter.*subscribe\s+from\b.*",  # Kiplinger subscription CTA
+        r".*sign\s+up\s+for\s+.*\bour\s+free\b.*\bnewsletter\b.*",  # Kiplinger newsletter CTAs (Closing Bell, Adviser Intel, etc.)
+        r"about\s+adviser\s+intel$",  # Kiplinger Adviser Intel heading paragraph
+        r".*\bparticipant\s+in\s+Kiplinger.s\s+Adviser\s+Intel\s+program\b.*",  # Kiplinger Adviser Intel boilerplate
+        r".*\bsubscribe\s+to\s+Kiplinger.s\s+free\s+newsletter\b.*",  # Kiplinger "Subscribe to Kiplinger's free newsletter"
+        r".*\bsubscribe\s+to\s+help\s+you\s+make\s+more\s+money\b.*",  # Kiplinger magazine CTA
+        r".*\bKiplinger\s+chose\s+the\s+best\b.*\brewards\b.*",  # Kiplinger advertising/affiliate
+        r".*\bsign\s+up\s+for\s+Kiplinger.s\b.*\bfree\b.*",  # Kiplinger newsletter sign-up variants
+        r".*\bfor\s+Kiplinger\s+Personal\s+Finance\b",  # Kiplinger magazine pricing CTA
     ],
     # --- Donation / partnership blocks ---
     [
@@ -113,6 +122,24 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
     # --- Free newsletter label ---
     [
         r"free\s+newsletter",  # New Scientist standalone label
+    ],
+    # --- Space.com ad break / comment system ---
+    [
+        r"article\s+continues\s+below",  # Space.com mid-article ad marker
+        r"(?:you\s+must\s+)?(?:confirm|enter)\s+your\s+public\s+display\s+name\b.*",  # Space.com comment system
+        r"please\s+log\s*out\s+and\s+then\s+log\s*in\s+again\b.*",  # Space.com comment system variant
+    ],
+    # --- FT myFT Digest CTAs ---
+    [
+        r"simply\s+sign\s+up\s+to\s+the\b.*myft\s+digest\b.*",  # FT newsletter cross-sell
+    ],
+    # --- Bloomberg podcast CTA ---
+    [
+        r"subscribe\s+to\s+the\s+bloomberg\b.*podcast\b.*",  # Bloomberg podcast CTA
+    ],
+    # --- Politico Playbook CTA ---
+    [
+        r"like\s+this\s+content\??\s*consider\s+sign(?:ing)?\s+up\b.*",  # Politico Playbook
     ],
 ]
 
@@ -196,18 +223,30 @@ def strip_bbc_related(html: str) -> str:
 _SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = [
     # Rock Paper Shotgun "Read this next" + article list
     (re.compile(r"^Read this next$", re.IGNORECASE), "to_end"),
-    # Al Jazeera "Recommended Stories" + article list
-    (re.compile(r"^Recommended Stories$", re.IGNORECASE), "to_end"),
+    # Al Jazeera "Recommended Stories" + article list (next_1 — only strip
+    # the heading + the <ul> that follows, because AJ embeds this mid-article
+    # with real content continuing after the list)
+    (re.compile(r"^Recommended Stories$", re.IGNORECASE), "next_1"),
     # TechCrunch / Wired "Contact Us" / "Got a Tip?" sections
     (re.compile(r"^(?:Contact Us|Got a Tip\??)$", re.IGNORECASE), "to_next_heading"),
     # New Scientist newsletter signup blocks (h4 "Sign up to [Name]")
-    (re.compile(r"^Sign up to\b", re.IGNORECASE), "to_next_heading"),
+    # Use "next_3" to only remove the heading + up to 3 siblings (the typical
+    # signup block: description <p> + figure + maybe a link). "to_next_heading"
+    # was too aggressive — removed legitimate article content when the next
+    # structural heading was far away (843 → 397 avg words regression).
+    (re.compile(r"^Sign up to\b", re.IGNORECASE), "next_3"),
     # Inside Climate News donation block — anchored to ICN-specific phrasing
     (re.compile(r"^(?:Support Our (?:Work|Mission|Reporting)|Donate to\b)", re.IGNORECASE), "to_next_heading"),
     # Kiplinger subscription CTA sections
-    (re.compile(r"^(?:Subscribe|Join)\s+(?:to|for)\s+Kiplinger", re.IGNORECASE), "to_next_heading"),
+    (re.compile(r"^(?:Subscribe|Join|Sign up)\s+(?:to|for)\s+Kiplinger", re.IGNORECASE), "to_next_heading"),
+    # Kiplinger "Related content" / "Read More" trailing sections
+    (re.compile(r"^(?:Related content|Read More)$", re.IGNORECASE), "to_end"),
     # STAT "What we're reading" trailing list
     (re.compile(r"^What we(?:'re|.re) reading$", re.IGNORECASE), "to_end"),
+    # Rolling Stone "Behind the Scenes" production credits (to_end — everything after is crew)
+    (re.compile(r"^Behind the Scenes$", re.IGNORECASE), "to_end"),
+    # Electrek "Top comment by [username]" (to_next_heading — reader comment, not editorial)
+    (re.compile(r"^Top comment by\b", re.IGNORECASE), "to_next_heading"),
 ]
 
 
@@ -248,6 +287,23 @@ def strip_section_junk(html: str) -> str:
                     continue
                 to_remove = [heading]
                 for sibling in heading.itersiblings():
+                    if sibling.tag in ("h2", "h3", "h4"):
+                        break
+                    to_remove.append(sibling)
+                for el in to_remove:
+                    parent.remove(el)
+            elif scope.startswith("next_"):
+                # Remove heading + up to N following siblings (bounded strip).
+                # Safer than "to_next_heading" when junk blocks appear
+                # mid-article — won't accidentally consume real content.
+                limit = int(scope.split("_", 1)[1])
+                parent = heading.getparent()
+                if parent is None:
+                    continue
+                to_remove = [heading]
+                for count, sibling in enumerate(heading.itersiblings()):
+                    if count >= limit:
+                        break
                     if sibling.tag in ("h2", "h3", "h4"):
                         break
                     to_remove.append(sibling)
@@ -298,6 +354,10 @@ def strip_trailing_junk(html: str) -> str:
     # Walk from the end, check last 10 elements
     cutoff = None
     for i in range(len(children) - 1, max(len(children) - 11, -1), -1):
+        # Skip non-element nodes (HTML comments, processing instructions).
+        # HtmlComment.tag is a callable, not a string — use that to detect.
+        if not isinstance(children[i].tag, str):
+            continue
         text = (children[i].text_content() or "").strip()
         for pattern in _TRAILING_JUNK_RULES:
             if pattern.match(text):
@@ -311,6 +371,143 @@ def strip_trailing_junk(html: str) -> str:
             doc.remove(child)
 
     from lxml import etree
+
+    result = etree.tostring(doc, encoding="unicode", method="html")
+    if result.startswith("<div>") and result.endswith("</div>"):
+        result = result[5:-6]
+    return result
+
+
+# --- Lede dedup (Reuters pattern) ---
+
+
+def strip_lede_dupe(html: str) -> str:
+    """Remove duplicate lede paragraph that repeats an opening <em> block.
+
+    Reuters mobile API produces: <em>Summary</em> <small>By Author</small>
+    <p>Summary</p> (duplicate). This strips the duplicate <p> when its text
+    matches the preceding <em> text.
+
+    General-purpose: safe for all sources since it only fires when the first
+    meaningful element is <em> and a near-identical <p> follows within the
+    first 5 block elements.
+    """
+    try:
+        from lxml import html as lxml_html
+    except ImportError:
+        return html
+
+    try:
+        doc = lxml_html.fragment_fromstring(html, create_parent="div")
+    except Exception:
+        return html
+
+    # Find the first <em> — either as a direct child or inside the first <p>.
+    # Reuters pattern: <p><em>Summary</em></p> <p><small>By Author</small></p> <p>Summary</p>
+    first_em = None
+    em_parent = None  # The block-level element containing the <em>
+    for el in doc:
+        if el.tag == "em":
+            first_em = el
+            em_parent = el
+            break
+        if el.tag == "p":
+            # Check if this <p> contains only an <em> child (possibly with tail whitespace)
+            children = list(el)
+            if len(children) == 1 and children[0].tag == "em":
+                em_only = not (el.text or "").strip()
+                if em_only:
+                    first_em = children[0]
+                    em_parent = el
+                    break
+            break  # First <p> doesn't have the pattern — stop
+        if el.tag in ("h1", "h2", "h3", "h4", "h5", "h6", "figure", "div", "ul", "ol"):
+            break
+
+    if first_em is None:
+        return html
+
+    em_text = (first_em.text_content() or "").strip().lower()
+    if not em_text or len(em_text) < 20:
+        return html
+
+    # Scan siblings after the em_parent for a <p> with matching text.
+    # Skip metadata elements like <p><small>By Author</small></p>.
+    count = 0
+    for sibling in em_parent.itersiblings():
+        count += 1
+        if count > 5:
+            break
+        if sibling.tag != "p":
+            continue
+        # Skip <p> containing only <small> (byline metadata)
+        children = list(sibling)
+        if children and all(c.tag == "small" for c in children) and not (sibling.text or "").strip():
+            continue
+        p_text = (sibling.text_content() or "").strip().lower()
+        if not p_text or len(p_text) < 20:
+            continue  # Skip short metadata paragraphs (bylines, dates)
+        # Fuzzy match: one contains the other (handles minor differences)
+        if em_text in p_text or p_text in em_text:
+            sibling.getparent().remove(sibling)
+            from lxml import etree
+            result = etree.tostring(doc, encoding="unicode", method="html")
+            # Strip the wrapper <div> we added
+            if result.startswith("<div>") and result.endswith("</div>"):
+                result = result[5:-6]
+            return result
+        break  # First substantial <p> didn't match — stop
+
+    return html
+
+
+# --- Figcaption-to-paragraph dedup (NPR pattern) ---
+
+
+def strip_figcaption_paragraph_dupe(html: str) -> str:
+    """Remove <p> elements that duplicate the preceding <figcaption> text.
+
+    NPR articles produce: <figure>...<figcaption>Caption</figcaption></figure>
+    <p>Caption. Photographer/Agency</p>. The <p> starts with the figcaption
+    text and appends a photo credit.
+
+    General-purpose: safe for all sources since it only fires when a <p>
+    immediately following a </figure> starts with that figure's figcaption text.
+    """
+    try:
+        from lxml import html as lxml_html
+        from lxml import etree
+    except ImportError:
+        return html
+
+    try:
+        doc = lxml_html.fragment_fromstring(html, create_parent="div")
+    except Exception:
+        return html
+
+    modified = False
+    # Find all <figure> elements and check the sibling after each
+    for figure in doc.iter("figure"):
+        # Get figcaption text
+        figcaption = figure.find(".//figcaption")
+        if figcaption is None:
+            continue
+        caption_text = (figcaption.text_content() or "").strip().lower()
+        if not caption_text or len(caption_text) < 10:
+            continue
+
+        # Check next sibling — must be a <p>
+        next_el = figure.getnext()
+        if next_el is None or next_el.tag != "p":
+            continue
+
+        p_text = (next_el.text_content() or "").strip().lower()
+        if p_text and p_text.startswith(caption_text):
+            next_el.getparent().remove(next_el)
+            modified = True
+
+    if not modified:
+        return html
 
     result = etree.tostring(doc, encoding="unicode", method="html")
     if result.startswith("<div>") and result.endswith("</div>"):

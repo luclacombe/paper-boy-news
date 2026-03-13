@@ -32,6 +32,8 @@ from paper_boy.feeds import (
     _fetch_single_feed,
     _get_feed_content,
     _is_premium_title,
+    _is_stale_entry,
+    _recover_images_from_html,
     _should_skip_title,
     _should_skip_url,
     MAX_ARTICLE_WORDS,
@@ -534,8 +536,9 @@ class TestExtractArticleContent:
         result = _extract_article_content("https://example.com/article", True)
         assert result is not None
         assert "word" in result
-        # Should not attempt bot UA fetch
-        mock_fetch.assert_not_called()
+        # _fetch_page may be called for image recovery (text has 0 images)
+        # but should NOT fall through to bot UA / further strategies
+        mock_traf.assert_called_once()
 
     @patch("paper_boy.feeds._extract_via_archive", return_value=None)
     @patch("paper_boy.feeds._extract_from_json_ld", return_value=None)
@@ -770,6 +773,33 @@ class TestNormalizeHtml:
         result = _normalize_html(html)
         assert "Image may contain" not in result
         assert "<img" in result
+
+    def test_strips_article_continues_below(self):
+        """Space.com bare 'Article continues below' text node is removed."""
+        html = "<p>Content before.</p>Article continues below<p>Content after.</p>"
+        result = _normalize_html(html)
+        assert "Article continues below" not in result
+        assert "Content before" in result
+        assert "Content after" in result
+
+    def test_strips_bbc_published_bullet(self):
+        """BBC 'Published' CMS artifact is removed."""
+        html = "<ul><li>Published</li></ul><p>Article content here.</p>"
+        result = _normalize_html(html)
+        assert "Published" not in result
+        assert "Article content" in result
+
+    def test_strips_bloomberg_ad_div(self):
+        """Bloomberg empty ad div placeholders are removed."""
+        html = (
+            '<p>Article content.</p>'
+            '<div class="ad news-designed-for-consumer-media" data-ad-type="small-box"> </div>'
+            '<p>More content.</p>'
+        )
+        result = _normalize_html(html)
+        assert "ad news-designed" not in result
+        assert "Article content" in result
+        assert "More content" in result
 
 
 # --- TestDedupConsecutiveParagraphs ---
@@ -1559,25 +1589,24 @@ class TestDomainStrategyHints:
             assert mock_fetch.called
             assert result is not None
 
-    def test_ft_skips_s1_and_s1_5(self):
-        """FT should skip S1 and S1.5, start at S2 (bot UA)."""
+    def test_ft_routes_to_archive(self):
+        """FT routes directly to archive.today (Strategy 0d) — all direct UAs
+        return a JS-disabled stub since March 2026."""
         with (
             patch("paper_boy.feeds._trafilatura_extract") as mock_traf,
             patch("paper_boy.feeds._fetch_page") as mock_fetch,
-            patch("paper_boy.feeds._trafilatura_extract_from_html") as mock_traf_html,
+            patch("paper_boy.feeds._extract_via_archive", return_value=_LONG_CONTENT) as mock_archive,
         ):
-            # S2 bot UA fetch returns content
-            mock_fetch.return_value = "<html><body>" + _LONG_CONTENT + "</body></html>"
-            mock_traf_html.return_value = _LONG_CONTENT
-
             result = _extract_article_content(
                 "https://www.ft.com/content/some-article", True
             )
 
-            # S1 should NOT be called
+            # S1 and S1.5/S2 should NOT be called — FT goes straight to archive
             mock_traf.assert_not_called()
-            # _fetch_page should be called only once (S2 bot UA), not twice (S1.5 + S2)
-            assert mock_fetch.call_count == 1
+            mock_fetch.assert_not_called()
+            mock_archive.assert_called_once_with(
+                "https://www.ft.com/content/some-article", True
+            )
             assert result is not None
 
     def test_unknown_domain_uses_default_chain(self):
@@ -1696,6 +1725,30 @@ class TestDomainFailureTracking:
         # After 3 paywall-teaser articles, domain should NOT be blocked
         assert not _domain_is_blocked("https://www.paywalled-news.com/content/article-4")
 
+    def test_domain_hint_does_not_record_failure(self):
+        """When strategy hints skip S1, the skip must NOT count as a domain
+        failure.  Otherwise hint_start>=2 causes domain blocking after 2
+        articles, preventing S1.5 (which works) from running.  Nature uses
+        hint_start=2 (skip to S1.5)."""
+        _reset_domain_failures()
+
+        browser_article = "<p>" + " ".join(["content"] * 500) + "</p>"
+
+        for i in range(3):
+            url = f"https://www.nature.com/articles/article-{i}"
+            with (
+                patch("paper_boy.feeds._fetch_page", return_value="<html>browser page</html>"),
+                patch("paper_boy.feeds._trafilatura_extract_from_html",
+                      return_value=browser_article),
+                patch("paper_boy.feeds._extract_from_json_ld", return_value=None),
+                patch("paper_boy.feeds._extract_via_archive", return_value=None),
+            ):
+                result = _extract_article_content(url, include_images=False)
+                assert result is not None, f"Article {i} should succeed via S1.5 browser UA"
+
+        # Domain must NOT be blocked — hint-skipped strategies aren't failures
+        assert not _domain_is_blocked("https://www.nature.com/articles/article-4")
+
 
 # --- Cross-feed URL deduplication ---
 
@@ -1734,6 +1787,7 @@ class TestTitleFiltering:
         "Author Correction: Gut stem cell necroptosis",
         "Erratum: Solar cell efficiency measurement",
         "Green Deals: Best solar panel discounts this week",
+        "Webinar: Space Station Science Updates",
     ])
     def test_skips_non_journalism_titles(self, title):
         assert _should_skip_title(title) is True
@@ -1745,6 +1799,7 @@ class TestTitleFiltering:
         "EU Green Deal Faces New Opposition",
         "The Vogue Business People Moves Tracker",
         "COVID Tracker Shows Declining Cases",
+        "Scientists present findings at annual webinar series",
     ])
     def test_allows_journalism_titles(self, title):
         assert _should_skip_title(title) is False
@@ -1757,6 +1812,8 @@ class TestUrlFiltering:
     @pytest.mark.parametrize("url", [
         "https://www.nature.com/articles/s41586-025-08923-z",
         "https://projects.propublica.org/climate-migration",
+        "https://www.nasa.gov/nesc/some-technical-paper",
+        "https://www.smithsonianmag.com/sponsored/four-ways-to-experience-wyoming/",
     ])
     def test_skips_non_article_urls(self, url):
         assert _should_skip_url(url) is True
@@ -1764,6 +1821,7 @@ class TestUrlFiltering:
     @pytest.mark.parametrize("url", [
         "https://www.nature.com/articles/d41586-025-00789-1",
         "https://www.propublica.org/article/some-investigation",
+        "https://www.smithsonianmag.com/history/the-untold-story/",
     ])
     def test_allows_article_urls(self, url):
         assert _should_skip_url(url) is False
@@ -1787,3 +1845,229 @@ class TestWordCountCap:
         with patch("paper_boy.feeds._extract_article_content", return_value=_LONG_CONTENT):
             result = _extract_article(entry, config)
         assert result is not None
+
+
+# --- Author cleanup ---
+
+
+class TestAuthorCleanup:
+    """Tests for author metadata cleanup during feed processing."""
+
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
+    @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html>page</html>")
+    @patch("paper_boy.feeds.feedparser.parse")
+    def test_strips_by_prefix_from_author(
+        self, mock_parse, mock_fetch_url, mock_extract, local_config
+    ):
+        """'By Author Name' in dc:creator becomes 'Author Name'."""
+        mock_parse.return_value = _make_parsed_feed(
+            entries=[_make_feed_entry(author="By Marianne Lavelle")]
+        )
+        sections = fetch_feeds(local_config)
+        assert sections[0].articles[0].author == "Marianne Lavelle"
+
+
+# --- Stale entry filtering ---
+
+
+class TestIsStaleEntry:
+    """Tests for _is_stale_entry() feed freshness gate."""
+
+    def test_old_entry_is_stale(self):
+        """Entry published 10 days ago is stale (> 7 day threshold)."""
+        import time, calendar
+        ten_days_ago = time.gmtime(time.time() - 10 * 86400)
+        entry = {"published_parsed": ten_days_ago}
+        assert _is_stale_entry(entry) is True
+
+    def test_recent_entry_is_fresh(self):
+        """Entry published 1 day ago is not stale."""
+        import time
+        one_day_ago = time.gmtime(time.time() - 1 * 86400)
+        entry = {"published_parsed": one_day_ago}
+        assert _is_stale_entry(entry) is False
+
+    def test_no_date_is_not_stale(self):
+        """Entry with no date fields is assumed fresh."""
+        entry = {"title": "No date here"}
+        assert _is_stale_entry(entry) is False
+
+    def test_uses_updated_when_no_published(self):
+        """Falls back to updated_parsed when published_parsed is missing."""
+        import time
+        ten_days_ago = time.gmtime(time.time() - 10 * 86400)
+        entry = {"updated_parsed": ten_days_ago}
+        assert _is_stale_entry(entry) is True
+
+    def test_boundary_fresh_at_exactly_7_days(self):
+        """Entry exactly 7 days old is not stale (boundary: > not >=)."""
+        import time
+        # Slightly under 7 days
+        entry = {"published_parsed": time.gmtime(time.time() - 6.9 * 86400)}
+        assert _is_stale_entry(entry) is False
+
+    def test_invalid_date_tuple_is_not_stale(self):
+        """Malformed date tuples don't crash — treated as fresh."""
+        entry = {"published_parsed": "not a tuple"}
+        assert _is_stale_entry(entry) is False
+
+    @patch("paper_boy.feeds.trafilatura.extract", return_value=_LONG_CONTENT)
+    @patch("paper_boy.feeds.trafilatura.fetch_url", return_value="<html>page</html>")
+    @patch("paper_boy.feeds.feedparser.parse")
+    def test_stale_entries_skipped_in_fetch(
+        self, mock_parse, mock_fetch_url, mock_extract, local_config
+    ):
+        """Stale entries are skipped — only fresh entries become articles."""
+        import time
+        old_date = time.gmtime(time.time() - 10 * 86400)
+        fresh_date = time.gmtime(time.time() - 1 * 86400)
+        mock_parse.return_value = _make_parsed_feed(entries=[
+            _make_feed_entry(title="Old Article", published=old_date),
+            _make_feed_entry(
+                title="Fresh Article",
+                link="https://example.com/article/2",
+                published=fresh_date,
+            ),
+        ])
+        # Patch published_parsed which feedparser normally provides
+        mock_parse.return_value.entries[0]["published_parsed"] = old_date
+        mock_parse.return_value.entries[1]["published_parsed"] = fresh_date
+        sections = fetch_feeds(local_config)
+        assert len(sections) == 1
+        assert len(sections[0].articles) == 1
+        assert sections[0].articles[0].title == "Fresh Article"
+
+
+# --- Image recovery from raw HTML ---
+
+
+class TestRecoverImagesFromHtml:
+    """Tests for _recover_images_from_html() image recovery."""
+
+    def test_no_recovery_when_images_exist(self):
+        """If extracted content already has images, return unchanged."""
+        extracted = '<p>Text</p><img src="http://example.com/photo.jpg"/><p>More</p>'
+        raw = '<html><article><img src="http://example.com/other.jpg"/></article></html>'
+        result = _recover_images_from_html(extracted, raw)
+        assert result == extracted
+
+    def test_no_recovery_when_graphic_tags_exist(self):
+        """TEI <graphic> tags count as existing images."""
+        extracted = '<p>Text</p><graphic src="http://example.com/photo.jpg"/>'
+        raw = '<html><article><img src="http://example.com/other.jpg"/></article></html>'
+        result = _recover_images_from_html(extracted, raw)
+        assert result == extracted
+
+    def test_recovers_lead_image_from_article(self):
+        """Recovers images from <article> container when extracted has none."""
+        extracted = "<p>Article text without images.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img src="https://cdn.example.com/hero.jpg" alt="Hero"/>'
+            "<p>Article text without images.</p>"
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        assert 'src="https://cdn.example.com/hero.jpg"' in result
+        assert "<p>Article text without images.</p>" in result
+
+    def test_recovers_from_main_element(self):
+        """Falls through to <main> when no <article>."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><main>"
+            '<img src="https://cdn.example.com/photo.jpg" alt="Photo"/>'
+            "</main></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        assert "cdn.example.com/photo.jpg" in result
+
+    def test_filters_ad_images(self):
+        """Ad/tracking images are excluded from recovery."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img src="https://doubleclick.net/ad.gif" alt="ad"/>'
+            '<img src="https://pixel.example.com/track.png" alt=""/>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        # No valid images recovered — should return unchanged
+        assert result == extracted
+
+    def test_deduplicates_images(self):
+        """Same image URL appearing multiple times is only recovered once."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img src="https://cdn.example.com/hero.jpg" alt="Hero"/>'
+            '<img src="https://cdn.example.com/hero.jpg" alt="Hero 2"/>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        assert result.count("cdn.example.com/hero.jpg") == 1
+
+    def test_recovers_all_valid_images(self):
+        """All valid images in the content container are recovered."""
+        extracted = "<p>Text only.</p>"
+        imgs = "".join(
+            f'<img src="https://cdn.example.com/img{i}.jpg" alt=""/>'
+            for i in range(10)
+        )
+        raw = f"<html><body><article>{imgs}</article></body></html>"
+        result = _recover_images_from_html(extracted, raw)
+        assert result.count("<img") == 10
+
+    def test_prefers_data_src(self):
+        """Lazy-loaded data-src is preferred over src."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img data-src="https://cdn.example.com/lazy.jpg" '
+            'src="https://cdn.example.com/placeholder.gif" alt=""/>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        assert "cdn.example.com/lazy.jpg" in result
+        assert "placeholder.gif" not in result
+
+    def test_skips_relative_urls_without_page_url(self):
+        """Relative image URLs are skipped when no page_url is provided."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img src="/images/local.jpg" alt="Local"/>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        assert result == extracted
+
+    def test_resolves_relative_urls_with_page_url(self):
+        """Relative image URLs are resolved against the page URL (Al Jazeera pattern)."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img src="/wp-content/uploads/2026/03/photo.jpg" alt="Photo"/>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(
+            extracted, raw, "https://www.aljazeera.com/news/2026/3/13/article"
+        )
+        assert "https://www.aljazeera.com/wp-content/uploads/2026/03/photo.jpg" in result
+
+    def test_no_content_container_returns_unchanged(self):
+        """If no content container has images, return unchanged."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><nav>"
+            '<img src="https://cdn.example.com/logo.jpg" alt="Logo"/>'
+            "</nav></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw)
+        assert result == extracted
+
+    def test_invalid_html_returns_unchanged(self):
+        """Malformed raw HTML doesn't crash — returns extracted unchanged."""
+        extracted = "<p>Text only.</p>"
+        result = _recover_images_from_html(extracted, "")
+        assert result == extracted

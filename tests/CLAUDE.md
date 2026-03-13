@@ -31,7 +31,10 @@ pytest -k "test_build"           # By name pattern
 ## Test Patterns
 
 - **Parametrized tests**: `test_filters.py` and `test_feeds.py` use `@pytest.mark.parametrize` for pattern-based tests (junk text removal, normalization rules, caption artifacts). Adding a test case = appending one string to the parametrize list.
-- **Section/trailing junk tests**: `TestStripSectionJunk` (7 tests) and `TestStripTrailingJunk` (4 tests) verify structural junk removal patterns (headings + lists, trailing tip-lines, AP section links).
+- **Section/trailing junk tests**: `TestStripSectionJunk` (13 tests) and `TestStripTrailingJunk` (6 tests) verify structural junk removal patterns (headings + lists, trailing tip-lines, AP section links, Rolling Stone credits, Electrek comments, bounded `next_N` scope, HTML comment handling).
+- **Content dedup tests**: `TestStripLedeDupe` (6 tests) and `TestStripFigcaptionParagraphDupe` (4 tests) verify lede and figcaption deduplication.
+- **Stale entry tests**: `TestIsStaleEntry` (7 tests) verifies feed freshness gate (old/recent/no-date/boundary/invalid entries, integration with `_fetch_single_feed`).
+- **Image recovery tests**: `TestRecoverImagesFromHtml` (11 tests) verifies raw HTML image recovery (already-has-images passthrough, container detection, ad filtering, dedup, lazy-loading, URL validation, cap).
 
 ## Notes
 

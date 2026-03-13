@@ -206,7 +206,7 @@ Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only
 - Config is YAML-based for CLI (`config.yaml`), Supabase DB for web app
 - EPUB metadata: `calibre:series` for Kobo, standard EPUB3 for all devices
 - EPUB structure: category-grouped when feeds have categories (web app), flat when no categories (CLI). Cover page first in spine with EPUB3 landmarks nav + EPUB2 guide for proper opening behavior
-- Post-extraction content filtering pipeline: junk stripping → ScienceDaily metadata → BBC related → section junk → trailing junk → paywall detection → quality gate (see `filters.py`)
+- Post-extraction content filtering pipeline: junk stripping → lede dedup → ScienceDaily metadata → BBC related → section junk → trailing junk → paywall detection → quality gate → (image processing) → figcaption paragraph dedup (see `filters.py`)
 - Cover images: 600x900px, generated with Pillow, category-aware labels
 - Secrets: never commit `.env.local`, use env vars in CI/deployment
 
