@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import gzip
 import html as _html_mod
 import http.client
@@ -11,6 +12,7 @@ import random
 import re
 import signal
 import ssl
+import time
 import http.cookiejar
 import urllib.request
 
@@ -31,7 +33,9 @@ from paper_boy.filters import (
     check_quality,
     detect_paywall,
     strip_bbc_related,
+    strip_figcaption_paragraph_dupe,
     strip_junk,
+    strip_lede_dupe,
     strip_sciencedaily_metadata,
     strip_section_junk,
     strip_trailing_junk,
@@ -58,8 +62,8 @@ _CONSECUTIVE_FAILURE_OVERRIDES: dict[str, int] = {
 _DOMAIN_STRATEGY_HINTS: dict[str, int] = {
     # Nature: S1 always fails (idp redirect loop), S1.5 browser UA works
     "nature.com": 2,  # Start at S1.5
-    # FT: S1/S1.5 always hit paywall, S2 (bot UA) works for all articles
-    "ft.com": 3,  # Start at S2 — saves 40 wasted requests/build
+    # FT: moved to Strategy 0d (direct archive.today routing) — all direct
+    # UAs now return a JS-disabled stub since March 2026.
 }
 
 # Domain-level extraction failure tracking.
@@ -85,6 +89,30 @@ def _domain_is_blocked(url: str) -> bool:
     """Check if a domain has exceeded the failure threshold."""
     domain = urlparse(url).netloc
     return _domain_failures.get(domain, 0) >= _DOMAIN_FAILURE_THRESHOLD
+
+
+# --- Stale entry filtering ---
+
+# Skip RSS entries older than this many days (saves extraction time on
+# feeds like DW Business (70% >7d), Eater (89% 3-7d), Morning Brew (45%))
+_MAX_ENTRY_AGE_DAYS = 7
+
+
+def _is_stale_entry(entry) -> bool:
+    """Return True if a feed entry is older than _MAX_ENTRY_AGE_DAYS.
+
+    Uses feedparser's pre-parsed UTC time tuples. Entries with no date
+    are assumed fresh (not skipped).
+    """
+    date_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
+    if not date_tuple:
+        return False
+    try:
+        entry_ts = calendar.timegm(date_tuple[:9])
+        age_days = (time.time() - entry_ts) / 86400
+        return age_days > _MAX_ENTRY_AGE_DAYS
+    except (TypeError, OverflowError, ValueError):
+        return False
 
 
 # Auth/login URL patterns — detected after redirect to abort early
@@ -176,11 +204,11 @@ _REUTERS_GEO_COOKIE = 'reuters-geo={"country":"-"; "region":"-"}='
 # Technique from Calibre's project_syndicate.recipe by Kovid Goyal
 _ARCHIVE_TLDS = ("fo", "is", "li", "md", "ph", "vn")
 
-# LibreSSL (macOS system Python) cannot complete TLS handshakes with
-# archive.today — each attempt burns ~12s waiting for the 15s timeout.
-# With 6 TLDs per article, that's ~72s of pure waste per failed article.
-# Detect LibreSSL at import time and skip archive.today strategy entirely.
-_HAS_MODERN_SSL = "LibreSSL" not in ssl.OPENSSL_VERSION
+# Archive.today TLS compatibility flag.  Historically LibreSSL could not
+# complete TLS handshakes with archive.today mirrors, but as of 2026 the
+# handshakes succeed on LibreSSL 2.8.3 (macOS).  Flag kept for future-
+# proofing but currently always True.
+_HAS_MODERN_SSL = True
 
 # Scientific American base URL
 # Uses __DATA__ JSON on issue page for article discovery (no RSS feed available).
@@ -211,6 +239,7 @@ _SKIP_TITLE_PATTERNS = [
     re.compile(r"\bcorrection\b", re.IGNORECASE),  # Nature corrections
     re.compile(r"\berrat(?:um|a)\b", re.IGNORECASE),  # Nature errata
     re.compile(r"\bgreen\s+deals?\s*:", re.IGNORECASE),  # Electrek affiliate roundups
+    re.compile(r"^webinar\b", re.IGNORECASE),  # NASA webinar invites
 ]
 
 
@@ -222,6 +251,8 @@ def _should_skip_title(title: str) -> bool:
 _SKIP_URL_PATTERNS = [
     re.compile(r"nature\.com/articles/s\d+"),  # Nature research papers (s41586-*)
     re.compile(r"projects\.propublica\.org"),  # ProPublica interactive tools
+    re.compile(r"nasa\.gov/nesc/"),  # NASA NESC technical papers
+    re.compile(r"smithsonianmag\.com/sponsored/"),  # Smithsonian sponsored content
 ]
 
 
@@ -304,6 +335,12 @@ _NORMALIZE_RULES: list[tuple[re.Pattern, str]] = [
     (_TEI_CELL_OPEN_RE, r"<td\1>"),    # Convert TEI <cell> → <td>
     (_TEI_CELL_CLOSE_RE, "</td>"),      # Convert </cell> → </td>
     (_NESTED_FIGURE_RE, r"<figure>\1\2</figure>"),  # Flatten nested figures
+    # 11. Strip Space.com bare "Article continues below" text node
+    (re.compile(r"(?<=>)\s*Article continues below\s*(?=<)", re.IGNORECASE), ""),
+    # 12. Strip BBC "Published" bullet list CMS artifact
+    (re.compile(r"<ul>\s*<li>\s*Published\s*</li>\s*</ul>", re.IGNORECASE), ""),
+    # 13. Strip Bloomberg empty ad div placeholders
+    (re.compile(r"<div\s+[^>]*class=\"ad\b[^\"]*\"[^>]*>\s*</div>", re.IGNORECASE), ""),
 ]
 
 
@@ -470,6 +507,10 @@ def _fetch_single_feed(
 
     consecutive_failures = 0
     for entry in entries:
+        # Skip stale entries (older than _MAX_ENTRY_AGE_DAYS)
+        if _is_stale_entry(entry):
+            logger.debug("Skipping stale entry: %s", entry.get("title", ""))
+            continue
         # Skip entries explicitly marked as premium/subscriber-only by title
         entry_title = entry.get("title", "")
         if _is_premium_title(entry_title):
@@ -545,6 +586,8 @@ def _extract_article(
         author = entry.get("author")
         if not author and entry.get("authors"):
             author = entry["authors"][0].get("name")
+        if author and author.startswith("By "):
+            author = author[3:]
         date_str = entry.get("published") or entry.get("updated")
         return Article(
             title=title, url=url, author=author, date=date_str,
@@ -586,6 +629,7 @@ def _extract_article(
 
     # Content filtering pipeline
     html_content = strip_junk(html_content)
+    html_content = strip_lede_dupe(html_content)
     html_content = strip_sciencedaily_metadata(html_content)
     html_content = strip_bbc_related(html_content)
     html_content = strip_section_junk(html_content)
@@ -606,12 +650,19 @@ def _extract_article(
     # Process images: download, optimize, rewrite HTML
     images: list[ArticleImage] = []
     if include_images and html_content:
-        html_content, images = _process_article_images(html_content, config, cache=cache)
+        html_content, images = _process_article_images(
+            html_content, config, cache=cache, article_url=url
+        )
+        # Figcaption dedup runs after image processing (which creates <figure>/<figcaption>)
+        html_content = strip_figcaption_paragraph_dupe(html_content)
 
     # Extract author
     author = entry.get("author")
     if not author and entry.get("authors"):
         author = entry["authors"][0].get("name")
+    # Strip "By " prefix from RSS dc:creator (e.g., Inside Climate News)
+    if author and author.startswith("By "):
+        author = author[3:]
 
     # Extract date
     date = entry.get("published") or entry.get("updated")
@@ -679,6 +730,8 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
             result = _trafilatura_extract_from_html(page, include_images)
             if result and _count_words(result) >= MIN_ARTICLE_WORDS:
                 logger.debug("Googlebot UA succeeded for %s", url)
+                if include_images:
+                    result = _recover_images_from_html(result, page, url)
                 return _normalize_html(result)
         return None
 
@@ -686,6 +739,13 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     # archive.today.  Technique from Calibre's project_syndicate.recipe by
     # unkn0wn.  Normal strategies only return the teaser paragraph (~50 words).
     if "project-syndicate.org" in domain:
+        return _extract_via_archive(url, include_images)
+
+    # Strategy 0d: Financial Times — all direct UAs now return a JS-disabled
+    # stub (3101 bytes, ~50 words).  FT switched to client-side rendering in
+    # March 2026.  Only archive.today can extract content.  Works on GitHub
+    # Actions (Ubuntu/OpenSSL); returns None on macOS (LibreSSL).
+    if "ft.com" in domain:
         return _extract_via_archive(url, include_images)
 
     # Check domain strategy hints — skip S1 for domains where it always fails
@@ -708,6 +768,14 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
                     if extra:
                         result = result + "\n" + extra
                         logger.debug("Appended paginated content for %s", url)
+                    # Recover images from the raw page we already fetched
+                    if include_images:
+                        result = _recover_images_from_html(result, raw_page, url)
+            elif include_images and not _HAS_IMAGE_RE.search(result):
+                # No images in S1 result — fetch raw HTML for recovery
+                s1_page = _fetch_page(url, _BROWSER_USER_AGENT)
+                if s1_page:
+                    result = _recover_images_from_html(result, s1_page, url)
             return _normalize_html(result)
         logger.debug("Paywall detected in S1 result, trying fallbacks: %s", url)
 
@@ -720,6 +788,10 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
             if browser_result and _count_words(browser_result) >= MIN_ARTICLE_WORDS:
                 if not _has_paywall_markers(browser_result, url):
                     logger.debug("Extraction strategy 'browser_ua' succeeded for %s", url)
+                    if include_images:
+                        browser_result = _recover_images_from_html(
+                            browser_result, browser_page, url
+                        )
                     return _normalize_html(browser_result)
                 logger.debug("Paywall detected in S1.5 result, trying fallbacks: %s", url)
 
@@ -734,8 +806,13 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
     # accessible — it just needs a different UA (e.g. bot/outbrain for FT).
     # Recording paywall hits as domain failures would block S2, which is
     # exactly the strategy that works for paywalled sites.
+    #
+    # Also skip recording when a domain hint skipped S1/S1.5 entirely —
+    # the strategies weren't attempted, so there's no real failure to record.
+    # Without this guard, hint_start>=2 causes result=None → domain blocked
+    # after 2 articles → S2 (which works) is never reached (FT regression).
     s1_was_paywall = result and _count_words(result) >= MIN_ARTICLE_WORDS
-    if not s1_was_paywall:
+    if not s1_was_paywall and hint_start < 2:
         _record_domain_failure(url)
 
     # If this domain has failed repeatedly, skip the expensive fallback chain
@@ -751,6 +828,8 @@ def _extract_article_content(url: str, include_images: bool) -> str | None:
         bot_result = _trafilatura_extract_from_html(bot_page, include_images)
         if bot_result and _count_words(bot_result) >= MIN_ARTICLE_WORDS:
             logger.debug("Extraction strategy 'bot_ua' succeeded for %s", url)
+            if include_images:
+                bot_result = _recover_images_from_html(bot_result, bot_page, url)
             return _normalize_html(bot_result)
 
         # Strategy 3: JSON-LD from the bot-fetched page
@@ -944,8 +1023,9 @@ def _fetch_bloomberg_feed(
         images: list[ArticleImage] = []
         if include_images and html_content:
             html_content, images = _process_article_images(
-                html_content, config, cache=cache
+                html_content, config, cache=cache, article_url=long_url
             )
+            html_content = strip_figcaption_paragraph_dupe(html_content)
 
         article = Article(
             title=story.get("title", "Untitled"),
@@ -1122,12 +1202,16 @@ def _fetch_reuters_feed(
         if not html_content:
             continue
 
+        # Content dedup (Reuters lede pattern: <em>Summary</em> <p>Summary</p>)
+        html_content = strip_lede_dupe(html_content)
+
         # Process images if requested
         images: list[ArticleImage] = []
         if include_images and html_content:
             html_content, images = _process_article_images(
-                html_content, config, cache=cache
+                html_content, config, cache=cache, article_url=full_url
             )
+            html_content = strip_figcaption_paragraph_dupe(html_content)
 
         article = Article(
             title=story.get("title", "Untitled"),
@@ -1373,8 +1457,8 @@ def _extract_via_archive(url: str, include_images: bool) -> str | None:
     Tries multiple archive.today mirror TLDs (shuffled) until one succeeds.
     Technique from Calibre's project_syndicate.recipe by unkn0wn.
 
-    Skipped entirely on LibreSSL (macOS system Python) where archive.today
-    TLS handshakes always fail, wasting ~72s per article on timeouts.
+    Was previously skipped on LibreSSL (macOS system Python) but archive.today
+    TLS now works with LibreSSL 2.8.3+.
     """
     if not _HAS_MODERN_SSL:
         logger.debug("Skipping archive.today (LibreSSL incompatible): %s", url)
@@ -1673,6 +1757,101 @@ def _get_feed_content(entry) -> str | None:
     return None
 
 
+# --- Image recovery ---
+
+# Regex to detect existing images in extracted HTML (img or TEI graphic tags)
+_HAS_IMAGE_RE = re.compile(r"<(?:img|graphic)\b", re.IGNORECASE)
+
+
+def _recover_images_from_html(extracted: str, raw_html: str, page_url: str = "") -> str:
+    """Recover images from raw HTML that trafilatura dropped.
+
+    When trafilatura extracts text but misses images (common with <figure>
+    elements outside its detected content boundary), parse the original HTML
+    for images in content containers and inject them into the extracted content.
+
+    Only runs when the extracted content has 0 images. Recovered images are
+    prepended as bare <img> tags — the normal image pipeline handles download,
+    optimization, filtering (ads, tracking, tiny icons), and <figure> wrapping.
+
+    Args:
+        page_url: The article URL, used to resolve relative image paths
+                  (e.g. Al Jazeera uses /wp-content/uploads/... paths).
+
+    Affected sources: Al Jazeera, Ars Technica, Polygon, Foreign Policy, DW.
+    """
+    # Already has images — no recovery needed
+    if _HAS_IMAGE_RE.search(extracted):
+        return extracted
+
+    try:
+        from lxml import html as lxml_html
+        doc = lxml_html.fromstring(raw_html)
+    except Exception:
+        return extracted
+
+    # Build base URL for resolving relative paths
+    base_url = ""
+    if page_url:
+        parsed = urlparse(page_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    # Search content containers for images (most specific first)
+    content_imgs: list = []
+    for xpath in [
+        "//article//img",
+        "//main//img",
+        '//*[@role="main"]//img',
+        '//div[contains(@class,"article")]//img',
+        '//div[contains(@class,"story")]//img',
+        '//div[contains(@class,"post")]//img',
+        "//figure//img",
+    ]:
+        found = doc.xpath(xpath)
+        if found:
+            content_imgs = found
+            break
+
+    if not content_imgs:
+        return extracted
+
+    # Deduplicate, filter, and collect valid image URLs
+    seen: set[str] = set()
+    img_tags: list[str] = []
+    for img in content_imgs:
+        # Try lazy-load attributes first, then standard src
+        src = (
+            img.get("data-src")
+            or img.get("data-lazy-src")
+            or img.get("data-original")
+            or img.get("src")
+            or ""
+        )
+        src = _html_mod.unescape(src.strip())
+
+        if not src:
+            continue
+
+        # Resolve relative URLs (e.g. Al Jazeera /wp-content/uploads/...)
+        if src.startswith("/") and base_url:
+            src = base_url + src
+        elif not src.startswith(("http://", "https://")):
+            continue
+
+        if src in seen or _should_skip_image(src):
+            continue
+        seen.add(src)
+
+        alt = img.get("alt") or ""
+        img_tags.append(f'<img src="{src}" alt="{alt}"/>')
+
+    if not img_tags:
+        return extracted
+
+    logger.debug("Recovered %d image(s) from raw HTML", len(img_tags))
+    return "\n".join(img_tags) + "\n" + extracted
+
+
 # --- Image processing pipeline ---
 
 
@@ -1690,15 +1869,26 @@ def _process_article_images(
     html: str,
     config: Config,
     cache: ContentCache | None = None,
+    article_url: str = "",
 ) -> tuple[str, list[ArticleImage]]:
     """Download images from article HTML, optimize them, replace src with placeholders.
 
     Returns (rewritten_html, list_of_ArticleImage).
     Placeholder src values like __paperboy_img_0__ are replaced with real
     EPUB filenames later in epub.py.
+
+    Args:
+        article_url: The source article URL, used to resolve relative image
+                     paths (e.g. Al Jazeera's /wp-content/uploads/... paths).
     """
     # Convert TEI XML <graphic> tags to <img> before processing
     html = _convert_graphics_to_imgs(html)
+
+    # Build base URL for resolving relative image paths
+    base_url = ""
+    if article_url:
+        parsed = urlparse(article_url)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
 
     images: list[ArticleImage] = []
     counter = [0]  # mutable counter for the closure
@@ -1712,6 +1902,11 @@ def _process_article_images(
         # Decode HTML entities (&amp; → &) — trafilatura's <graphic> tags
         # emit entity-encoded URLs that fail on CDN-signed images (e.g. Guardian 401s)
         src = _html_mod.unescape(attrs.get("data-src") or attrs.get("src", ""))
+
+        # Resolve relative URLs (e.g. Al Jazeera /wp-content/uploads/...)
+        if src and src.startswith("/") and base_url:
+            src = base_url + src
+
         if not src or _should_skip_image(src):
             return ""
 
