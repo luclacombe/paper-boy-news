@@ -48,6 +48,7 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 3b. If any user has FT feeds, Playwright + Chromium are conditionally installed (~15-20s)
 4. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users in the window
 5. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
+6. Feed observations (pre-budget per-feed stats) upserted to `feed_stats` table — entry counts, freshness, word counts, extraction rates, rolling averages
 
 **Deliver phase** (every 30 min at :00/:30):
 1. GitHub Actions cron triggers `BUILD_MODE=deliver`
@@ -73,7 +74,9 @@ src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.m
   filters.py             # Post-extraction content filters (paywall, junk, quality)
 web/                     # Next.js web app (see web/CLAUDE.md)
   src/app/api/opds/      # OPDS feed + EPUB download proxy (token-based auth)
-scripts/                 # Build script for GitHub Actions
+scripts/                 # Build + utility scripts for GitHub Actions
+  build_for_users.py     # Build runner (3 modes: build, deliver, on-demand) + feed stats upsert
+  seed_feed_stats.py     # Seed/update feed_stats table (RSS scan or --from-build for full stats)
 legacy/streamlit/        # Archived Streamlit prototype
 legacy/api/              # Archived FastAPI backend (replaced by GitHub Actions)
 tests/                   # Python tests for core lib
@@ -100,6 +103,7 @@ Two-skill workflow for auditing EPUB output quality across all sources:
 - `audit/BUILD-INFO.md` — latest build stats baseline
 - `audit/STRATEGY-MAP.md` — per-source optimal extraction strategy profiles
 - `audit/build-audit.log` — verbose build output for log analysis
+- `audit/feed-observations.json` — feed stats from last local build (auto-saved by CLI)
 
 Run one category per session. Findings persist across sessions via the two tracker files.
 
@@ -124,6 +128,7 @@ pip install -e ".[dev]"           # Install in dev mode
 pip install -e ".[browser]"       # With Playwright (FT extraction)
 playwright install chromium        # Download Chromium browser
 paper-boy build                   # CLI: build newspaper
+paper-boy build --no-limit        # Full build (all articles, no budget trim)
 paper-boy deliver                 # CLI: build + deliver
 pytest                            # Run Python tests
 
@@ -148,6 +153,11 @@ pnpm env:cloud                    # Switch to cloud Supabase
 pnpm dev:reset                    # Reset all users to pre-onboarding state (DB only)
 pnpm dev:reset -- --email X       # Reset specific user by email
 # After dev:reset, visit /dev/reset in browser to clear localStorage + sign out
+
+# ── Feed stats ──
+# Requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY env vars (from .env.local.cloud)
+python scripts/seed_feed_stats.py              # RSS scan: entry counts only (fast, ~2 min)
+python scripts/seed_feed_stats.py --from-build # Push local build observations (full stats)
 ```
 
 ## Local Development (Supabase)
@@ -239,12 +249,36 @@ Key files:
 - `web/src/components/dashboard-client.tsx` — 9-state dashboard state machine with polling
 - `scripts/build_for_users.py` — build runner for GitHub Actions (3 modes: build, deliver, on-demand)
 
+## Feed Stats System
+
+Observed per-feed metrics stored in the `feed_stats` table (global, not per-user). Used for reading time estimation, source budget allocation, and UI display.
+
+**Data collected per feed (per build):**
+- Entry counts: `total_entries`, `fresh_24h`, `fresh_48h`, `attempted`, `extracted`
+- Content metrics: `avg_word_count`, `median_word_count`, `avg_images`
+- Derived: `articles_per_day` (rolling 7–30 day avg), `estimated_read_min` (median words ÷ 238 WPM), `daily_read_min` (frequency × per-article time)
+- `history` JSONB: rolling 30-day array of daily observations
+
+**How stats are populated:**
+1. **Scheduled builds** (automatic): Every GitHub Actions build upserts observations for all feeds in that run via `upsert_feed_stats()` in `build_for_users.py`
+2. **Local build → push** (manual, two steps):
+   - `paper-boy build --no-limit` (or `/build-audit`) — builds EPUB + auto-saves `audit/feed-observations.json` with full extraction stats
+   - `python scripts/seed_feed_stats.py --from-build` — reads the JSON, upserts to Supabase with history merging
+3. **RSS scan** (manual, fast): `python scripts/seed_feed_stats.py` — fetches RSS entry counts only (no extraction), useful for initial seeding
+
+**Key files:**
+- `src/paper_boy/feeds.py` — `FeedObservation` dataclass, `get_feed_observations()`, observation collection in `fetch_feeds()`
+- `scripts/build_for_users.py` — `upsert_feed_stats()` for scheduled builds
+- `scripts/seed_feed_stats.py` — seed/push script (two modes: `--from-build` or RSS scan)
+- `web/src/db/schema.ts` — `feedStats` Drizzle table
+- `web/src/actions/feed-stats.ts` — `getFeedStats(urls)`, `getAllFeedStats()` server actions
+
 ## Current Status
 
 - Core library, auth, and server actions are complete
 - Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
 - Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), catalog-based source management, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Account section: email display, password change (email users), account deletion with confirmation
-- OPDS wireless sync — per-user token-authenticated OPDS feed (`/api/opds/[token]/feed.xml`) + EPUB download proxy (`/api/opds/[token]/download/[editionId]`). Pull-based, no build pipeline changes. Enables KOReader on any Kobo, reMarkable, PocketBook, or jailbroken Kindle to auto-download daily editions. Toggle in Delivery settings (immediate action, not batch-saved)
+- Wireless sync (KOReader) — first-class delivery method (`"koreader"`). Per-user OPDS feed (`/api/opds/[token]/feed.xml`) + EPUB download proxy. Pull-based — build treats like `"local"` (skip deliver phase). Token auto-generated on method selection; device-specific setup instructions with external guide links
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional

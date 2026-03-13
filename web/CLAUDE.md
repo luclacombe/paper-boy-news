@@ -43,6 +43,7 @@ src/
 │   ├── build.ts       # getItNow() — timezone-aware build + deliver with dedup guard
 │   ├── delivery-history.ts
 │   ├── feed-catalog.ts
+│   ├── feed-stats.ts  # getFeedStats(), getAllFeedStats() — query feed_stats table
 │   ├── account.ts     # getAccountInfo(), changePassword(), deleteAccount()
 │   ├── feeds.ts       # CRUD for user_feeds table + cleanOrphanedFeeds()
 │   ├── google-oauth.ts
@@ -78,7 +79,7 @@ src/
 │   └── feed-catalog.yaml  # Curated feed catalog (~35 feeds, 7 categories)
 ├── db/
 │   ├── index.ts       # Drizzle client (postgres-js driver)
-│   ├── schema.ts      # 3 tables: user_profiles, user_feeds, delivery_history
+│   ├── schema.ts      # 4 tables: user_profiles, user_feeds, delivery_history, feed_stats
 │   └── migrations/    # SQL migrations (RLS policies, triggers)
 ├── hooks/
 │   └── use-onboarding-state.ts  # localStorage persistence for wizard
@@ -109,11 +110,12 @@ src/
 
 ## Database Schema (Drizzle)
 
-3 tables, all with RLS policies:
+4 tables (3 with RLS policies, 1 global):
 
 - **user_profiles** — extends Supabase auth.users (newspaper settings, device, delivery config, Google tokens, onboarding state)
 - **user_feeds** — user's RSS feeds (name, url, category, position), FK → user_profiles
 - **delivery_history** — build/delivery records (status, article count, sections JSON, EPUB storage path), FK → user_profiles
+- **feed_stats** — global per-feed-URL observed metrics (entry counts, freshness, word counts, extraction rates, rolling averages, 30-day history JSONB). No RLS — written by build script (service role), read by Drizzle (direct DB). Keyed by feed URL, not per-user
 
 Auto-triggers: `on_auth_user_created` → creates profile row, `updated_at` auto-update.
 
@@ -142,7 +144,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout), shows user email next to sign out. Settings has its own compact header with back link + sign out
 - **Account management**: `account.ts` server actions use admin client (`lib/supabase/admin.ts`) with service role key for `changePassword()` (verifies current password via `signInWithPassword`, then admin update) and `deleteAccount()` (deletes profile via Drizzle cascade, cleans Storage, deletes auth user). Google OAuth users cannot change password
 - **Send to device**: File System Access API (`showDirectoryPicker`) lets Chrome/Edge users save EPUBs directly to a USB-mounted e-reader folder. Handle persisted in IndexedDB. Falls back to regular download on unsupported browsers. See `src/lib/download-epub.ts`
-- **OPDS wireless sync**: Per-user OPDS feed for KOReader. Token-based auth (256-bit `crypto.randomBytes`), no session cookies. `/api/opds/[token]/feed.xml` returns Atom XML with edition list; `/api/opds/[token]/download/[editionId]` proxies EPUB from Supabase Storage. Token lifecycle managed via immediate server actions (not batch-saved). Input validation: token must be 64 hex chars, editionId must be UUID. Cross-user isolation enforced on download route. See `src/lib/opds.ts`, `src/actions/opds.ts`
+- **Wireless sync (KOReader)**: First-class delivery method (`"koreader"` in `DeliveryMethod` union). Per-user OPDS feed with token-based auth (256-bit `crypto.randomBytes`). `/api/opds/[token]/feed.xml` returns Atom XML; `/api/opds/[token]/download/[editionId]` proxies EPUB from Storage. Token auto-generated when user selects "Wireless sync" (`enableOpdsSync()` via `useEffect`, idempotent). `regenerateOpdsUrl()` is immediate action. Device-specific setup instructions (Kobo, reMarkable, Kindle, Other) with links to external KOReader installation guides. Build pipeline treats like `"local"` (skip deliver phase). See `src/lib/opds.ts`, `src/actions/opds.ts`
 
 ## Design System
 
