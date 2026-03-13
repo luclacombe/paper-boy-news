@@ -12,11 +12,13 @@ The core library that fetches RSS feeds, extracts articles, generates EPUBs, and
 - **google-api-python-client** — Google Drive upload
 - **click** — CLI framework
 - **pyyaml** — Config file parsing
+- **playwright** (optional) — Headless Chromium for Cloudflare-protected sites (FT)
 
 ## Install
 
 ```bash
 pip install -e ".[dev]"    # Editable install with dev deps (pytest, httpx)
+pip install -e ".[browser]"  # With Playwright (needed for FT extraction)
 ```
 
 ## CLI
@@ -105,7 +107,8 @@ delivery:
      - Reuters (`_fetch_reuters_feed` + `_extract_reuters_article`): feed-level handler, section listing + article detail as structured JSON
      - Scientific American (`_fetch_sciam_feed` + `_fetch_sciam_issue_articles`): feed-level handler, no RSS. Homepage → issue page → `__DATA__` JSON for article discovery. Standard trafilatura for extraction (S1 works). Monthly magazine, features sorted first. Technique from Calibre's `scientific_american.recipe` by Kovid Goyal.
      - Project Syndicate: article-level routing in `_extract_article_content()`. PS uses Poool registration wall (only teaser in HTML). Detected by `project-syndicate.org` domain, routes directly to `_extract_via_archive()` (skips S1–S3). Technique from Calibre recipe by unkn0wn.
-     - Financial Times: article-level routing in `_extract_article_content()`. FT deployed Cloudflare in March 2026 — all direct UAs return a JS challenge page (~50 words). Routes directly to `_extract_via_archive()`. Works on all platforms (LibreSSL TLS compatibility with archive.today confirmed).
+     - Financial Times (`_extract_ft_articles`): feed-level handler. FT is behind Cloudflare bot protection (JS challenge blocks all programmatic HTTP clients). Uses Playwright headless Chromium to solve the challenge, then the outbrain UA (`Mozilla/5.0 (Java) outbrain`) grants full-text access. RSS feeds at `ft.com/{section}?format=rss` for article discovery. Requires optional `playwright` dependency (`pip install paper-boy[browser]`). Gracefully returns 0 articles if Playwright is not installed. Technique verified against Calibre's `financial_times.recipe` by unkn0wn.
+     - Business of Fashion (`_fetch_bof_feed`): feed-level handler. BoF's RSS feed is broken (500 Internal Server Error on Arc Publishing's outboundfeeds endpoint). Uses homepage scraping for article discovery (`/articles/*` links), then parses `Fusion.globalContent` JavaScript object (Arc Publishing platform, same `content_elements` structure as WaPo's `__NEXT_DATA__`). All articles serve full content regardless of `content_restrictions.content_code` (paywall is client-side JS only). No special UA or auth needed.
   1. Standard trafilatura (default UA) + Ars Technica pagination
   1.5. Re-fetch with browser UA (`_BROWSER_USER_AGENT`) — bypasses interstitials (e.g. Nature). Cookie-aware via `http.cookiejar.CookieJar` to persist cookies across redirect chains
   2. Re-fetch with bot UA (`outbrain` crawler) → trafilatura

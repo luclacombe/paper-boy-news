@@ -59,6 +59,23 @@ jobs:
           pip install -e . > /dev/null 2>&1
           pip install -r scripts/requirements.txt > /dev/null 2>&1
 
+      - name: Install Playwright (if FT sources exist)
+        if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          HAS_FT=$(curl -s \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            "$SUPABASE_URL/rest/v1/user_feeds?url=like.*ft.com*&select=id&limit=1" \
+            | python3 -c "import sys,json; print('true' if json.load(sys.stdin) else 'false')")
+          if [ "$HAS_FT" = "true" ]; then
+            pip install playwright > /dev/null 2>&1
+            playwright install chromium --with-deps > /dev/null 2>&1
+            echo "Playwright installed for FT extraction"
+          fi
+
       - name: Build newspaper
         if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
         env:

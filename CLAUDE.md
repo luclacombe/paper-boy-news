@@ -45,6 +45,7 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 1. GitHub Actions cron triggers `BUILD_MODE=build`
 2. Pre-check queries Supabase for user timezones; skips Python setup if no users are in midnight–5 AM window
 3. `build_for_users.py` builds only users whose local time is midnight–5 AM (others caught by next window)
+3b. If any user has FT feeds, Playwright + Chromium are conditionally installed (~15-20s)
 4. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users in the window
 5. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
 
@@ -68,6 +69,7 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
   cache.py               # In-memory content cache (feeds, articles, images)
+  feeds.py               # RSS fetching, article text extraction, image optimization, domain-specific handlers (FT/BoF/Bloomberg/Reuters/WaPo/SciAm)
   filters.py             # Post-extraction content filters (paywall, junk, quality)
 web/                     # Next.js web app (see web/CLAUDE.md)
   src/app/api/opds/      # OPDS feed + EPUB download proxy (token-based auth)
@@ -105,7 +107,7 @@ Run one category per session. Findings persist across sessions via the two track
 
 | Component | Stack |
 |-----------|-------|
-| Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, click |
+| Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, click, playwright (optional, for FT) |
 | Build runner | GitHub Actions, `scripts/build_for_users.py`, Supabase Python client |
 | Web app | Next.js 16, React 19, TypeScript (strict), Tailwind CSS v4, shadcn/ui |
 | Auth | Supabase Auth (Google OAuth + email/password) |
@@ -119,6 +121,8 @@ Run one category per session. Findings persist across sessions via the two track
 ```bash
 # ── Core library ──
 pip install -e ".[dev]"           # Install in dev mode
+pip install -e ".[browser]"       # With Playwright (FT extraction)
+playwright install chromium        # Download Chromium browser
 paper-boy build                   # CLI: build newspaper
 paper-boy deliver                 # CLI: build + deliver
 pytest                            # Run Python tests
