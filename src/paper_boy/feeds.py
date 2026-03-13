@@ -64,6 +64,14 @@ _DOMAIN_STRATEGY_HINTS: dict[str, int] = {
     "nature.com": 2,  # Start at S1.5
 }
 
+# Domain-specific content xpaths for image recovery (more precise than generic //article//img)
+_DOMAIN_IMAGE_XPATHS: dict[str, list[str]] = {
+    "apnews.com": [
+        '//div[contains(@class,"RichTextStoryBody")]//img',
+        '//bsp-figure//img',
+    ],
+}
+
 # Domain-level extraction failure tracking.
 # After _DOMAIN_FAILURE_THRESHOLD failures on strategy 1 (trafilatura),
 # skip strategies 1.5–4 for all subsequent articles from that domain.
@@ -263,6 +271,24 @@ _GENERIC_ALT = frozenset(
     {"image", "photo", "img", "picture", "thumbnail", "thumb", ""}
 )
 
+# Junk figcaption detection — carousel/sidebar images with UI labels or bylines
+_JUNK_FIGCAPTION_RE = re.compile(
+    r"^(?:Comments?|Share|Save|Print|Email|Bookmark)$"  # UI elements
+    r"|^[A-Z][A-Z\s]{2,30}$",                           # ALL-CAPS short strings (bylines)
+    re.IGNORECASE,
+)
+
+
+def _is_junk_figcaption(caption: str, alt: str) -> bool:
+    """Detect junk figcaptions from carousel/sidebar images."""
+    text = caption or alt
+    if not text:
+        return False
+    # Single word under 15 chars (country labels, navigation)
+    if len(text.split()) == 1 and len(text) < 15 and not text[0].isdigit():
+        return True
+    return bool(_JUNK_FIGCAPTION_RE.match(text))
+
 # Regex to find <img> tags in HTML
 _IMG_TAG_RE = re.compile(r"<img\b[^>]*?/?>", re.IGNORECASE)
 
@@ -453,10 +479,20 @@ _NORMALIZE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(?<=>)\s*Article continues below\s*(?=<)", re.IGNORECASE), ""),
     # 12. Strip BBC "Published" bullet list CMS artifact
     (re.compile(r"<ul>\s*<li>\s*Published\s*</li>\s*</ul>", re.IGNORECASE), ""),
-    # 13. Strip Bloomberg empty ad div placeholders
-    (re.compile(r"<div\s+[^>]*class=\"ad\b[^\"]*\"[^>]*>\s*</div>", re.IGNORECASE), ""),
+    # 13. Strip Bloomberg empty ad div placeholders (may contain \xa0 / &nbsp;)
+    (re.compile(r"<div\s+[^>]*class=\"ad\b[^\"]*\"[^>]*>[\s\xa0]*</div>", re.IGNORECASE), ""),
     # 14. Strip figcaptions that are just URLs (Kiplinger logo URL leak)
     (re.compile(r"<figcaption>\s*https?://\S+\s*</figcaption>", re.IGNORECASE), ""),
+    # 15. Bloomberg duplicate figcaption: strip <figcaption> wrapping news-figure-caption-text div
+    (re.compile(
+        r'<figcaption>\s*<div\s+class="news-figure-caption-text"[^>]*>.*?</div>\s*</figcaption>',
+        re.IGNORECASE | re.DOTALL,
+    ), ""),
+    # 16. Bloomberg standalone news-figure-caption-text div (outside figcaption, e.g. video captions)
+    (re.compile(
+        r'<div\s+class="news-figure-caption-text"[^>]*>.*?</div>',
+        re.IGNORECASE | re.DOTALL,
+    ), ""),
 ]
 
 
@@ -580,13 +616,15 @@ def apply_reading_time_budget(
 ) -> list[Section]:
     """Trim sections to fit within a reading time budget (in minutes).
 
-    Same fairness guarantees as apply_article_budget:
-    - Phase 1: 1 article per source (in order, stops if budget is hit)
-    - Phase 2: fill remaining time round-robin across sources
+    Two-phase algorithm:
+    - Phase 1: 1 article per source, scarce sources first (fewer available
+      articles = higher priority). This ensures weekly sources always appear.
+    - Phase 2: fill remaining time, still scarce-first. Sources with fewer
+      available articles get filled before high-volume daily sources.
 
     Uses word count / WORDS_PER_MINUTE to estimate per-article reading time.
-    The last article added may overshoot the target slightly — the target is
-    approximate by design.
+    The budget is a soft target — overshoot up to _OVERSHOOT_CAP is allowed
+    so the last article isn't awkwardly cut.
     """
     if not sections or target_minutes <= 0:
         return sections
@@ -600,24 +638,33 @@ def apply_reading_time_budget(
     allocations = [0] * len(sections)
     used_minutes = 0.0
 
-    # Phase 1: guarantee 1 article per source (stop when budget hit)
-    for i, section in enumerate(sections):
-        if not section.articles:
+    # Phase 1: guarantee 1 article per source, scarce sources first.
+    # Weekly sources (2-3 articles) get placed before daily sources (15+)
+    # so they aren't squeezed out if phase 1 hits the budget.
+    scarce_order = sorted(
+        range(len(sections)),
+        key=lambda i: len(sections[i].articles),
+    )
+
+    for i in scarce_order:
+        if not sections[i].articles:
             continue
-        t = _article_read_minutes(section.articles[0])
+        t = _article_read_minutes(sections[i].articles[0])
         used_minutes += t
         allocations[i] = 1
         if used_minutes >= target_minutes:
             break
 
-    # Phase 2: distribute remaining time round-robin.
-    # Skip articles that would overshoot by more than 3 minutes — try
-    # smaller articles from other sources first.
-    _OVERSHOOT_CAP = 3.0  # minutes
+    # Phase 2: fill remaining time, scarce sources first.
+    # In each pass, iterate sources ordered by available article count
+    # (ascending) — weekly/low-frequency sources get filled up before
+    # daily-high sources since their content won't be back for days.
+    # Skip articles that would overshoot by more than 5 minutes.
+    _OVERSHOOT_CAP = 5.0  # minutes
     changed = True
     while used_minutes < target_minutes and changed:
         changed = False
-        for i in range(len(sections)):
+        for i in scarce_order:
             if used_minutes >= target_minutes:
                 break
             if allocations[i] < len(sections[i].articles):
@@ -2398,21 +2445,34 @@ def _recover_images_from_html(extracted: str, raw_html: str, page_url: str = "")
         parsed = urlparse(page_url)
         base_url = f"{parsed.scheme}://{parsed.netloc}"
 
-    # Search content containers for images (most specific first)
+    # Try domain-specific xpaths first (more precise, avoids carousel images)
     content_imgs: list = []
-    for xpath in [
-        "//article//img",
-        "//main//img",
-        '//*[@role="main"]//img',
-        '//div[contains(@class,"article")]//img',
-        '//div[contains(@class,"story")]//img',
-        '//div[contains(@class,"post")]//img',
-        "//figure//img",
-    ]:
-        found = doc.xpath(xpath)
-        if found:
-            content_imgs = found
-            break
+    if page_url:
+        domain = urlparse(page_url).netloc.replace("www.", "")
+        for d, xpaths in _DOMAIN_IMAGE_XPATHS.items():
+            if d in domain:
+                for xpath in xpaths:
+                    found = doc.xpath(xpath)
+                    if found:
+                        content_imgs = found
+                        break
+                break
+
+    # Fall back to generic content container xpaths
+    if not content_imgs:
+        for xpath in [
+            "//article//img",
+            "//main//img",
+            '//*[@role="main"]//img',
+            '//div[contains(@class,"article")]//img',
+            '//div[contains(@class,"story")]//img',
+            '//div[contains(@class,"post")]//img',
+            "//figure//img",
+        ]:
+            found = doc.xpath(xpath)
+            if found:
+                content_imgs = found
+                break
 
     if not content_imgs:
         return extracted
@@ -2540,6 +2600,10 @@ def _process_article_images(
             alt = ""
         title = attrs.get("title", "").strip()
         caption = title or (alt if alt.lower() not in _GENERIC_ALT else "")
+
+        if _is_junk_figcaption(caption, alt):
+            logger.debug("Skipping image with junk figcaption: %s", caption or alt)
+            return ""
 
         images.append(ArticleImage(data=optimized, alt=alt, caption=caption))
 
