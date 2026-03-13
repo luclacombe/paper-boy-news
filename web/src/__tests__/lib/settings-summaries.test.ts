@@ -86,15 +86,15 @@ describe("getDeliverySummary", () => {
     );
   });
 
-  it("appends KOReader sync when OPDS enabled", () => {
-    expect(getDeliverySummary("kobo", "local", true)).toBe(
-      "Kobo · Download · KOReader sync"
+  it("shows Kobo + Wireless sync for koreader", () => {
+    expect(getDeliverySummary("kobo", "koreader")).toBe(
+      "Kobo · Wireless sync"
     );
   });
 
-  it("does not append KOReader sync when OPDS disabled", () => {
-    expect(getDeliverySummary("kobo", "local", false)).toBe(
-      "Kobo · Download"
+  it("shows reMarkable + Wireless sync for koreader", () => {
+    expect(getDeliverySummary("remarkable", "koreader")).toBe(
+      "reMarkable · Wireless sync"
     );
   });
 });

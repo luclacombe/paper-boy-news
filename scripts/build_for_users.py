@@ -43,12 +43,105 @@ from paper_boy.config import (
 )
 from paper_boy.cache import ContentCache
 from paper_boy.delivery import deliver
+from paper_boy.feeds import FeedObservation
 from paper_boy.main import build_newspaper
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 EDITION_ROLLOVER_HOUR = 5
+
+# Average reading speed (words per minute) for reading time estimation
+_READING_WPM = 238
+
+
+def upsert_feed_stats(sb, observations: list[FeedObservation]) -> None:
+    """Upsert feed observations into the feed_stats table.
+
+    Maintains a 30-day rolling history and recomputes derived averages.
+    """
+    if not observations:
+        return
+
+    today = date.today().isoformat()
+
+    for obs in observations:
+        # Fetch existing record (if any)
+        existing = (
+            sb.table("feed_stats")
+            .select("sample_count, history")
+            .eq("url", obs.feed_url)
+            .limit(1)
+            .execute()
+        )
+
+        if existing.data:
+            row = existing.data[0]
+            sample_count = row["sample_count"] + 1
+            history = row.get("history") or []
+        else:
+            sample_count = 1
+            history = []
+
+        # Build today's history entry
+        today_entry = {
+            "date": today,
+            "fresh_24h": obs.fresh_24h,
+            "extracted": obs.extracted,
+            "avg_words": obs.avg_word_count,
+        }
+
+        # Update or append today's entry in history
+        updated = False
+        for i, h in enumerate(history):
+            if h.get("date") == today:
+                history[i] = today_entry
+                updated = True
+                break
+        if not updated:
+            history.append(today_entry)
+
+        # Prune entries older than 30 days
+        cutoff = (date.today() - timedelta(days=30)).isoformat()
+        history = [h for h in history if h.get("date", "") >= cutoff]
+
+        # Compute rolling averages from history
+        if history:
+            fresh_values = [h.get("fresh_24h", 0) for h in history]
+            articles_per_day = sum(fresh_values) / len(fresh_values)
+        else:
+            articles_per_day = float(obs.fresh_24h)
+
+        # Per-article estimated reading time
+        estimated_read_min = (
+            obs.median_word_count / _READING_WPM if obs.median_word_count > 0 else 0.0
+        )
+
+        # Daily reading time contribution
+        daily_read_min = articles_per_day * estimated_read_min
+
+        row_data = {
+            "url": obs.feed_url,
+            "name": obs.feed_name,
+            "observed_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+            "sample_count": sample_count,
+            "total_entries": obs.total_entries,
+            "fresh_24h": obs.fresh_24h,
+            "fresh_48h": obs.fresh_48h,
+            "attempted": obs.attempted,
+            "extracted": obs.extracted,
+            "avg_word_count": obs.avg_word_count,
+            "median_word_count": obs.median_word_count,
+            "avg_images": obs.avg_images,
+            "articles_per_day": round(articles_per_day, 2),
+            "estimated_read_min": round(estimated_read_min, 2),
+            "daily_read_min": round(daily_read_min, 2),
+            "history": history,
+        }
+
+        sb.table("feed_stats").upsert(row_data, on_conflict="url").execute()
+
+    logger.info("Upserted feed stats for %d feeds", len(observations))
 
 
 def get_supabase():
@@ -155,6 +248,8 @@ def _generate_delivery_message(config: Config) -> str:
         return f"Sent to {config.delivery.email.recipient} via Gmail"
     elif method == "email":
         return f"Emailed to {config.delivery.email.recipient}"
+    elif method == "koreader":
+        return "Available via wireless sync"
     return "Available for download"
 
 
@@ -186,7 +281,7 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
     """
     edition_date_str = edition_date.isoformat()
     delivery_method = record_delivery_method or prof.get("delivery_method", "local")
-    is_local = delivery_method == "local"
+    is_local = delivery_method in ("local", "koreader")
 
     try:
         config = build_config_from_profile(prof, feed_list)
@@ -252,6 +347,12 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
                 file_size,
                 final_status,
             )
+
+            # Upsert feed stats from build observations
+            try:
+                upsert_feed_stats(sb, result.feed_observations)
+            except Exception as e:
+                logger.warning("Feed stats upsert failed (non-critical): %s", e)
 
     except Exception as e:
         logger.exception("Build failed for record %s", record_id)
@@ -412,7 +513,7 @@ def build_and_deliver_for_record(
             delivery_message = "Available for download"
             token_data = get_token_data(prof)
 
-            if record_delivery_method != "local":
+            if record_delivery_method not in ("local", "koreader"):
                 try:
                     deliver(result.epub_path, config, token_data=token_data)
                     delivery_message = _generate_delivery_message(config)
@@ -447,6 +548,12 @@ def build_and_deliver_for_record(
                 result.total_articles,
                 file_size,
             )
+
+            # Upsert feed stats from build observations
+            try:
+                upsert_feed_stats(sb, result.feed_observations)
+            except Exception as e:
+                logger.warning("Feed stats upsert failed (non-critical): %s", e)
 
     except Exception as e:
         logger.exception("Build failed for record %s", record_id)

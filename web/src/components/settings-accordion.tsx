@@ -70,22 +70,20 @@ export function getSourcesSummary(
 
 export function getDeliverySummary(
   device: Device,
-  method: DeliveryMethod,
-  opdsEnabled?: boolean
+  method: DeliveryMethod
 ): string {
   const deviceLabel =
     DEVICES.find((d) => d.value === device)?.label ?? device;
 
   const methodLabels: Record<string, Record<DeliveryMethod, string>> = {
-    kindle: { email: "Send-to-Kindle", local: "Download", google_drive: "Google Drive" },
-    kobo: { email: "Email", local: "Download", google_drive: "Google Drive" },
-    remarkable: { email: "Email", local: "Download", google_drive: "Google Drive" },
-    other: { email: "Email", local: "Download", google_drive: "Google Drive" },
+    kindle: { email: "Send-to-Kindle", local: "Download", google_drive: "Google Drive", koreader: "Wireless sync" },
+    kobo: { email: "Email", local: "Download", google_drive: "Google Drive", koreader: "Wireless sync" },
+    remarkable: { email: "Email", local: "Download", google_drive: "Google Drive", koreader: "Wireless sync" },
+    other: { email: "Email", local: "Download", google_drive: "Google Drive", koreader: "Wireless sync" },
   };
 
   const methodLabel = methodLabels[device]?.[method] ?? method;
-  const suffix = opdsEnabled ? " · KOReader sync" : "";
-  return `${deviceLabel} · ${methodLabel}${suffix}`;
+  return `${deviceLabel} · ${methodLabel}`;
 }
 
 export function getScheduleSummary(time: string, timezone: string): string {
@@ -158,9 +156,10 @@ export function SettingsAccordion({
     emailSmtpPort: String(config.emailSmtpPort),
     emailSender: config.emailSender,
     emailPassword: config.emailPassword,
-    opdsEnabled: !!config.opdsToken,
-    opdsUrl: opdsUrl ?? "",
   };
+
+  // OPDS URL tracked separately (immediate actions, not batch-saved)
+  const [currentOpdsUrl, setCurrentOpdsUrl] = useState(opdsUrl ?? "");
 
   const initSchedule: ScheduleValues = {
     deliveryTime: config.deliveryTime,
@@ -439,24 +438,14 @@ export function SettingsAccordion({
       {renderCard(
         "delivery",
         "Delivery",
-        getDeliverySummary(deliveryValues.device, deliveryValues.deliveryMethod, deliveryValues.opdsEnabled),
+        getDeliverySummary(deliveryValues.device, deliveryValues.deliveryMethod),
         <DeliverySection
           values={deliveryValues}
           onChange={setDeliveryValues}
           hasDrive={hasDrive}
           hasGmail={hasGmail}
-          onOpdsChange={(enabled, url) => {
-            setDeliveryValues((prev) => ({
-              ...prev,
-              opdsEnabled: enabled,
-              opdsUrl: url ?? "",
-            }));
-            setDeliverySaved((prev) => ({
-              ...prev,
-              opdsEnabled: enabled,
-              opdsUrl: url ?? "",
-            }));
-          }}
+          opdsUrl={currentOpdsUrl}
+          onOpdsUrlChange={setCurrentOpdsUrl}
         />,
         true
       )}

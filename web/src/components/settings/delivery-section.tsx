@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,6 @@ import {
 } from "@/actions/google-oauth";
 import {
   enableOpdsSync,
-  disableOpdsSync,
   regenerateOpdsUrl,
 } from "@/actions/opds";
 import { Button } from "@/components/ui/button";
@@ -30,8 +29,6 @@ export interface DeliveryValues {
   emailSmtpPort: string;
   emailSender: string;
   emailPassword: string;
-  opdsEnabled: boolean;
-  opdsUrl: string;
 }
 
 interface DeliverySectionProps {
@@ -39,7 +36,8 @@ interface DeliverySectionProps {
   onChange: (values: DeliveryValues) => void;
   hasDrive: boolean;
   hasGmail: boolean;
-  onOpdsChange: (enabled: boolean, url: string | null) => void;
+  opdsUrl: string;
+  onOpdsUrlChange: (url: string) => void;
 }
 
 function getDeliveryMethodsForDevice(
@@ -49,9 +47,15 @@ function getDeliveryMethodsForDevice(
     case "kobo":
       return [
         {
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+        },
+        {
           value: "google_drive",
           label: "Google Drive",
-          description: "Auto-sync via Kobo's Google Drive integration",
+          description: "Auto-sync via Kobo's built-in Google Drive",
         },
         {
           value: "local",
@@ -67,13 +71,44 @@ function getDeliveryMethodsForDevice(
           description: "Deliver via email to your Kindle",
         },
         {
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Auto-download via KOReader (requires jailbreak)",
+        },
+        {
           value: "local",
           label: "Download",
           description: "Download EPUB and transfer via USB",
         },
       ];
+    case "remarkable":
+      return [
+        {
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+        },
+        {
+          value: "local",
+          label: "Download",
+          description: "Download EPUB and transfer via USB or app",
+        },
+        {
+          value: "email",
+          label: "Email",
+          description: "Send EPUB to an email address",
+        },
+      ];
     default:
       return [
+        {
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+        },
         {
           value: "local",
           label: "Download",
@@ -88,12 +123,172 @@ function getDeliveryMethodsForDevice(
   }
 }
 
+function KoboSetupInstructions() {
+  return (
+    <>
+      <p className="font-headline text-xs font-bold text-ink">
+        How to set up on Kobo
+      </p>
+      <ol className="mt-1.5 list-decimal space-y-1 pl-4 font-body text-xs text-caption">
+        <li>
+          Download KOReader from the{" "}
+          <a
+            href="https://github.com/koreader/koreader/wiki/Installation-on-Kobo-devices"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-ink underline underline-offset-2"
+          >
+            KOReader wiki
+          </a>
+        </li>
+        <li>
+          Connect your Kobo to a computer via USB, then unzip the KOReader download
+          into the root of your Kobo&apos;s storage
+        </li>
+        <li>
+          Eject your Kobo &mdash; KOReader will appear as a second reading app
+        </li>
+        <li>
+          Open KOReader, go to the file manager, and tap the OPDS icon
+          (looks like a broadcast/signal icon at the top)
+        </li>
+        <li>Tap &ldquo;Add new OPDS catalog&rdquo; and paste the URL above</li>
+        <li>
+          Your paper will appear in the catalog each morning &mdash; just tap to
+          download
+        </li>
+      </ol>
+      <p className="mt-1.5 font-body text-xs text-caption">
+        Works with all Kobo models &mdash; no jailbreak needed.
+      </p>
+    </>
+  );
+}
+
+function RemarkableSetupInstructions() {
+  return (
+    <>
+      <p className="font-headline text-xs font-bold text-ink">
+        How to set up on reMarkable
+      </p>
+      <ol className="mt-1.5 list-decimal space-y-1 pl-4 font-body text-xs text-caption">
+        <li>
+          Install the{" "}
+          <a
+            href="https://toltec-dev.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-ink underline underline-offset-2"
+          >
+            Toltec
+          </a>{" "}
+          package manager on your reMarkable
+        </li>
+        <li>
+          Install KOReader via Toltec &mdash; see the{" "}
+          <a
+            href="https://github.com/koreader/koreader/wiki/Installation-on-reMarkable"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-ink underline underline-offset-2"
+          >
+            full guide
+          </a>
+        </li>
+        <li>
+          Open KOReader, go to the file manager, and tap the OPDS icon
+        </li>
+        <li>Tap &ldquo;Add new OPDS catalog&rdquo; and paste the URL above</li>
+        <li>Your paper will appear in the catalog each morning</li>
+      </ol>
+    </>
+  );
+}
+
+function KindleSetupInstructions() {
+  return (
+    <>
+      <p className="font-headline text-xs font-bold text-ink">
+        How to set up on Kindle
+      </p>
+      <p className="mt-1 font-body text-xs text-caption">
+        Your Kindle must be jailbroken to use KOReader. If it isn&apos;t,
+        use <strong>Send-to-Kindle</strong> instead.
+      </p>
+      <ol className="mt-1.5 list-decimal space-y-1 pl-4 font-body text-xs text-caption">
+        <li>
+          Install KOReader via KUAL &mdash; see the{" "}
+          <a
+            href="https://github.com/koreader/koreader/wiki/Installation-on-Kindle-devices"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-ink underline underline-offset-2"
+          >
+            full guide
+          </a>
+        </li>
+        <li>
+          Open KOReader, go to the file manager, and tap the OPDS icon
+        </li>
+        <li>Tap &ldquo;Add new OPDS catalog&rdquo; and paste the URL above</li>
+        <li>Your paper will appear in the catalog each morning</li>
+      </ol>
+    </>
+  );
+}
+
+function OtherSetupInstructions() {
+  return (
+    <>
+      <p className="font-headline text-xs font-bold text-ink">
+        How to set up wireless sync
+      </p>
+      <ol className="mt-1.5 list-decimal space-y-1 pl-4 font-body text-xs text-caption">
+        <li>
+          Install{" "}
+          <a
+            href="https://github.com/koreader/koreader/wiki"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-bold text-ink underline underline-offset-2"
+          >
+            KOReader
+          </a>{" "}
+          on your device
+        </li>
+        <li>
+          Open KOReader, go to the file manager, and tap the OPDS icon
+        </li>
+        <li>Tap &ldquo;Add new OPDS catalog&rdquo; and paste the URL above</li>
+        <li>Your paper will appear in the catalog each morning</li>
+      </ol>
+      <p className="mt-1.5 font-body text-xs text-caption">
+        Works with Kobo, reMarkable, PocketBook, and jailbroken Kindle.
+      </p>
+    </>
+  );
+}
+
+function getSetupInstructions(device: Device) {
+  switch (device) {
+    case "kobo":
+      return <KoboSetupInstructions />;
+    case "remarkable":
+      return <RemarkableSetupInstructions />;
+    case "kindle":
+      return <KindleSetupInstructions />;
+    default:
+      return <OtherSetupInstructions />;
+  }
+}
+
 export function DeliverySection({
   values,
   onChange,
   hasDrive,
   hasGmail,
-  onOpdsChange,
+  opdsUrl,
+  onOpdsUrlChange,
 }: DeliverySectionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -111,6 +306,30 @@ export function DeliverySection({
     const newMethods = getDeliveryMethodsForDevice(d);
     update({ device: d, deliveryMethod: newMethods[0].value });
   }
+
+  // Auto-generate OPDS token when KOReader is selected and no URL exists
+  useEffect(() => {
+    if (values.deliveryMethod !== "koreader" || opdsUrl || opdsBusy) return;
+    let cancelled = false;
+    setOpdsBusy(true);
+    enableOpdsSync()
+      .then(({ url }) => {
+        if (!cancelled) {
+          onOpdsUrlChange(url);
+          router.refresh();
+        }
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("Failed to set up wireless sync");
+      })
+      .finally(() => {
+        if (!cancelled) setOpdsBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.deliveryMethod]);
 
   async function handleGoogleConnect() {
     try {
@@ -215,6 +434,81 @@ export function DeliverySection({
           ))}
         </RadioGroup>
       </div>
+
+      {/* KOReader / Wireless sync config */}
+      {values.deliveryMethod === "koreader" && (
+        <div className="space-y-3">
+          {/* Feed URL */}
+          {opdsUrl ? (
+            <>
+              <div className="space-y-1.5">
+                <Label className="font-headline text-sm text-ink">
+                  Personal feed URL
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={opdsUrl}
+                    readOnly
+                    className="font-mono text-xs"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 font-body text-xs"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(opdsUrl);
+                      setCopyLabel("Copied!");
+                      setTimeout(() => setCopyLabel("Copy"), 2000);
+                    }}
+                  >
+                    {copyLabel}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Regenerate URL */}
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="font-body text-xs"
+                  disabled={opdsBusy}
+                  onClick={async () => {
+                    setOpdsBusy(true);
+                    try {
+                      const { url } = await regenerateOpdsUrl();
+                      onOpdsUrlChange(url);
+                      router.refresh();
+                      toast.success("Feed URL regenerated");
+                    } catch {
+                      toast.error("Failed to regenerate URL");
+                    } finally {
+                      setOpdsBusy(false);
+                    }
+                  }}
+                >
+                  New URL
+                </Button>
+                <span className="font-body text-xs text-caption">
+                  This will disconnect any devices using the current URL.
+                </span>
+              </div>
+            </>
+          ) : (
+            <p className="font-body text-xs text-caption">
+              {opdsBusy ? "Setting up wireless sync..." : "Generating your feed URL..."}
+            </p>
+          )}
+
+          {/* Device-specific setup instructions */}
+          {opdsUrl && (
+            <div className="border-l-2 border-rule-gray/50 pl-3">
+              {getSetupInstructions(values.device)}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Google Drive config */}
       {values.deliveryMethod === "google_drive" && (
@@ -441,135 +735,6 @@ export function DeliverySection({
           )}
         </div>
       )}
-
-      {/* KOReader wireless sync — independent of delivery method */}
-      <div className="border-t border-rule-gray/50 pt-4">
-        <label className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            checked={values.opdsEnabled}
-            onChange={async (e) => {
-              const enable = e.target.checked;
-              setOpdsBusy(true);
-              try {
-                if (enable) {
-                  const { url } = await enableOpdsSync();
-                  onOpdsChange(true, url);
-                  router.refresh();
-                } else {
-                  await disableOpdsSync();
-                  onOpdsChange(false, null);
-                  router.refresh();
-                }
-              } catch {
-                toast.error(
-                  enable
-                    ? "Failed to enable wireless sync"
-                    : "Failed to disable wireless sync"
-                );
-              } finally {
-                setOpdsBusy(false);
-              }
-            }}
-            disabled={opdsBusy}
-            className="mt-1 h-4 w-4 accent-ink"
-          />
-          <div>
-            <span className="font-headline text-sm font-bold text-ink">
-              Enable wireless sync via KOReader
-            </span>
-            <p className="font-body text-xs text-caption">
-              Automatically download your paper on any e-reader running
-              KOReader &mdash; no USB cable needed.
-            </p>
-          </div>
-        </label>
-
-        {values.opdsEnabled && values.opdsUrl && (
-          <div className="mt-3 space-y-3 pl-7">
-            {/* Feed URL */}
-            <div className="space-y-1.5">
-              <Label className="font-headline text-sm text-ink">
-                Personal feed URL
-              </Label>
-              <div className="flex gap-2">
-                <Input
-                  value={values.opdsUrl}
-                  readOnly
-                  className="font-mono text-xs"
-                  onClick={(e) => (e.target as HTMLInputElement).select()}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 font-body text-xs"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(values.opdsUrl);
-                    setCopyLabel("Copied!");
-                    setTimeout(() => setCopyLabel("Copy"), 2000);
-                  }}
-                >
-                  {copyLabel}
-                </Button>
-              </div>
-            </div>
-
-            {/* Regenerate URL */}
-            <div className="flex items-center gap-3">
-              <Button
-                variant="outline"
-                size="sm"
-                className="font-body text-xs"
-                disabled={opdsBusy}
-                onClick={async () => {
-                  setOpdsBusy(true);
-                  try {
-                    const { url } = await regenerateOpdsUrl();
-                    onOpdsChange(true, url);
-                    router.refresh();
-                    toast.success("Feed URL regenerated");
-                  } catch {
-                    toast.error("Failed to regenerate URL");
-                  } finally {
-                    setOpdsBusy(false);
-                  }
-                }}
-              >
-                New URL
-              </Button>
-              <span className="font-body text-xs text-caption">
-                This will disconnect any devices using the current URL.
-              </span>
-            </div>
-
-            {/* Setup instructions */}
-            <div className="border-l-2 border-rule-gray/50 pl-3">
-              <p className="font-headline text-xs font-bold text-ink">
-                How to connect your e-reader
-              </p>
-              <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
-                <li>
-                  Install KOReader on your device (Kobo: copy files to SD card,
-                  reMarkable: use Toltec)
-                </li>
-                <li>In KOReader, open the file manager</li>
-                <li>Tap the OPDS icon (looks like a signal/broadcast icon)</li>
-                <li>Tap &ldquo;Add new OPDS catalog&rdquo;</li>
-                <li>
-                  Paste the URL above &mdash; leave username and password empty
-                </li>
-                <li>
-                  Your paper will appear in the catalog each morning
-                </li>
-              </ol>
-              <p className="mt-1.5 font-body text-xs text-caption">
-                Works with Kobo (all models), reMarkable, PocketBook, and Kindle
-                (requires jailbreak).
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

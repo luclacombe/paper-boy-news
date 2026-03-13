@@ -180,9 +180,15 @@ export default function OnboardingPage() {
       case "kobo":
         return [
           {
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+          },
+          {
             value: "google_drive",
             label: "Google Drive",
-            description: "Auto-sync via Kobo's Google Drive integration",
+            description: "Auto-sync via Kobo's built-in Google Drive",
           },
           {
             value: "local",
@@ -198,13 +204,44 @@ export default function OnboardingPage() {
             description: "Deliver via email to your Kindle",
           },
           {
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Auto-download via KOReader (requires jailbreak)",
+          },
+          {
             value: "local",
             label: "Download",
             description: "Download EPUB and transfer via USB",
           },
         ];
+      case "remarkable":
+        return [
+          {
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+          },
+          {
+            value: "local",
+            label: "Download",
+            description: "Download EPUB and transfer via USB or app",
+          },
+          {
+            value: "email",
+            label: "Email",
+            description: "Send EPUB to an email address",
+          },
+        ];
       default:
         return [
+          {
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+          },
           {
             value: "local",
             label: "Download",

@@ -1,7 +1,7 @@
 // === Device & Delivery Types ===
 
 export type Device = "kobo" | "kindle" | "remarkable" | "other";
-export type DeliveryMethod = "local" | "google_drive" | "email";
+export type DeliveryMethod = "local" | "google_drive" | "email" | "koreader";
 export type EmailMethod = "gmail" | "smtp";
 
 // === User Config (mirrors user_profiles table) ===
@@ -153,6 +153,26 @@ export interface OnboardingData {
   googleDriveFolder: string;
   kindleEmail: string;
   emailMethod: EmailMethod;
+}
+
+// === Feed Stats ===
+
+export interface FeedStat {
+  url: string;
+  name: string;
+  observedAt: string;
+  sampleCount: number;
+  totalEntries: number;
+  fresh24h: number;
+  fresh48h: number;
+  attempted: number;
+  extracted: number;
+  avgWordCount: number;
+  medianWordCount: number;
+  avgImages: number;
+  articlesPerDay: number;
+  estimatedReadMin: number;
+  dailyReadMin: number;
 }
 
 // === API Types (Next.js API route responses) ===
