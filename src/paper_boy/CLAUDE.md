@@ -38,7 +38,7 @@ src/paper_boy/
 ├── cache.py          # In-memory content cache (ContentCache, CacheStats)
 ├── cli.py            # Click CLI entry point (build, deliver commands)
 ├── config.py         # YAML config loading + validation (Config, FeedConfig w/ category, DeliveryConfig, EmailConfig)
-├── feeds.py          # RSS fetching, article text extraction, image optimization, Section w/ category
+├── feeds.py          # RSS fetching, article text extraction, image optimization, Section w/ category, FeedObservation stats collection
 ├── filters.py        # Post-extraction content filters (junk stripping, paywall detection, quality gate)
 ├── epub.py           # EPUB generation with category grouping, dividers, EPUB3 landmarks nav
 ├── cover.py          # Cover image generation (600x900px, category-aware labels)
@@ -48,9 +48,10 @@ src/paper_boy/
 
 ## Key Functions
 
-- `main.build_newspaper(config, cache=None) → BuildResult` — Main pipeline: fetch feeds → build EPUB → return result
+- `main.build_newspaper(config, cache=None) → BuildResult` — Main pipeline: fetch feeds → build EPUB → return result. `BuildResult` includes `feed_observations` (pre-budget per-feed stats)
 - `main.build_and_deliver(config, cache=None) → BuildResult` — Build + deliver EPUB
-- `feeds.fetch_feeds(config, cache=None, seen_urls=None) → list[Section]` — Fetch all configured feeds, extract articles. `seen_urls` set enables cross-feed URL deduplication (same article in multiple feeds from same publisher)
+- `feeds.fetch_feeds(config, cache=None, seen_urls=None) → list[Section]` — Fetch all configured feeds, extract articles. Collects `FeedObservation` data as a side effect (retrieved via `get_feed_observations()`)
+- `feeds.get_feed_observations() → list[FeedObservation]` — Returns per-feed stats from the last `fetch_feeds()` call (entry counts, freshness, word counts, extraction rates). Used by build pipeline to populate `feed_stats` table
 - `cache.ContentCache` — In-memory cache for feed entries, article HTML, and image bytes
 - `epub.build_epub(sections, config) → path` — Generate EPUB file
 - `cover.generate_cover(title, sections, issue_date) → bytes` — Generate newspaper-style cover image (600x900 JPEG)
