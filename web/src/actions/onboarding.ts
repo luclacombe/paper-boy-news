@@ -11,6 +11,7 @@ const VALID_DELIVERY_METHODS: DeliveryMethod[] = [
   "local",
   "google_drive",
   "email",
+  "koreader",
 ];
 
 function validateOnboardingData(data: OnboardingData): void {

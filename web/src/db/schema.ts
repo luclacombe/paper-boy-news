@@ -6,6 +6,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  real,
 } from "drizzle-orm/pg-core";
 
 // ── User profiles (extends Supabase auth.users) ──
@@ -100,4 +101,33 @@ export const deliveryHistory = pgTable("delivery_history", {
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+});
+
+// ── Feed stats (global, not per-user) ──
+
+export const feedStats = pgTable("feed_stats", {
+  url: text("url").primaryKey(),
+  name: text("name").notNull(),
+  observedAt: timestamp("observed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  sampleCount: integer("sample_count").notNull().default(1),
+
+  // Latest observation
+  totalEntries: integer("total_entries").notNull().default(0),
+  fresh24h: integer("fresh_24h").notNull().default(0),
+  fresh48h: integer("fresh_48h").notNull().default(0),
+  attempted: integer("attempted").notNull().default(0),
+  extracted: integer("extracted").notNull().default(0),
+  avgWordCount: real("avg_word_count").notNull().default(0),
+  medianWordCount: real("median_word_count").notNull().default(0),
+  avgImages: real("avg_images").notNull().default(0),
+
+  // Derived rolling averages
+  articlesPerDay: real("articles_per_day").notNull().default(0),
+  estimatedReadMin: real("estimated_read_min").notNull().default(0),
+  dailyReadMin: real("daily_read_min").notNull().default(0),
+
+  // Last 30 daily observations
+  history: jsonb("history").notNull().default([]),
 });
