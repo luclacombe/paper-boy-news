@@ -35,6 +35,7 @@ from paper_boy.feeds import (
     _extract_via_archive,
     _fetch_single_feed,
     _get_feed_content,
+    _is_junk_figcaption,
     _is_premium_title,
     _is_stale_entry,
     _recover_images_from_html,
@@ -1527,6 +1528,61 @@ class TestApplyReadingTimeBudget:
         # Long source gets 1 (phase 1), short source gets more due to time budget
         assert len(short_sec.articles) >= len(long_sec.articles)
 
+    def test_scarce_sources_prioritized_in_phase1(self):
+        """Phase 1 fills scarce (weekly) sources before high-volume daily sources."""
+        # Weekly: 2 articles (~5 min each), Daily: 20 articles (~1 min each)
+        # Budget: 6 min — only room for ~1 source in phase 1 if long articles
+        # Scarce source should get its slot even though it's listed second
+        sections = [
+            self._make_section("Daily", 20, 238),     # 20 articles, 1 min each
+            self._make_section("Weekly", 2, 1190),     # 2 articles, 5 min each
+        ]
+        result = apply_reading_time_budget(sections, 8)
+        # Weekly source (scarce) should be present despite being second in list
+        names = [s.name for s in result]
+        assert "Weekly" in names
+
+    def test_scarce_sources_filled_before_daily(self):
+        """Phase 2 fills scarce sources more completely than high-volume ones."""
+        # Weekly: 3 articles (238 words each = 1 min)
+        # Daily: 15 articles (238 words each = 1 min)
+        # Budget: 10 min — should fill weekly (3) before giving daily extras
+        sections = [
+            self._make_section("Daily", 15, 238),
+            self._make_section("Weekly", 3, 238),
+        ]
+        result = apply_reading_time_budget(sections, 10)
+        weekly = next(s for s in result if s.name == "Weekly")
+        daily = next(s for s in result if s.name == "Daily")
+        # Weekly should be fully included (all 3), daily gets the rest
+        assert len(weekly.articles) == 3
+        assert len(daily.articles) == 10 - 3  # remaining budget
+
+    def test_overshoot_cap_is_5_minutes(self):
+        """Phase 2 skips articles that would overshoot by more than 5 min."""
+        # Source A: 1 article already allocated (1 min), next is 10 min
+        # Source B: 1 article already allocated (1 min), next is 2 min
+        # Budget: 4 min — after phase 1 (2 min used), 2 min left
+        # A's next (10 min) would overshoot to 12 min (7 min over) — skip
+        # B's next (2 min) fits within cap
+        sections = [
+            Section(name="LongNext", articles=[
+                Article(title="A0", url="u0", html_content="x", word_count=238),
+                Article(title="A1", url="u1", html_content="x", word_count=2380),
+            ]),
+            Section(name="ShortNext", articles=[
+                Article(title="B0", url="u2", html_content="x", word_count=238),
+                Article(title="B1", url="u3", html_content="x", word_count=476),
+            ]),
+        ]
+        result = apply_reading_time_budget(sections, 4)
+        long_sec = next(s for s in result if s.name == "LongNext")
+        short_sec = next(s for s in result if s.name == "ShortNext")
+        # LongNext's 10-min article should be skipped (overshoot > 5 min)
+        assert len(long_sec.articles) == 1
+        # ShortNext's 2-min article should be added
+        assert len(short_sec.articles) == 2
+
 
 # --- Consecutive failure abort ---
 
@@ -2475,3 +2531,121 @@ class TestCleanFtHtml:
         result = _clean_ft_html(html)
         assert "Real item" in result
         assert result.count("<li") == 1
+
+
+# --- Junk Figcaption Detection ---
+
+
+class TestJunkFigcaption:
+    def test_detects_comments_ui(self):
+        assert _is_junk_figcaption("Comments", "") is True
+
+    def test_detects_allcaps_byline(self):
+        assert _is_junk_figcaption("DAVID BAUDER", "") is True
+
+    def test_detects_single_word_label(self):
+        assert _is_junk_figcaption("Cuba", "") is True
+
+    def test_allows_real_caption(self):
+        assert _is_junk_figcaption("President Biden speaks at the White House", "") is False
+
+    def test_allows_empty(self):
+        assert _is_junk_figcaption("", "") is False
+
+    def test_detects_share_button(self):
+        assert _is_junk_figcaption("Share", "") is True
+
+    def test_allows_numbered_caption(self):
+        assert _is_junk_figcaption("2024 election results by state", "") is False
+
+    def test_detects_from_alt_fallback(self):
+        """When caption is empty, checks alt text."""
+        assert _is_junk_figcaption("", "JOHN SMITH") is True
+
+    def test_allows_multiword_mixed_case(self):
+        """Normal mixed-case multi-word captions are preserved."""
+        assert _is_junk_figcaption("A protester holds a sign outside the capitol", "") is False
+
+
+# --- AP Domain-Specific Image Recovery ---
+
+
+class TestDomainSpecificImageRecovery:
+    def test_ap_uses_richtext_xpath(self):
+        """AP News uses RichTextStoryBody xpath, not generic //article//img."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<div class="bsp-carousel"><img src="https://cdn.example.com/carousel1.jpg" alt="Carousel"/></div>'
+            '<div class="RichTextStoryBody">'
+            '<img src="https://cdn.example.com/hero.jpg" alt="Hero photo"/>'
+            "</div>"
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw, "https://apnews.com/article/test")
+        assert "hero.jpg" in result
+        assert "carousel1.jpg" not in result
+
+    def test_ap_falls_back_to_bsp_figure(self):
+        """AP News falls back to bsp-figure xpath."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<bsp-figure><img src="https://cdn.example.com/bsp-photo.jpg" alt="BSP"/></bsp-figure>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw, "https://apnews.com/article/test")
+        assert "bsp-photo.jpg" in result
+
+    def test_non_ap_uses_generic_xpath(self):
+        """Non-AP domains still use the generic //article//img xpath."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><article>"
+            '<img src="https://cdn.example.com/photo.jpg" alt="Photo"/>'
+            "</article></body></html>"
+        )
+        result = _recover_images_from_html(extracted, raw, "https://example.com/article")
+        assert "photo.jpg" in result
+
+
+# --- Bloomberg Normalize Rules ---
+
+
+class TestBloombergNormalize:
+    def test_strips_ad_div_with_nbsp(self):
+        """Bloomberg ad divs with non-breaking space are removed."""
+        html = (
+            '<p>Article content.</p>'
+            '<div class="ad news-designed-for-consumer-media" data-ad-type="small-box">\xa0</div>'
+            '<p>More content.</p>'
+        )
+        result = _normalize_html(html)
+        assert "ad news-designed" not in result
+        assert "Article content" in result
+        assert "More content" in result
+
+    def test_strips_duplicate_figcaption_with_caption_div(self):
+        """Bloomberg figcaption wrapping news-figure-caption-text div is removed."""
+        html = (
+            '<figure><img src="photo.jpg" alt="Test"/>'
+            '<figcaption>Photo caption</figcaption>'
+            '<figcaption><div class="news-figure-caption-text">Photo caption</div></figcaption>'
+            '</figure>'
+        )
+        result = _normalize_html(html)
+        assert result.count("Photo caption") == 1
+        assert "news-figure-caption-text" not in result
+        assert "<img" in result
+
+    def test_strips_standalone_caption_div(self):
+        """Bloomberg standalone news-figure-caption-text div is removed."""
+        html = (
+            '<div class="bplayer-container">'
+            '<iframe src="//www.bloomberg.com/api/embed/iframe?id=abc"/>'
+            '<div class="news-figure-caption-text">Video Title</div>'
+            '</div>'
+        )
+        result = _normalize_html(html)
+        assert "news-figure-caption-text" not in result
+        assert "Video Title" not in result

@@ -64,8 +64,8 @@ YAML-based (`config.yaml`), see `config.example.yaml` in project root:
 ```yaml
 title: "Morning Digest"
 language: en
-total_article_budget: 7   # fallback: total articles across all feeds (each source gets at least 1)
-reading_time_minutes: 20  # preferred: time-based budget using word count / 238 WPM
+total_article_budget: 7   # fallback: fixed article count (CLI-only, each source gets at least 1)
+reading_time_minutes: 20  # preferred: time-based budget using word count / 238 WPM (web app default)
 include_images: true
 feeds:
   - name: "The Guardian"
@@ -76,6 +76,19 @@ delivery:
   google_drive_folder: "Rakuten Kobo"
   keep_days: 7
 ```
+
+## Article Budget
+
+Two budget modes (time-based preferred, article-count as CLI fallback):
+
+- **`apply_reading_time_budget(sections, target_minutes)`** — word count / 238 WPM. Scarcity-aware: sources with fewer available articles (weekly/low-frequency) get priority over high-volume daily sources in both phases. 5-minute overshoot cap prevents awkward cuts while keeping the budget soft.
+- **`apply_article_budget(sections, budget)`** — fixed article count, simple round-robin. CLI fallback when `reading_time_minutes` is 0.
+
+Both share the same two-phase structure:
+1. **Phase 1**: 1 article per source (scarce-first ordering in time mode)
+2. **Phase 2**: fill remaining budget across sources (scarce-first in time mode, round-robin in count mode)
+
+Web app builds always use time mode — `build_for_users.py` parses `reading_time` from the DB (e.g. "20 min" → 20).
 
 ## Content Cache
 
@@ -119,7 +132,7 @@ delivery:
   - HN self-posts (`news.ycombinator.com/item`) use RSS feed content directly
   - `MIN_ARTICLE_WORDS = 150` threshold to detect truncated/paywalled content
   - Inline paywall detection (`_has_paywall_markers`) runs after each strategy's word count check — prevents paywall teasers (e.g. FT's "Subscribe to unlock") from short-circuiting the fallback chain. Runs `strip_junk()` first to avoid Nature-style false positives
-  - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts, zero-width Unicode chars, self-closing blocks, CMS alt-text figcaptions, Space.com bare "Article continues below" text, BBC "Published" bullet lists, Bloomberg empty ad divs, URL-only figcaptions; converts TEI table tags; flattens nested figures)
+  - All paths normalised via `_normalize_html()` (strips empty tags, inline styles, NPR caption artifacts, zero-width Unicode chars, self-closing blocks, CMS alt-text figcaptions, Space.com bare "Article continues below" text, BBC "Published" bullet lists, Bloomberg empty ad divs + duplicate figcaption divs, URL-only figcaptions; converts TEI table tags; flattens nested figures)
   - Falls back to RSS feed content if all strategies fail
 - **Premium title pre-filtering**: `_is_premium_title()` skips entries with `STAT+` anywhere in the title (not just prefix — handles "Opinion: STAT+: ..." pattern). Prevents mixed free/premium feeds (like STAT News) from triggering the consecutive failure abort before free articles are reached.
 - **Title-based pre-filtering**: `_should_skip_title()` skips non-journalism entries before extraction — corrections/errata notices, affiliate roundup posts (e.g. Electrek "Green Deals"), NASA webinar invites. Runs in `_fetch_single_feed()` before any network calls.
@@ -151,7 +164,8 @@ delivery:
   - `_SECTION_JUNK_RULES` in `filters.py` — list of `(heading_pattern, scope)` tuples for structural junk
   - `_TRAILING_JUNK_RULES` in `filters.py` — list of compiled patterns for trailing metadata
 - **Stale entry filtering**: `_is_stale_entry()` skips RSS entries older than `_MAX_ENTRY_AGE_DAYS` (7 days) using feedparser's `published_parsed`/`updated_parsed` UTC time tuples. Runs in `_fetch_single_feed()` before extraction — saves time on feeds with chronically stale content (DW 70%, Eater 89%, Morning Brew 45%). Entries with no date are assumed fresh.
-- **Image recovery from raw HTML**: `_recover_images_from_html()` recovers images that trafilatura drops during content boundary detection. When extraction produces 0 images, parses the raw HTML for `<img>` tags in content containers (`<article>`, `<main>`, `<figure>`, etc.), filters ads/tracking via `_should_skip_image()`, supports lazy-loading (`data-src`, `data-lazy-src`, `data-original`), resolves relative URLs against the page's base URL, deduplicates, and injects recovered images (no cap — the downstream image pipeline filters junk via size/domain/pattern checks). Hooked into strategies S0b, S1, S1.5, and S2. For S1 (where trafilatura fetches internally), refetches with browser UA only when 0 images detected.
+- **Image recovery from raw HTML**: `_recover_images_from_html()` recovers images that trafilatura drops during content boundary detection. When extraction produces 0 images, parses the raw HTML for `<img>` tags in content containers. Domain-specific xpaths via `_DOMAIN_IMAGE_XPATHS` dict (e.g. AP News uses `RichTextStoryBody`/`bsp-figure` to avoid carousel images) take priority over generic container xpaths (`<article>`, `<main>`, `<figure>`, etc.). Filters ads/tracking via `_should_skip_image()`, supports lazy-loading (`data-src`, `data-lazy-src`, `data-original`), resolves relative URLs against the page's base URL, deduplicates, and injects recovered images (no cap — the downstream image pipeline filters junk via size/domain/pattern checks). Hooked into strategies S0b, S1, S1.5, and S2. For S1 (where trafilatura fetches internally), refetches with browser UA only when 0 images detected.
+- **Junk figcaption filtering**: `_is_junk_figcaption()` detects and skips images with junk captions in `_process_article_images()`. Matches UI elements ("Comments", "Share"), ALL-CAPS short strings (author bylines like "DAVID BAUDER"), and single-word labels under 15 chars ("Cuba"). Prevents carousel/sidebar image pollution (AP News via feedx.net).
 - **Relative URL resolution in image pipeline**: Both `_recover_images_from_html()` and `_process_article_images()` resolve relative image paths (e.g. Al Jazeera's `/wp-content/uploads/...`) against the article's base URL. Without this, trafilatura's `<graphic>` tags with relative `src` attributes would silently fail to download.
 - URL filtering: video/podcast/live segments, `.pdf` file extensions, YouTube URLs (`youtube.com`, `youtu.be`), and domain-specific non-article patterns (`_should_skip_url`) are skipped before extraction
 - Image dedup: `seen_urls` set in `_process_article_images()` prevents duplicate images within the same article (Verge double-image bug)
