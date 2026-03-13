@@ -47,6 +47,7 @@ def _make_profile(**overrides) -> dict:
         "title": "Morning Digest",
         "language": "en",
         "total_article_budget": 7,
+        "reading_time": "20 min",
         "include_images": True,
         "device": "kobo",
         "delivery_method": "google_drive",
@@ -182,6 +183,30 @@ class TestBuildConfigFromProfile:
         config = build_config_from_profile(_make_profile(), feeds)
         assert config.feeds[0].category == "Technology"
         assert config.feeds[1].category == ""
+
+    def test_reading_time_minutes_parsed(self):
+        """reading_time text field is parsed into reading_time_minutes."""
+        prof = _make_profile(reading_time="30 min")
+        config = build_config_from_profile(prof, _make_feed_list())
+        assert config.newspaper.reading_time_minutes == 30
+
+    def test_reading_time_default(self):
+        """Default reading_time from fixture is 20 min."""
+        config = build_config_from_profile(_make_profile(), _make_feed_list())
+        assert config.newspaper.reading_time_minutes == 20
+
+    def test_reading_time_missing(self):
+        """Missing reading_time falls back to 0 (article budget used instead)."""
+        prof = _make_profile()
+        del prof["reading_time"]
+        config = build_config_from_profile(prof, _make_feed_list())
+        assert config.newspaper.reading_time_minutes == 0
+
+    def test_reading_time_invalid(self):
+        """Invalid reading_time text falls back to 0."""
+        prof = _make_profile(reading_time="invalid")
+        config = build_config_from_profile(prof, _make_feed_list())
+        assert config.newspaper.reading_time_minutes == 0
 
 
 # ─── _build_for_user — delivery method snapshotting ─────────────────
