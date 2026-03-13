@@ -174,10 +174,20 @@ def build_config_from_profile(
         for f in feeds
     ]
 
+    # Parse reading_time_minutes from DB text field (e.g. "20 min" → 20)
+    reading_time_str = profile.get("reading_time", "")
+    reading_time_minutes = 0
+    if reading_time_str:
+        try:
+            reading_time_minutes = int(reading_time_str.split()[0])
+        except (ValueError, IndexError):
+            reading_time_minutes = 0
+
     newspaper = NewspaperConfig(
         title=profile.get("title", "Morning Digest"),
         language=profile.get("language", "en"),
         total_article_budget=profile.get("total_article_budget", 7),
+        reading_time_minutes=reading_time_minutes,
         include_images=profile.get("include_images", True),
     )
 

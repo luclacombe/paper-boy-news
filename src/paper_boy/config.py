@@ -44,6 +44,7 @@ class NewspaperConfig:
     title: str = "Morning Digest"
     language: str = "en"
     total_article_budget: int = 7
+    reading_time_minutes: int = 0  # 0 = use total_article_budget instead
     include_images: bool = True
     image_max_width: int = 800
     image_max_height: int = 1200
@@ -79,6 +80,7 @@ def load_config(path: str | Path) -> Config:
             "total_article_budget",
             np_raw.get("max_articles_per_feed", 7),
         ),
+        reading_time_minutes=np_raw.get("reading_time_minutes", 0),
         include_images=np_raw.get("include_images", True),
         image_max_width=np_raw.get("image_max_width", 800),
         image_max_height=np_raw.get("image_max_height", 1200),
