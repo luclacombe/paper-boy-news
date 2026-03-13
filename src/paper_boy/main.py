@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 from typing import List
@@ -12,7 +12,7 @@ from paper_boy.cache import ContentCache
 from paper_boy.config import Config
 from paper_boy.delivery import deliver
 from paper_boy.epub import build_epub
-from paper_boy.feeds import Section, fetch_feeds
+from paper_boy.feeds import FeedObservation, Section, fetch_feeds, get_feed_observations
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,7 @@ class BuildResult:
     epub_path: Path
     sections: List[Section]
     total_articles: int
+    feed_observations: List[FeedObservation] = field(default_factory=list)
 
 
 def build_newspaper(
@@ -63,6 +64,7 @@ def build_newspaper(
         epub_path=epub_path,
         sections=sections,
         total_articles=total_articles,
+        feed_observations=get_feed_observations(),
     )
 
 

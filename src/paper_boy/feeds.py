@@ -113,6 +113,110 @@ def _is_stale_entry(entry) -> bool:
         return False
 
 
+def _entry_age_hours(entry) -> float | None:
+    """Return the age of a feed entry in hours, or None if no date."""
+    date_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
+    if not date_tuple:
+        return None
+    try:
+        entry_ts = calendar.timegm(date_tuple[:9])
+        return (time.time() - entry_ts) / 3600
+    except (TypeError, OverflowError, ValueError):
+        return None
+
+
+# --- Feed observation tracking ---
+# Collects per-feed stats during fetch_feeds() for the feed_stats system.
+# Same module-level pattern as _domain_failures.
+
+@dataclass
+class _FeedEntryInfo:
+    """Raw entry counts from RSS parsing (pre-extraction)."""
+    total_entries: int = 0
+    fresh_24h: int = 0
+    fresh_48h: int = 0
+    attempted: int = 0
+
+_feed_entry_info: dict[str, _FeedEntryInfo] = {}
+
+
+def _reset_feed_entry_info() -> None:
+    _feed_entry_info.clear()
+
+
+@dataclass
+class FeedObservation:
+    """Observed stats for a single feed from one build.
+
+    Collected after extraction, before budget trimming.
+    """
+    feed_url: str
+    feed_name: str
+    total_entries: int        # entries in RSS (capped at _FETCH_CAP_PER_FEED)
+    fresh_24h: int            # entries < 24h old
+    fresh_48h: int            # entries < 48h old
+    attempted: int            # entries that entered extraction loop
+    extracted: int            # articles that passed all filters
+    avg_word_count: float     # mean word count of extracted articles
+    median_word_count: float  # median word count
+    avg_images: float         # mean images per extracted article
+
+_feed_observations: list[FeedObservation] = []
+
+
+def _reset_feed_observations() -> None:
+    _feed_observations.clear()
+
+
+def get_feed_observations() -> list[FeedObservation]:
+    """Return feed observations collected during the last fetch_feeds() call."""
+    return list(_feed_observations)
+
+
+def _compute_observation(feed_url: str, feed_name: str,
+                         section: Section) -> FeedObservation:
+    """Compute a FeedObservation from a Section and its entry info."""
+    info = _feed_entry_info.get(feed_url)
+    if info is None:
+        # Domain-specific handlers (Bloomberg, Reuters, etc.) don't store
+        # entry info — estimate from extracted articles since their APIs
+        # typically return only fresh, extractable content.
+        n = len(section.articles)
+        info = _FeedEntryInfo(total_entries=n, fresh_24h=n, fresh_48h=n, attempted=n)
+    articles = section.articles
+    word_counts = [
+        a.word_count if a.word_count > 0 else _count_words(a.html_content)
+        for a in articles
+        if a.html_content
+    ]
+    image_counts = [len(a.images) for a in articles]
+
+    avg_wc = sum(word_counts) / len(word_counts) if word_counts else 0.0
+    median_wc = 0.0
+    if word_counts:
+        sorted_wc = sorted(word_counts)
+        mid = len(sorted_wc) // 2
+        if len(sorted_wc) % 2 == 0:
+            median_wc = (sorted_wc[mid - 1] + sorted_wc[mid]) / 2
+        else:
+            median_wc = float(sorted_wc[mid])
+
+    avg_img = sum(image_counts) / len(image_counts) if image_counts else 0.0
+
+    return FeedObservation(
+        feed_url=feed_url,
+        feed_name=feed_name,
+        total_entries=info.total_entries,
+        fresh_24h=info.fresh_24h,
+        fresh_48h=info.fresh_48h,
+        attempted=info.attempted,
+        extracted=len(articles),
+        avg_word_count=round(avg_wc, 1),
+        median_word_count=round(median_wc, 1),
+        avg_images=round(avg_img, 1),
+    )
+
+
 # Auth/login URL patterns — detected after redirect to abort early
 _AUTH_URL_PATTERNS = ("/login", "/authorize", "/signin", "/auth/")
 
@@ -339,6 +443,8 @@ _NORMALIZE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"<ul>\s*<li>\s*Published\s*</li>\s*</ul>", re.IGNORECASE), ""),
     # 13. Strip Bloomberg empty ad div placeholders
     (re.compile(r"<div\s+[^>]*class=\"ad\b[^\"]*\"[^>]*>\s*</div>", re.IGNORECASE), ""),
+    # 14. Strip figcaptions that are just URLs (Kiplinger logo URL leak)
+    (re.compile(r"<figcaption>\s*https?://\S+\s*</figcaption>", re.IGNORECASE), ""),
 ]
 
 
@@ -362,6 +468,7 @@ class Article:
     date: str | None = None
     html_content: str = ""
     images: list[ArticleImage] = field(default_factory=list)
+    word_count: int = 0
 
 
 @dataclass
@@ -375,8 +482,14 @@ class Section:
 
 
 def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Section]:
-    """Fetch all configured feeds and extract article content."""
+    """Fetch all configured feeds and extract article content.
+
+    Feed observations (pre-budget stats) are collected as a side effect
+    and can be retrieved via get_feed_observations() after this call.
+    """
     _reset_domain_failures()
+    _reset_feed_entry_info()
+    _reset_feed_observations()
     seen_urls: set[str] = set()  # Cross-feed URL dedup
     sections = []
     for feed_cfg in config.feeds:
@@ -392,6 +505,11 @@ def fetch_feeds(config: Config, cache: ContentCache | None = None) -> list[Secti
             )
         else:
             logger.warning("No articles extracted from %s", feed_cfg.name)
+
+        # Collect observation for every feed (even empty ones) before budget trimming
+        _feed_observations.append(
+            _compute_observation(feed_cfg.url, feed_cfg.name, section)
+        )
 
     budget = config.newspaper.total_article_budget
     if budget > 0:
@@ -501,6 +619,21 @@ def _fetch_single_feed(
 
         entries = feed.entries[: _FETCH_CAP_PER_FEED]
 
+    # Compute entry freshness counts for feed stats
+    fresh_24h = 0
+    fresh_48h = 0
+    for e in entries:
+        age = _entry_age_hours(e)
+        if age is not None:
+            if age <= 24:
+                fresh_24h += 1
+            if age <= 48:
+                fresh_48h += 1
+        else:
+            # No date — assume fresh
+            fresh_24h += 1
+            fresh_48h += 1
+
     # Look up per-feed consecutive failure threshold override
     feed_domain = urlparse(feed_cfg.url).netloc
     max_failures = _CONSECUTIVE_FAILURE_OVERRIDES.get(
@@ -508,6 +641,7 @@ def _fetch_single_feed(
     )
 
     consecutive_failures = 0
+    attempted = 0
     for entry in entries:
         # Skip stale entries (older than _MAX_ENTRY_AGE_DAYS)
         if _is_stale_entry(entry):
@@ -518,6 +652,7 @@ def _fetch_single_feed(
         if _is_premium_title(entry_title):
             logger.debug("Skipping premium entry: %s", entry_title)
             continue
+        attempted += 1
         article = _extract_article(entry, config, cache=cache, seen_urls=seen_urls)
         if article:
             section.articles.append(article)
@@ -531,6 +666,14 @@ def _fetch_single_feed(
                     consecutive_failures,
                 )
                 break
+
+    # Store entry info for observation computation
+    _feed_entry_info[feed_cfg.url] = _FeedEntryInfo(
+        total_entries=len(entries),
+        fresh_24h=fresh_24h,
+        fresh_48h=fresh_48h,
+        attempted=attempted,
+    )
 
     return section
 
@@ -594,6 +737,7 @@ def _extract_article(
         return Article(
             title=title, url=url, author=author, date=date_str,
             html_content=html_content, images=[],
+            word_count=_count_words(html_content),
         )
 
     include_images = config.newspaper.include_images
@@ -676,6 +820,7 @@ def _extract_article(
         date=date,
         html_content=html_content,
         images=images,
+        word_count=word_count,
     )
 
 
