@@ -782,9 +782,21 @@ def _fetch_single_feed(
         entries = feed.entries[: _FETCH_CAP_PER_FEED]
 
     # Compute entry freshness counts for feed stats
+    # Only count entries that would actually be attempted for extraction
+    # (skip video, podcast, live, non-article URL patterns, premium titles)
     fresh_24h = 0
     fresh_48h = 0
     for e in entries:
+        entry_url = e.get("link", "")
+        entry_title = e.get("title", "")
+        if any(seg in entry_url for seg in _SKIP_URL_SEGMENTS):
+            continue
+        if _should_skip_url(entry_url):
+            continue
+        if _should_skip_title(entry_title):
+            continue
+        if _is_premium_title(entry_title):
+            continue
         age = _entry_age_hours(e)
         if age is not None:
             if age <= 24:
