@@ -126,6 +126,10 @@ class TestStripJunk:
         "Partner content from Apple Card",
         # FT on-site newsletter preamble (Batch 12)
         "This article is an on-site version of our FirstFT newsletter. Subscribers can sign up here to get it delivered to their inbox.",
+        # BoF runway gallery artifacts (Batch 14)
+        "0 of 44",
+        "23 of 44",
+        "Balenciaga AW26 look 1. (Launchmetrics.com/Spotlight)",
     ])
     def test_removes_junk_paragraph(self, junk_text):
         html = f"<p>Good content here.</p><p>{junk_text}</p>"
@@ -527,6 +531,7 @@ class TestStripSectionJunk:
         assert "FirstFT" not in result
 
 
+
 # --- strip_trailing_junk (stub — no-op with empty rules) ---
 
 
@@ -639,6 +644,35 @@ class TestStripTrailingJunk:
         result = strip_trailing_junk(html)
         assert "Correction:" not in result
         assert "policy" in result
+
+    def test_strip_bof_byline(self):
+        """BoF 'By Author Name' trailing byline stripped."""
+        html = (
+            "<p>The collection drew on vintage tailoring influences.</p>"
+            "<p>By Imran Amed</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "By Imran Amed" not in result
+        assert "vintage tailoring" in result
+
+    def test_strip_bof_byline_multiple_authors(self):
+        """BoF multi-author byline stripped."""
+        html = (
+            "<p>The industry is evolving rapidly.</p>"
+            "<p>By Diana Tsui, Lauren Sherman</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "By Diana" not in result
+        assert "industry" in result
+
+    def test_preserves_by_in_editorial_content(self):
+        """Paragraphs starting with 'By' in editorial context are preserved."""
+        html = (
+            "<p>By all accounts, the industry has changed dramatically.</p>"
+            "<p>Experts agree the trend will continue.</p>"
+        )
+        result = strip_trailing_junk(html)
+        assert "By all accounts" in result
 
     def test_handles_html_comments_without_crashing(self):
         """AV Club fix: HTML comments in children must not crash text_content()."""

@@ -13,6 +13,8 @@ class FeedConfig:
     name: str
     url: str
     category: str = ""
+    articles_per_day: float = 0.0      # from feed_stats, 0 = unknown
+    estimated_read_min: float = 0.0    # from feed_stats, 0 = unknown
 
 
 @dataclass
@@ -93,7 +95,13 @@ def load_config(path: str | Path) -> Config:
     if not feeds_raw:
         raise ValueError("No feeds configured")
     feeds = [
-        FeedConfig(name=f["name"], url=f["url"], category=f.get("category", ""))
+        FeedConfig(
+            name=f["name"],
+            url=f["url"],
+            category=f.get("category", ""),
+            articles_per_day=float(f.get("articles_per_day", 0.0)),
+            estimated_read_min=float(f.get("estimated_read_min", 0.0)),
+        )
         for f in feeds_raw
     ]
 

@@ -151,6 +151,26 @@ def get_supabase():
     return create_client(url, key)
 
 
+def fetch_feed_stats_map(sb) -> dict[str, dict]:
+    """Batch-query all feed_stats rows into a URL-keyed dict.
+
+    Returns {url: {"articles_per_day": float, "estimated_read_min": float}}.
+    One query per build window, shared across all users.
+    """
+    try:
+        resp = sb.table("feed_stats").select("url, articles_per_day, estimated_read_min").execute()
+        return {
+            row["url"]: {
+                "articles_per_day": row.get("articles_per_day", 0.0) or 0.0,
+                "estimated_read_min": row.get("estimated_read_min", 0.0) or 0.0,
+            }
+            for row in (resp.data or [])
+        }
+    except Exception as e:
+        logger.warning("Failed to fetch feed_stats (non-critical): %s", e)
+        return {}
+
+
 def get_edition_date(timezone: str) -> str:
     """Get today's calendar date in the user's timezone.
 
@@ -166,11 +186,24 @@ def get_edition_date(timezone: str) -> str:
 
 
 def build_config_from_profile(
-    profile: dict, feeds: list[dict]
+    profile: dict, feeds: list[dict],
+    feed_stats_map: dict[str, dict] | None = None,
 ) -> Config:
-    """Construct a paper_boy Config from Supabase profile + feeds data."""
+    """Construct a paper_boy Config from Supabase profile + feeds data.
+
+    feed_stats_map: optional URL-keyed dict of feed_stats rows. When provided,
+    populates articles_per_day and estimated_read_min on each FeedConfig for
+    frequency-aware freshness windows and budget allocation.
+    """
+    stats = feed_stats_map or {}
     feed_configs = [
-        FeedConfig(name=f["name"], url=f["url"], category=f.get("category", ""))
+        FeedConfig(
+            name=f["name"],
+            url=f["url"],
+            category=f.get("category", ""),
+            articles_per_day=stats.get(f["url"], {}).get("articles_per_day", 0.0),
+            estimated_read_min=stats.get(f["url"], {}).get("estimated_read_min", 0.0),
+        )
         for f in feeds
     ]
 
@@ -280,7 +313,8 @@ def _write_back_tokens(sb, prof: dict, user_id: str, token_data: dict | None) ->
 
 def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
                     edition_date: date, cache: ContentCache | None = None,
-                    record_delivery_method: str | None = None) -> None:
+                    record_delivery_method: str | None = None,
+                    feed_stats_map: dict[str, dict] | None = None) -> None:
     """Build EPUB for a user and update the delivery_history record.
 
     Sets status to "built" (for auto-delivery users) or "delivered" (for local/download).
@@ -294,7 +328,7 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
     is_local = delivery_method in ("local", "koreader")
 
     try:
-        config = build_config_from_profile(prof, feed_list)
+        config = build_config_from_profile(prof, feed_list, feed_stats_map=feed_stats_map)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_") as tmp_dir:
             filename = _epub_filename(prof["title"], edition_date_str)
@@ -483,11 +517,14 @@ def build_and_deliver_for_record(
     edition_date_str = rec["edition_date"]
     edition_date = date.fromisoformat(edition_date_str)
 
+    # Fetch feed stats for frequency-aware freshness and budget
+    feed_stats_map = fetch_feed_stats_map(sb)
+
     try:
         # Override delivery method with the snapshot from the record
         prof_snapshot = dict(prof)
         prof_snapshot["delivery_method"] = record_delivery_method
-        config = build_config_from_profile(prof_snapshot, feed_list)
+        config = build_config_from_profile(prof_snapshot, feed_list, feed_stats_map=feed_stats_map)
 
         with tempfile.TemporaryDirectory(prefix="paperboy_") as tmp_dir:
             filename = _epub_filename(prof["title"], edition_date_str)
@@ -598,6 +635,7 @@ def run_build_all() -> None:
         return
 
     cache = ContentCache()
+    feed_stats_map = fetch_feed_stats_map(sb)
     built_count = 0
 
     for prof in users.data:
@@ -672,6 +710,7 @@ def run_build_all() -> None:
                 sb, prof, feeds.data, record_id, edition_date,
                 cache=cache,
                 record_delivery_method=prof.get("delivery_method", "local"),
+                feed_stats_map=feed_stats_map,
             )
             built_count += 1
 
