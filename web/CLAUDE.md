@@ -74,9 +74,9 @@ src/
 │   ├── save-toast.tsx         # Custom save toast: halftone texture, countdown progress bar, undo
 │   ├── settings-accordion.tsx # Accordion cards with colored borders, batch save + undo
 │   ├── settings-client.tsx   # Settings page: compact header (← Settings / Sign out) + accordion
-│   ├── budget-bar.tsx        # Budget bar: shows capped estimate (min of source output, budget), green/amber/red for fill ratio
+│   ├── budget-bar.tsx        # Smart budget bar: capped estimate, contextual curation/rotation/add-more messaging
 │   ├── feed-badges.tsx       # FeedBadges (per-feed read time badge) + BundleReadTime (source count + avg per-article time)
-│   ├── feed-chip.tsx         # Individual selectable chip (name + frequency label + per-article read time)
+│   ├── feed-chip.tsx         # Individual selectable chip (name + per-article read time)
 │   ├── feed-chip-grid.tsx    # Chip grid with category/frequency filter bar, groupMode controlled by parent
 │   └── *.tsx          # Shared components (device-card, edition-card, etc.)
 ├── data/
@@ -96,7 +96,7 @@ src/
 │   ├── edition-date.ts # Timezone-aware edition date (5 AM rollover), cutoff checks
 │   ├── feed-catalog.ts # Catalog loading + getAllCatalogFeedUrls() for orphan cleanup
 │   ├── opds.ts        # buildOpdsFeed() — pure OPDS Atom XML builder
-│   ├── reading-time.ts # Reading time helpers: getFrequencyLabel(), formatDailyReadTime(), totalSourceDailyOutput(), formatChipReadTime(), getChipFrequencyLabel(), hasAnyStats()
+│   ├── reading-time.ts # Reading time helpers: getFrequencyLabel(), formatDailyReadTime(), totalSourceDailyOutput(), avgEstimatedReadMin(), formatChipReadTime(), hasAnyStats()
 │   ├── utils.ts       # cn() helper (clsx + tailwind-merge)
 │   └── supabase/
 │       ├── admin.ts   # Service role client (for deleteUser, storage cleanup)
@@ -189,6 +189,6 @@ Dashboard states (in priority order): build-in-progress (client fetching or DB "
 
 - Auth, onboarding, and server actions are complete
 - Dashboard (`/dashboard`) — 9-state status card with timezone-aware edition logic, async build with polling, past editions, schedule nudges
-- Settings (`/settings`) — accordion with 5 colored-border cards: Sources, Delivery, Schedule, Your Paper, Account. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via chip grid (`feed-chip-grid.tsx`) with category/frequency filter bar; grouping toggle (segmented control) is inline with "Edit your sources" heading in `sources-section.tsx`. Chips show per-article read time (`estimatedReadMin`) + frequency label. Budget bar shows capped estimate (`min(sourceOutput, budget)`), not raw source output. Bundle cards show source count + avg per-article time. `feedStats` threaded from page → client → accordion → sources section
+- Settings (`/settings`) — accordion with 5 colored-border cards: Sources, Delivery, Schedule, Your Paper, Account. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via chip grid (`feed-chip-grid.tsx`) with category/frequency filter bar; grouping toggle (segmented control) is inline with "Edit your sources" heading in `sources-section.tsx`. Chips show per-article read time (`estimatedReadMin`). Budget bar shows capped estimate with contextual messaging: curation reassurance, source rotation warning (when sources > max articles), or add-more prompt. Bundle cards show source count + avg per-article time. Frequency buckets: "Several per day", "Daily", "A few/week", "Weekly or less", "No data". `feedStats` threaded from page → client → accordion → sources section
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Landing page and login flow are functional
