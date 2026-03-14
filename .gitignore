@@ -32,6 +32,9 @@ audit/
 docs/RESEARCH.md
 docs/RESEARCH-EBOOK-GENERATION.md
 
+# Roadmap (local planning files)
+SOURCE-BUDGET-ROADMAP.md
+
 # Test output files
 *.opf
 
