@@ -46,4 +46,4 @@ pytest -k "test_build"           # By name pattern
 - `conftest.py` has shared fixtures
 - `test_feeds.py` uses `_LONG_CONTENT` (250 words) for mock extraction results — content must pass the 200-word quality gate in `filters.py`
 - Legacy FastAPI API tests are in `legacy/api/tests/`
-- Next.js tests are separate — they live in `web/src/__tests__/` and use Vitest (198 tests across 17 files, including `reading-time.test.ts` (18), `budget-bar.test.ts` (6), `feed-badges.test.ts` (6))
+- Next.js tests are separate — they live in `web/src/__tests__/` and use Vitest (216 tests across 18 files, including `reading-time.test.ts` (18), `budget-bar.test.ts` (6), `feed-badges.test.ts` (6), `feed-chip-grid.test.ts` (grouping logic))

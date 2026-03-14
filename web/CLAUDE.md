@@ -76,6 +76,8 @@ src/
 │   ├── settings-client.tsx   # Settings page: compact header (← Settings / Sign out) + accordion
 │   ├── budget-bar.tsx        # Reading time budget bar (used in sources section + onboarding step 2)
 │   ├── feed-badges.tsx       # FeedBadges (per-feed read time badge) + BundleReadTime (per-category total)
+│   ├── feed-chip.tsx         # Individual selectable chip (name + reading time cost)
+│   ├── feed-chip-grid.tsx    # Chip grid with category/frequency filter bar and grouping toggle (replaces accordion checkboxes)
 │   └── *.tsx          # Shared components (device-card, edition-card, etc.)
 ├── data/
 │   └── feed-catalog.yaml  # Curated feed catalog (~35 feeds, 7 categories)
@@ -187,6 +189,6 @@ Dashboard states (in priority order): build-in-progress (client fetching or DB "
 
 - Auth, onboarding, and server actions are complete
 - Dashboard (`/dashboard`) — 9-state status card with timezone-aware edition logic, async build with polling, past editions, schedule nudges
-- Settings (`/settings`) — accordion with 5 colored-border cards: Sources, Delivery, Schedule, Your Paper, Account. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via catalog checkboxes (no separate list). Sources section has inline reading time picker, budget bar (`BudgetBar`), per-feed read time badges (`FeedBadges`), and per-bundle read times (`BundleReadTime`). `feedStats` threaded from page → client → accordion → sources section
+- Settings (`/settings`) — accordion with 5 colored-border cards: Sources, Delivery, Schedule, Your Paper, Account. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via chip grid with category/frequency filter bar and grouping toggle (`feed-chip-grid.tsx`). Sources section has inline reading time picker, budget bar (`BudgetBar`), per-feed read time badges (`FeedBadges`), and per-bundle read times (`BundleReadTime`). `feedStats` threaded from page → client → accordion → sources section
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Landing page and login flow are functional
