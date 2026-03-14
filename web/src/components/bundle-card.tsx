@@ -19,7 +19,7 @@ export function BundleCard({
     <button
       onClick={onClick}
       className={cn(
-        "newsprint-card w-full overflow-hidden border-2 bg-card p-4 text-left transition-all duration-150 hover:scale-[1.01] hover:-translate-y-px active:scale-[0.99]",
+        "newsprint-card h-full w-full overflow-hidden border-2 bg-card p-4 text-left transition-all duration-150 hover:scale-[1.01] hover:-translate-y-px active:scale-[0.99]",
         selected
           ? "border-edition-red shadow-sm"
           : "border-rule-gray hover:border-caption"

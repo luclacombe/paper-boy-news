@@ -36,26 +36,30 @@ interface BundleReadTimeProps {
   statsMap: Record<string, FeedStat>;
 }
 
-/** Aggregate reading time badge for a bundle card. */
+/** Aggregate reading time badge for a bundle card: source count + avg per-article time. */
 export function BundleReadTime({
   bundleName,
   bundleFeedMap,
   statsMap,
 }: BundleReadTimeProps) {
   const feeds = bundleFeedMap.get(bundleName);
-  if (!feeds) return null;
+  if (!feeds || feeds.length === 0) return null;
 
-  let total = 0;
+  let totalReadMin = 0;
+  let withStats = 0;
   for (const feed of feeds) {
     const stat = statsMap[feed.url];
-    if (stat) total += stat.dailyReadMin;
+    if (stat && stat.estimatedReadMin > 0) {
+      totalReadMin += stat.estimatedReadMin;
+      withStats++;
+    }
   }
 
-  if (total === 0) return null;
+  const avgReadMin = withStats > 0 ? Math.round(totalReadMin / withStats) : 0;
 
   return (
     <span className="font-mono text-[10px] text-caption">
-      ~{Math.round(total)} min/day
+      {feeds.length} sources{avgReadMin > 0 ? ` · ~${avgReadMin}m/article` : ""}
     </span>
   );
 }

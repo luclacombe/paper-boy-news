@@ -52,18 +52,21 @@ describe("FeedBadges logic", () => {
 });
 
 describe("BundleReadTime logic", () => {
-  it("sums daily reading time across feeds", () => {
+  it("computes avg per-article reading time across feeds", () => {
     const feeds = [
-      makeStat({ url: "https://a.com/feed", dailyReadMin: 5 }),
-      makeStat({ url: "https://b.com/feed", dailyReadMin: 3 }),
+      makeStat({ url: "https://a.com/feed", estimatedReadMin: 4 }),
+      makeStat({ url: "https://b.com/feed", estimatedReadMin: 6 }),
     ];
-    const total = feeds.reduce((sum, f) => sum + f.dailyReadMin, 0);
-    expect(total).toBe(8);
-    expect(Math.round(total)).toBe(8);
+    const withStats = feeds.filter((f) => f.estimatedReadMin > 0);
+    const totalReadMin = withStats.reduce((sum, f) => sum + f.estimatedReadMin, 0);
+    const avgReadMin = Math.round(totalReadMin / withStats.length);
+    expect(avgReadMin).toBe(5);
+    expect(feeds.length).toBe(2);
   });
 
-  it("returns 0 when no feeds have stats", () => {
-    const total = 0;
-    expect(total).toBe(0);
+  it("returns 0 avg when no feeds have stats", () => {
+    const feeds: FeedStat[] = [];
+    const withStats = feeds.filter((f) => f.estimatedReadMin > 0);
+    expect(withStats.length).toBe(0);
   });
 });

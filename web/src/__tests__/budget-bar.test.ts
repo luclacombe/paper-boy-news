@@ -5,43 +5,45 @@ import { describe, it, expect } from "vitest";
 
 describe("BudgetBar logic", () => {
   function getBarColor(ratio: number): string {
-    if (ratio <= 0.8) return "green";
-    if (ratio <= 1.2) return "amber";
+    if (ratio >= 0.8) return "green";
+    if (ratio >= 0.5) return "amber";
     return "red";
   }
 
-  function shouldShowWarning(ratio: number, rounded: number): boolean {
-    return ratio > 2 && rounded > 0;
+  function getPaperMinutes(
+    sourceOutput: number,
+    budget: number
+  ): number {
+    return sourceOutput >= budget
+      ? budget
+      : Math.round(sourceOutput);
   }
 
-  it("returns green for ratio ≤ 0.8", () => {
-    expect(getBarColor(20 / 30)).toBe("green");
-    expect(getBarColor(0)).toBe("green");
-    expect(getBarColor(0.8)).toBe("green");
+  it("returns green when sources fill ≥ 80% of budget", () => {
+    expect(getBarColor(25 / 30)).toBe("green");
+    expect(getBarColor(1.0)).toBe("green");
+    expect(getBarColor(5.0)).toBe("green"); // way over — still green
   });
 
-  it("returns amber for ratio > 0.8 and ≤ 1.2", () => {
-    expect(getBarColor(30 / 30)).toBe("amber");
-    expect(getBarColor(0.81)).toBe("amber");
-    expect(getBarColor(1.2)).toBe("amber");
+  it("returns amber for ratio ≥ 0.5 and < 0.8", () => {
+    expect(getBarColor(15 / 30)).toBe("amber");
+    expect(getBarColor(0.5)).toBe("amber");
+    expect(getBarColor(0.79)).toBe("amber");
   });
 
-  it("returns red for ratio > 1.2", () => {
-    expect(getBarColor(40 / 30)).toBe("red");
-    expect(getBarColor(1.21)).toBe("red");
+  it("returns red for ratio < 0.5", () => {
+    expect(getBarColor(5 / 30)).toBe("red");
+    expect(getBarColor(0.49)).toBe("red");
+    expect(getBarColor(0)).toBe("red");
   });
 
-  it("shows warning when estimated > 2× budget", () => {
-    expect(shouldShowWarning(70 / 30, 70)).toBe(true);
-    expect(shouldShowWarning(61 / 30, 61)).toBe(true);
+  it("caps paper minutes at budget when sources produce enough", () => {
+    expect(getPaperMinutes(150, 20)).toBe(20);
+    expect(getPaperMinutes(20, 20)).toBe(20);
   });
 
-  it("does not show warning at or below 2×", () => {
-    expect(shouldShowWarning(50 / 30, 50)).toBe(false);
-    expect(shouldShowWarning(60 / 30, 60)).toBe(false);
-  });
-
-  it("does not show warning when rounded is 0", () => {
-    expect(shouldShowWarning(3, 0)).toBe(false);
+  it("shows raw output when sources produce less than budget", () => {
+    expect(getPaperMinutes(12.4, 20)).toBe(12);
+    expect(getPaperMinutes(0, 20)).toBe(0);
   });
 });

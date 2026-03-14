@@ -6,12 +6,13 @@ import { getFrequencyBucket, FREQUENCY_BUCKETS } from "@/lib/reading-time";
 import { cn } from "@/lib/utils";
 import type { CatalogCategory, CatalogFeed, FeedStat } from "@/types";
 
-type GroupMode = "category" | "frequency";
+export type GroupMode = "category" | "frequency";
 
 interface FeedChipGridProps {
   categories: CatalogCategory[];
   feedStats: Record<string, FeedStat>;
   selectedUrls: Set<string>;
+  groupMode: GroupMode;
   onToggleFeed: (feed: {
     name: string;
     url: string;
@@ -73,16 +74,10 @@ export function FeedChipGrid({
   categories,
   feedStats,
   selectedUrls,
+  groupMode,
   onToggleFeed,
 }: FeedChipGridProps) {
-  const [groupMode, setGroupMode] = useState<GroupMode>("category");
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
-
-  // Reset filter when switching group mode
-  function handleGroupModeChange(mode: GroupMode) {
-    setGroupMode(mode);
-    setActiveFilter(null);
-  }
 
   // Filter pill labels
   const filterLabels = useMemo(() => {
@@ -117,31 +112,6 @@ export function FeedChipGrid({
 
   return (
     <div className="space-y-3">
-      {/* Group mode toggle */}
-      <div className="flex items-center justify-end gap-1 font-mono text-[10px] text-caption">
-        <button
-          type="button"
-          onClick={() => handleGroupModeChange("category")}
-          className={cn(
-            "px-1.5 py-0.5 transition-colors",
-            groupMode === "category" ? "font-bold text-ink" : "hover:text-ink"
-          )}
-        >
-          By category
-        </button>
-        <span className="text-rule-gray">|</span>
-        <button
-          type="button"
-          onClick={() => handleGroupModeChange("frequency")}
-          className={cn(
-            "px-1.5 py-0.5 transition-colors",
-            groupMode === "frequency" ? "font-bold text-ink" : "hover:text-ink"
-          )}
-        >
-          By frequency
-        </button>
-      </div>
-
       {/* Filter bar */}
       <div className="scrollbar-hide -mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
         <button
@@ -192,7 +162,8 @@ export function FeedChipGrid({
                     key={feed.id}
                     name={feed.name}
                     description={feed.description}
-                    dailyReadMin={stat ? stat.dailyReadMin : null}
+                    estimatedReadMin={stat ? stat.estimatedReadMin : null}
+                    articlesPerDay={stat ? stat.articlesPerDay : null}
                     selected={selectedUrls.has(feed.url)}
                     onChange={() =>
                       onToggleFeed({

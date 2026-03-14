@@ -4,7 +4,7 @@ import {
   recommendedSourceRange,
   getFrequencyLabel,
   formatDailyReadTime,
-  estimateTotalDailyReading,
+  totalSourceDailyOutput,
   hasAnyStats,
   getFrequencyBucket,
   formatChipReadTime,
@@ -104,10 +104,10 @@ function makeStat(overrides: Partial<FeedStat> = {}): FeedStat {
   };
 }
 
-describe("estimateTotalDailyReading", () => {
+describe("totalSourceDailyOutput", () => {
   it("returns 0 for empty set", () => {
     const stats = { "https://a.com/feed": makeStat({ url: "https://a.com/feed", dailyReadMin: 5 }) };
-    expect(estimateTotalDailyReading(new Set(), stats)).toBe(0);
+    expect(totalSourceDailyOutput(new Set(), stats)).toBe(0);
   });
 
   it("sums matching URLs", () => {
@@ -116,7 +116,7 @@ describe("estimateTotalDailyReading", () => {
       "https://b.com/feed": makeStat({ url: "https://b.com/feed", dailyReadMin: 3 }),
     };
     const selected = new Set(["https://a.com/feed", "https://b.com/feed"]);
-    expect(estimateTotalDailyReading(selected, stats)).toBe(8);
+    expect(totalSourceDailyOutput(selected, stats)).toBe(8);
   });
 
   it("ignores URLs without stats", () => {
@@ -124,11 +124,11 @@ describe("estimateTotalDailyReading", () => {
       "https://a.com/feed": makeStat({ url: "https://a.com/feed", dailyReadMin: 5 }),
     };
     const selected = new Set(["https://a.com/feed", "https://unknown.com/feed"]);
-    expect(estimateTotalDailyReading(selected, stats)).toBe(5);
+    expect(totalSourceDailyOutput(selected, stats)).toBe(5);
   });
 
   it("returns 0 when no stats exist", () => {
-    expect(estimateTotalDailyReading(new Set(["https://a.com/feed"]), {})).toBe(0);
+    expect(totalSourceDailyOutput(new Set(["https://a.com/feed"]), {})).toBe(0);
   });
 });
 
