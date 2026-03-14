@@ -13,7 +13,8 @@ import {
   estimateTotalDailyReading,
   hasAnyStats,
 } from "@/lib/reading-time";
-import { FeedBadges, BundleReadTime } from "@/components/feed-badges";
+import { BundleReadTime } from "@/components/feed-badges";
+import { FeedChipGrid } from "@/components/feed-chip-grid";
 import { BudgetBar } from "@/components/budget-bar";
 import { NewspaperMasthead } from "@/components/newspaper-masthead";
 import { StepIndicator } from "@/components/step-indicator";
@@ -462,46 +463,12 @@ export default function OnboardingPage() {
           <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Individual Sources
           </h3>
-          {categories.map((cat) => (
-            <details key={cat.name} className="group">
-              <summary className="newsprint-card flex cursor-pointer items-center justify-between overflow-hidden border border-rule-gray bg-card px-4 py-2.5 font-headline text-sm font-bold text-ink hover:bg-newsprint">
-                <span>{cat.name}</span>
-                <span className="font-mono text-xs text-caption">
-                  {cat.feeds.filter((f) => feedUrls.has(f.url)).length}/
-                  {cat.feeds.length}
-                </span>
-              </summary>
-              <div className="mt-1 space-y-1 pl-1">
-                {cat.feeds.map((feed) => (
-                  <label
-                    key={feed.id}
-                    className="flex items-center gap-3 px-3 py-2 hover:bg-card"
-                  >
-                    <Checkbox
-                      checked={feedUrls.has(feed.url)}
-                      onCheckedChange={() =>
-                        toggleFeed({
-                          name: feed.name,
-                          url: feed.url,
-                          category: cat.name,
-                        })
-                      }
-                      className="shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <span className="font-headline text-sm font-bold text-ink">
-                        {feed.name}
-                      </span>
-                      <span className="ml-2 font-body text-xs italic text-caption">
-                        {feed.description}
-                      </span>
-                    </div>
-                    <FeedBadges url={feed.url} statsMap={feedStats} />
-                  </label>
-                ))}
-              </div>
-            </details>
-          ))}
+          <FeedChipGrid
+            categories={categories}
+            feedStats={feedStats}
+            selectedUrls={feedUrls}
+            onToggleFeed={(feed) => toggleFeed(feed)}
+          />
         </div>
 
         {/* Custom RSS */}

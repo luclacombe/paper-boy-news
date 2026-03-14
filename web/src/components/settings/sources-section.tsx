@@ -3,13 +3,12 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronRight } from "lucide-react";
 import { setFeeds } from "@/actions/feeds";
 import { getBundleFeeds } from "@/actions/feed-catalog";
 import { BundleCard } from "@/components/bundle-card";
+import { FeedChipGrid } from "@/components/feed-chip-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   readingTimeToArticleBudget,
@@ -18,7 +17,7 @@ import {
   estimateTotalDailyReading,
   hasAnyStats,
 } from "@/lib/reading-time";
-import { FeedBadges, BundleReadTime } from "@/components/feed-badges";
+import { BundleReadTime } from "@/components/feed-badges";
 import { BudgetBar } from "@/components/budget-bar";
 import { cn } from "@/lib/utils";
 import type { Feed, CatalogCategory, CatalogBundle, CatalogFeed, FeedStat } from "@/types";
@@ -343,51 +342,12 @@ export function SourcesSection({
               : `${effectiveCount} selected · ${recMin}–${recMax} recommended for ${readingTime}m`}
           </span>
         </h3>
-        {categories.map((cat) => {
-          const selectedCount = cat.feeds.filter((f) => effectiveUrls.has(f.url)).length;
-          return (
-            <details key={cat.name} className="group">
-              <summary className="flex cursor-pointer list-none items-center justify-between border border-rule-gray bg-card px-4 py-2.5 font-headline text-sm font-bold text-ink hover:bg-warm-gray [&::-webkit-details-marker]:hidden">
-                <span className="flex items-center gap-2">
-                  <ChevronRight className="h-3 w-3 text-caption transition-transform duration-200 group-open:rotate-90" />
-                  {cat.name}
-                </span>
-                <span className="font-mono text-xs text-caption">
-                  {selectedCount}/{cat.feeds.length}
-                </span>
-              </summary>
-              <div className="mt-1 space-y-1 pl-1">
-                {cat.feeds.map((feed) => (
-                  <label
-                    key={feed.id}
-                    className="flex items-center gap-3 px-3 py-2 hover:bg-card"
-                  >
-                    <Checkbox
-                      checked={effectiveUrls.has(feed.url)}
-                      onCheckedChange={() =>
-                        handleToggleCatalogFeed({
-                          name: feed.name,
-                          url: feed.url,
-                          category: cat.name,
-                        })
-                      }
-                      className="shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <span className="font-headline text-sm font-bold text-ink">
-                        {feed.name}
-                      </span>
-                      <span className="ml-2 font-body text-xs text-caption">
-                        {feed.description}
-                      </span>
-                    </div>
-                    <FeedBadges url={feed.url} statsMap={feedStats} />
-                  </label>
-                ))}
-              </div>
-            </details>
-          );
-        })}
+        <FeedChipGrid
+          categories={categories}
+          feedStats={feedStats}
+          selectedUrls={effectiveUrls}
+          onToggleFeed={handleToggleCatalogFeed}
+        />
       </div>
 
       {/* Custom RSS */}

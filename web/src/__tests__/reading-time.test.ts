@@ -6,6 +6,8 @@ import {
   formatDailyReadTime,
   estimateTotalDailyReading,
   hasAnyStats,
+  getFrequencyBucket,
+  formatChipReadTime,
 } from "@/lib/reading-time";
 import type { FeedStat } from "@/types";
 
@@ -137,5 +139,46 @@ describe("hasAnyStats", () => {
 
   it("returns true when populated", () => {
     expect(hasAnyStats({ "https://a.com/feed": makeStat() })).toBe(true);
+  });
+});
+
+// ── Step 5: Chip grid helpers ──
+
+describe("getFrequencyBucket", () => {
+  it("returns 'Prolific' for ≥3/day", () => {
+    expect(getFrequencyBucket(3)).toBe("Prolific");
+    expect(getFrequencyBucket(10)).toBe("Prolific");
+  });
+
+  it("returns 'Daily' for ≥1 and <3", () => {
+    expect(getFrequencyBucket(1)).toBe("Daily");
+    expect(getFrequencyBucket(2.99)).toBe("Daily");
+  });
+
+  it("returns 'A few/week' for ≥0.15 and <1", () => {
+    expect(getFrequencyBucket(0.15)).toBe("A few/week");
+    expect(getFrequencyBucket(0.99)).toBe("A few/week");
+  });
+
+  it("returns 'Weekly or less' for <0.15", () => {
+    expect(getFrequencyBucket(0)).toBe("Weekly or less");
+    expect(getFrequencyBucket(0.14)).toBe("Weekly or less");
+  });
+});
+
+describe("formatChipReadTime", () => {
+  it("returns null for 0 or negative", () => {
+    expect(formatChipReadTime(0)).toBeNull();
+    expect(formatChipReadTime(-1)).toBeNull();
+  });
+
+  it("returns '<1m' for very small values", () => {
+    expect(formatChipReadTime(0.3)).toBe("<1m");
+  });
+
+  it("returns rounded value", () => {
+    expect(formatChipReadTime(1)).toBe("1m");
+    expect(formatChipReadTime(3.4)).toBe("3m");
+    expect(formatChipReadTime(15)).toBe("15m");
   });
 });
