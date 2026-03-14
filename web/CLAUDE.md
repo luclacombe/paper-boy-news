@@ -74,6 +74,8 @@ src/
 │   ├── save-toast.tsx         # Custom save toast: halftone texture, countdown progress bar, undo
 │   ├── settings-accordion.tsx # Accordion cards with colored borders, batch save + undo
 │   ├── settings-client.tsx   # Settings page: compact header (← Settings / Sign out) + accordion
+│   ├── budget-bar.tsx        # Reading time budget bar (used in sources section + onboarding step 2)
+│   ├── feed-badges.tsx       # FeedBadges (per-feed read time badge) + BundleReadTime (per-category total)
 │   └── *.tsx          # Shared components (device-card, edition-card, etc.)
 ├── data/
 │   └── feed-catalog.yaml  # Curated feed catalog (~35 feeds, 7 categories)
@@ -92,7 +94,7 @@ src/
 │   ├── edition-date.ts # Timezone-aware edition date (5 AM rollover), cutoff checks
 │   ├── feed-catalog.ts # Catalog loading + getAllCatalogFeedUrls() for orphan cleanup
 │   ├── opds.ts        # buildOpdsFeed() — pure OPDS Atom XML builder
-│   ├── reading-time.ts
+│   ├── reading-time.ts # Reading time helpers: getFrequencyLabel(), formatDailyReadTime(), estimateTotalDailyReading(), hasAnyStats()
 │   ├── utils.ts       # cn() helper (clsx + tailwind-merge)
 │   └── supabase/
 │       ├── admin.ts   # Service role client (for deleteUser, storage cleanup)
@@ -140,6 +142,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Build pipeline**: Two-phase: 6 build windows every 4 hours build users in midnight–5 AM local (`BUILD_MODE=build`), deliver at each user's time (`BUILD_MODE=deliver`). Pre-check skips Python setup if no users need building. `getItNow()` action → checks dedup → if `"built"` exists dispatches delivery-only, else creates "building" record → fires `repository_dispatch` → returns immediately. Dashboard polls Supabase every 5s. Status lifecycle: `building → built → delivered` (or `→ failed`)
 - **Dashboard state machine**: 9 states computed from edition status, time of day, and setup completeness. Includes `"awaiting-delivery"` for `status="built"` (paper ready, delivery pending). Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability. **Priority**: active build states (client fetching, DB "building") take precedence over `setup-incomplete`, so mid-build settings changes don't hide the progress bar
 - **Settings accordion**: 5 collapsible cards with colored left borders (red/ink/amber/green/caption). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper|account`. First 4 sections use batch save — "Save changes" when dirty, auto-save on collapse. Account section has its own action buttons (password change, delete). Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing. Sources section reports effective (pending-aware) counts to accordion for accurate summary display. **Build locking**: Sources, Delivery, and Schedule sections are locked (dimmed, non-expandable) when `hasActiveBuild()` detects a "building" record for today — prevents settings changes from corrupting in-flight builds
+- **Feed stats threading**: `settings/page.tsx` calls `getAllFeedStats()` and threads the result down through `settings-client.tsx` → `settings-accordion.tsx` → `sources-section.tsx`. The same `feedStats` prop flows into onboarding Step 2. Components use `FeedBadges`, `BundleReadTime`, and `BudgetBar` to display per-feed badges, per-bundle totals, and the overall reading time budget bar.
 - **Orphaned feed cleanup**: `cleanOrphanedFeeds()` runs on settings page load — removes feeds whose URL is no longer in the catalog (unless category is "Custom"). Handles sources removed from `feed-catalog.yaml` (e.g. Bloomberg, FT)
 - **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout), shows user email next to sign out. Settings has its own compact header with back link + sign out
 - **Account management**: `account.ts` server actions use admin client (`lib/supabase/admin.ts`) with service role key for `changePassword()` (verifies current password via `signInWithPassword`, then admin update) and `deleteAccount()` (deletes profile via Drizzle cascade, cleans Storage, deletes auth user). Google OAuth users cannot change password
@@ -184,6 +187,6 @@ Dashboard states (in priority order): build-in-progress (client fetching or DB "
 
 - Auth, onboarding, and server actions are complete
 - Dashboard (`/dashboard`) — 9-state status card with timezone-aware edition logic, async build with polling, past editions, schedule nudges
-- Settings (`/settings`) — accordion with 4 cards: Sources, Delivery, Schedule, Your Paper. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via catalog checkboxes (no separate list)
+- Settings (`/settings`) — accordion with 5 colored-border cards: Sources, Delivery, Schedule, Your Paper, Account. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via catalog checkboxes (no separate list). Sources section has inline reading time picker, budget bar (`BudgetBar`), per-feed read time badges (`FeedBadges`), and per-bundle read times (`BundleReadTime`). `feedStats` threaded from page → client → accordion → sources section
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Landing page and login flow are functional
