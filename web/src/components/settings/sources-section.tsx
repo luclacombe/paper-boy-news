@@ -11,8 +11,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { readingTimeToArticleBudget, recommendedSourceRange } from "@/lib/reading-time";
-import type { Feed, CatalogCategory, CatalogBundle, CatalogFeed } from "@/types";
+import {
+  readingTimeToArticleBudget,
+  recommendedSourceRange,
+  READING_TIME_OPTIONS,
+  estimateTotalDailyReading,
+  hasAnyStats,
+} from "@/lib/reading-time";
+import { FeedBadges, BundleReadTime } from "@/components/feed-badges";
+import { BudgetBar } from "@/components/budget-bar";
+import { cn } from "@/lib/utils";
+import type { Feed, CatalogCategory, CatalogBundle, CatalogFeed, FeedStat } from "@/types";
 
 // Pending addition — not yet saved to DB
 interface PendingAdd {
@@ -25,7 +34,9 @@ interface SourcesSectionProps {
   feeds: Feed[];
   categories: CatalogCategory[];
   bundles: CatalogBundle[];
+  feedStats: Record<string, FeedStat>;
   readingTime: number;
+  onReadingTimeChange: (minutes: number) => void;
   onDirtyChange: (dirty: boolean) => void;
   onEffectiveCountChange?: (count: number, categoryCount: number) => void;
   saveRef: React.RefObject<(() => Promise<void>) | null>;
@@ -35,7 +46,9 @@ export function SourcesSection({
   feeds,
   categories,
   bundles,
+  feedStats,
   readingTime,
+  onReadingTimeChange,
   onDirtyChange,
   onEffectiveCountChange,
   saveRef,
@@ -252,8 +265,46 @@ export function SourcesSection({
   const budget = readingTimeToArticleBudget(readingTime);
   const [recMin, recMax] = recommendedSourceRange(budget);
 
+  const statsAvailable = hasAnyStats(feedStats);
+  const estimatedMinutes = estimateTotalDailyReading(effectiveUrls, feedStats);
+
   return (
     <div className="space-y-4">
+      {/* Inline reading time picker */}
+      <div className="space-y-1.5">
+        <h3 className="font-headline text-sm font-bold text-ink">
+          Reading time
+        </h3>
+        <div className="flex border border-rule-gray">
+          {READING_TIME_OPTIONS.map((minutes) => {
+            const isSelected = readingTime === minutes;
+            return (
+              <button
+                key={minutes}
+                type="button"
+                onClick={() => onReadingTimeChange(minutes)}
+                className={cn(
+                  "flex-1 py-2.5 font-mono text-xs transition-colors",
+                  "border-r border-rule-gray last:border-r-0",
+                  isSelected
+                    ? "letterpress bg-ink font-bold text-newsprint"
+                    : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
+                )}
+              >
+                {minutes}m
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Budget bar */}
+      <BudgetBar
+        estimatedMinutes={estimatedMinutes}
+        budgetMinutes={readingTime}
+        hasStats={statsAvailable}
+      />
+
       {/* Quick add bundles */}
       {bundles.length > 0 && (
         <div className="space-y-2">
@@ -262,13 +313,21 @@ export function SourcesSection({
           </h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {bundles.map((bundle) => (
-              <BundleCard
-                key={bundle.name}
-                name={bundle.name}
-                description={bundle.description}
-                selected={selectedBundles.has(bundle.name)}
-                onClick={() => handleToggleBundle(bundle.name)}
-              />
+              <div key={bundle.name} className="space-y-1">
+                <BundleCard
+                  name={bundle.name}
+                  description={bundle.description}
+                  selected={selectedBundles.has(bundle.name)}
+                  onClick={() => handleToggleBundle(bundle.name)}
+                />
+                <div className="px-1">
+                  <BundleReadTime
+                    bundleName={bundle.name}
+                    bundleFeedMap={bundleFeedMap}
+                    statsMap={feedStats}
+                  />
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -279,7 +338,9 @@ export function SourcesSection({
         <h3 className="font-headline text-sm font-bold text-ink">
           Edit your sources
           <span className="ml-2 font-mono text-xs font-normal text-caption">
-            {effectiveCount} selected · {recMin}–{recMax} recommended for {readingTime}m
+            {statsAvailable
+              ? `${effectiveCount} selected`
+              : `${effectiveCount} selected · ${recMin}–${recMax} recommended for ${readingTime}m`}
           </span>
         </h3>
         {categories.map((cat) => {
@@ -299,7 +360,7 @@ export function SourcesSection({
                 {cat.feeds.map((feed) => (
                   <label
                     key={feed.id}
-                    className="flex items-start gap-3 px-3 py-2 hover:bg-card"
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-card"
                   >
                     <Checkbox
                       checked={effectiveUrls.has(feed.url)}
@@ -310,9 +371,9 @@ export function SourcesSection({
                           category: cat.name,
                         })
                       }
-                      className="mt-0.5"
+                      className="shrink-0"
                     />
-                    <div>
+                    <div className="min-w-0">
                       <span className="font-headline text-sm font-bold text-ink">
                         {feed.name}
                       </span>
@@ -320,6 +381,7 @@ export function SourcesSection({
                         {feed.description}
                       </span>
                     </div>
+                    <FeedBadges url={feed.url} statsMap={feedStats} />
                   </label>
                 ))}
               </div>

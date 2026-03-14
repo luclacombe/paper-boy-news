@@ -5,8 +5,16 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { getCatalogData, getBundleFeeds } from "@/actions/feed-catalog";
+import { getAllFeedStats } from "@/actions/feed-stats";
 import { useOnboardingState } from "@/hooks/use-onboarding-state";
-import { readingTimeToArticleBudget, READING_TIME_OPTIONS } from "@/lib/reading-time";
+import {
+  readingTimeToArticleBudget,
+  READING_TIME_OPTIONS,
+  estimateTotalDailyReading,
+  hasAnyStats,
+} from "@/lib/reading-time";
+import { FeedBadges, BundleReadTime } from "@/components/feed-badges";
+import { BudgetBar } from "@/components/budget-bar";
 import { NewspaperMasthead } from "@/components/newspaper-masthead";
 import { StepIndicator } from "@/components/step-indicator";
 import { DeviceCard } from "@/components/device-card";
@@ -30,6 +38,7 @@ import type {
   CatalogBundle,
   CatalogCategory,
   CatalogFeed,
+  FeedStat,
   Device,
   DeliveryMethod,
 } from "@/types";
@@ -46,6 +55,12 @@ export default function OnboardingPage() {
   const [bundleFeedMap, setBundleFeedMap] = useState<
     Map<string, CatalogFeed[]>
   >(new Map());
+  // Feed stats for reading time intelligence
+  const [feedStats, setFeedStats] = useState<Record<string, FeedStat>>({});
+  useEffect(() => {
+    getAllFeedStats().then(setFeedStats);
+  }, []);
+
   // Step 2: custom RSS
   const [customUrl, setCustomUrl] = useState("");
   const [customUrlError, setCustomUrlError] = useState<string | null>(null);
@@ -361,6 +376,9 @@ export default function OnboardingPage() {
 
   function renderStep2() {
     const feedUrls = new Set(state.feeds.map((f) => f.url));
+    const readingMinutes = Number(state.readingTime) || 15;
+    const statsAvailable = hasAnyStats(feedStats);
+    const estimatedMinutes = estimateTotalDailyReading(feedUrls, feedStats);
 
     return (
       <div className="space-y-6">
@@ -373,6 +391,46 @@ export default function OnboardingPage() {
           </p>
         </div>
 
+        {/* Inline reading time picker */}
+        <div className="space-y-1.5">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
+            Reading Time
+          </h3>
+          <div className="flex border border-rule-gray">
+            {READING_TIME_OPTIONS.map((minutes) => {
+              const isSelected = readingMinutes === minutes;
+              return (
+                <button
+                  key={minutes}
+                  type="button"
+                  onClick={() =>
+                    update({
+                      readingTime: String(minutes),
+                      totalArticleBudget: readingTimeToArticleBudget(minutes),
+                    })
+                  }
+                  className={cn(
+                    "flex-1 py-2.5 font-mono text-xs transition-colors",
+                    "border-r border-rule-gray last:border-r-0",
+                    isSelected
+                      ? "letterpress bg-ink font-bold text-newsprint"
+                      : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
+                  )}
+                >
+                  {minutes}m
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Budget bar */}
+        <BudgetBar
+          estimatedMinutes={estimatedMinutes}
+          budgetMinutes={readingMinutes}
+          hasStats={statsAvailable}
+        />
+
         {/* Bundles */}
         <div className="space-y-3">
           <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
@@ -380,13 +438,21 @@ export default function OnboardingPage() {
           </h3>
           <div className="grid gap-3 sm:grid-cols-3">
             {bundles.map((b) => (
-              <BundleCard
-                key={b.name}
-                name={b.name}
-                description={b.description}
-                selected={selectedBundles.has(b.name)}
-                onClick={() => toggleBundle(b.name)}
-              />
+              <div key={b.name} className="space-y-1">
+                <BundleCard
+                  name={b.name}
+                  description={b.description}
+                  selected={selectedBundles.has(b.name)}
+                  onClick={() => toggleBundle(b.name)}
+                />
+                <div className="px-1">
+                  <BundleReadTime
+                    bundleName={b.name}
+                    bundleFeedMap={bundleFeedMap}
+                    statsMap={feedStats}
+                  />
+                </div>
+              </div>
             ))}
           </div>
         </div>
@@ -409,7 +475,7 @@ export default function OnboardingPage() {
                 {cat.feeds.map((feed) => (
                   <label
                     key={feed.id}
-                    className="flex items-start gap-3 px-3 py-2 hover:bg-card"
+                    className="flex items-center gap-3 px-3 py-2 hover:bg-card"
                   >
                     <Checkbox
                       checked={feedUrls.has(feed.url)}
@@ -420,9 +486,9 @@ export default function OnboardingPage() {
                           category: cat.name,
                         })
                       }
-                      className="mt-0.5"
+                      className="shrink-0"
                     />
-                    <div>
+                    <div className="min-w-0">
                       <span className="font-headline text-sm font-bold text-ink">
                         {feed.name}
                       </span>
@@ -430,6 +496,7 @@ export default function OnboardingPage() {
                         {feed.description}
                       </span>
                     </div>
+                    <FeedBadges url={feed.url} statsMap={feedStats} />
                   </label>
                 ))}
               </div>
@@ -472,6 +539,11 @@ export default function OnboardingPage() {
           <p className="font-body text-sm text-ink">
             <span className="font-headline font-bold">{state.feeds.length}</span>{" "}
             source{state.feeds.length !== 1 ? "s" : ""} selected
+            {statsAvailable && estimatedMinutes > 0 && (
+              <span className="font-mono text-xs text-caption">
+                {" "}· ~{Math.round(estimatedMinutes)} min/day
+              </span>
+            )}
           </p>
         </div>
 
