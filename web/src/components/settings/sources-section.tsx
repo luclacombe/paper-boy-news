@@ -15,6 +15,7 @@ import {
   recommendedSourceRange,
   READING_TIME_OPTIONS,
   totalSourceDailyOutput,
+  avgEstimatedReadMin,
   hasAnyStats,
 } from "@/lib/reading-time";
 import { BundleReadTime } from "@/components/feed-badges";
@@ -267,6 +268,7 @@ export function SourcesSection({
 
   const statsAvailable = hasAnyStats(feedStats);
   const sourceOutput = totalSourceDailyOutput(effectiveUrls, feedStats);
+  const avgArticleMin = avgEstimatedReadMin(effectiveUrls, feedStats);
 
   return (
     <div className="space-y-4">
@@ -302,6 +304,8 @@ export function SourcesSection({
       <BudgetBar
         sourceOutputMinutes={sourceOutput}
         budgetMinutes={readingTime}
+        sourceCount={effectiveCount}
+        avgArticleMin={avgArticleMin}
         hasStats={statsAvailable}
       />
 

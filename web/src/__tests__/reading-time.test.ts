@@ -145,9 +145,9 @@ describe("hasAnyStats", () => {
 // ── Step 5: Chip grid helpers ──
 
 describe("getFrequencyBucket", () => {
-  it("returns 'Prolific' for ≥3/day", () => {
-    expect(getFrequencyBucket(3)).toBe("Prolific");
-    expect(getFrequencyBucket(10)).toBe("Prolific");
+  it("returns 'Several per day' for ≥3/day", () => {
+    expect(getFrequencyBucket(3)).toBe("Several per day");
+    expect(getFrequencyBucket(10)).toBe("Several per day");
   });
 
   it("returns 'Daily' for ≥1 and <3", () => {

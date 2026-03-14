@@ -163,7 +163,6 @@ export function FeedChipGrid({
                     name={feed.name}
                     description={feed.description}
                     estimatedReadMin={stat ? stat.estimatedReadMin : null}
-                    articlesPerDay={stat ? stat.articlesPerDay : null}
                     selected={selectedUrls.has(feed.url)}
                     onChange={() =>
                       onToggleFeed({

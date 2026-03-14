@@ -11,6 +11,7 @@ import {
   readingTimeToArticleBudget,
   READING_TIME_OPTIONS,
   totalSourceDailyOutput,
+  avgEstimatedReadMin,
   hasAnyStats,
 } from "@/lib/reading-time";
 import { BundleReadTime } from "@/components/feed-badges";
@@ -380,6 +381,7 @@ export default function OnboardingPage() {
     const readingMinutes = Number(state.readingTime) || 15;
     const statsAvailable = hasAnyStats(feedStats);
     const sourceOutput = totalSourceDailyOutput(feedUrls, feedStats);
+    const avgArticleMin = avgEstimatedReadMin(feedUrls, feedStats);
 
     return (
       <div className="space-y-6">
@@ -429,6 +431,8 @@ export default function OnboardingPage() {
         <BudgetBar
           sourceOutputMinutes={sourceOutput}
           budgetMinutes={readingMinutes}
+          sourceCount={feedUrls.size}
+          avgArticleMin={avgArticleMin}
           hasStats={statsAvailable}
         />
 

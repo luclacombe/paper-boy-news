@@ -60,19 +60,36 @@ export function hasAnyStats(statsMap: Record<string, FeedStat>): boolean {
 
 /** Frequency bucket for grouping feeds in the chip grid. */
 export function getFrequencyBucket(articlesPerDay: number): string {
-  if (articlesPerDay >= 3) return "Prolific";
+  if (articlesPerDay >= 3) return "Several per day";
   if (articlesPerDay >= 1) return "Daily";
   if (articlesPerDay >= 0.15) return "A few/week";
   return "Weekly or less";
 }
 
 export const FREQUENCY_BUCKETS = [
-  "Prolific",
+  "Several per day",
   "Daily",
   "A few/week",
   "Weekly or less",
   "No data",
 ] as const;
+
+/** Average per-article reading time across selected sources (for budget heuristics). */
+export function avgEstimatedReadMin(
+  selectedUrls: Set<string>,
+  statsMap: Record<string, FeedStat>
+): number {
+  let total = 0;
+  let count = 0;
+  for (const url of selectedUrls) {
+    const stat = statsMap[url];
+    if (stat && stat.estimatedReadMin > 0) {
+      total += stat.estimatedReadMin;
+      count++;
+    }
+  }
+  return count > 0 ? total / count : 3; // default ~3m/article
+}
 
 /** Compact per-article reading time for chip display (e.g., "3m"). */
 export function formatChipReadTime(estimatedReadMin: number): string | null {
@@ -82,11 +99,4 @@ export function formatChipReadTime(estimatedReadMin: number): string | null {
   return `${rounded}m`;
 }
 
-/** Compact frequency label for chip display (e.g., "Daily"). */
-export function getChipFrequencyLabel(articlesPerDay: number): string | null {
-  if (articlesPerDay >= 3) return "Several/day";
-  if (articlesPerDay >= 1) return "Daily";
-  if (articlesPerDay >= 0.15) return "A few/wk";
-  if (articlesPerDay > 0) return "Weekly";
-  return null;
-}
+

@@ -78,7 +78,7 @@ describe("groupByCategory", () => {
 
 describe("groupByFrequency", () => {
   const stats: Record<string, FeedStat> = {
-    "https://bbc.com/feed": makeStat("https://bbc.com/feed", 5, 10),      // Prolific
+    "https://bbc.com/feed": makeStat("https://bbc.com/feed", 5, 10),      // Several per day
     "https://nyt.com/feed": makeStat("https://nyt.com/feed", 1.5, 5),     // Daily
     "https://ars.com/feed": makeStat("https://ars.com/feed", 0.5, 2),     // A few/week
     // nature + quanta have no stats → "No data"
@@ -87,7 +87,7 @@ describe("groupByFrequency", () => {
   it("groups feeds into frequency buckets", () => {
     const groups = groupByFrequency(categories, stats, null);
     const labels = groups.map((g) => g.label);
-    expect(labels).toContain("Prolific");
+    expect(labels).toContain("Several per day");
     expect(labels).toContain("Daily");
     expect(labels).toContain("A few/week");
     expect(labels).toContain("No data");
@@ -95,7 +95,7 @@ describe("groupByFrequency", () => {
 
   it("puts prolific feeds in correct bucket", () => {
     const groups = groupByFrequency(categories, stats, null);
-    const prolific = groups.find((g) => g.label === "Prolific");
+    const prolific = groups.find((g) => g.label === "Several per day");
     expect(prolific?.feeds.map((f) => f.name)).toEqual(["BBC"]);
   });
 
@@ -106,7 +106,7 @@ describe("groupByFrequency", () => {
   });
 
   it("filters to a single frequency bucket", () => {
-    const groups = groupByFrequency(categories, stats, "Prolific");
+    const groups = groupByFrequency(categories, stats, "Several per day");
     expect(groups).toHaveLength(1);
     expect(groups[0].feeds).toHaveLength(1);
     expect(groups[0].feeds[0].name).toBe("BBC");
@@ -114,7 +114,7 @@ describe("groupByFrequency", () => {
 
   it("preserves original category on each feed", () => {
     const groups = groupByFrequency(categories, stats, null);
-    const prolific = groups.find((g) => g.label === "Prolific");
+    const prolific = groups.find((g) => g.label === "Several per day");
     expect(prolific?.feeds[0].category).toBe("News");
   });
 
@@ -126,15 +126,15 @@ describe("groupByFrequency", () => {
   });
 
   it("skips empty buckets", () => {
-    // All feeds are prolific
-    const allProlific: Record<string, FeedStat> = {};
+    // All feeds are high-volume
+    const allHighVolume: Record<string, FeedStat> = {};
     for (const cat of categories) {
       for (const feed of cat.feeds) {
-        allProlific[feed.url] = makeStat(feed.url, 5, 10);
+        allHighVolume[feed.url] = makeStat(feed.url, 5, 10);
       }
     }
-    const groups = groupByFrequency(categories, allProlific, null);
+    const groups = groupByFrequency(categories, allHighVolume, null);
     expect(groups).toHaveLength(1);
-    expect(groups[0].label).toBe("Prolific");
+    expect(groups[0].label).toBe("Several per day");
   });
 });
