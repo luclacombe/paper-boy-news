@@ -9,13 +9,14 @@ import {
   type SettingsSection,
 } from "@/components/settings-accordion";
 import type { AuthProvider } from "@/actions/account";
-import type { UserConfig, Feed, CatalogCategory, CatalogBundle } from "@/types";
+import type { UserConfig, Feed, CatalogCategory, CatalogBundle, FeedStat } from "@/types";
 
 interface SettingsClientProps {
   config: UserConfig;
   feeds: Feed[];
   categories: CatalogCategory[];
   bundles: CatalogBundle[];
+  feedStats: Record<string, FeedStat>;
   hasDrive: boolean;
   hasGmail: boolean;
   initialOpen: SettingsSection | null;
@@ -30,6 +31,7 @@ export function SettingsClient({
   feeds,
   categories,
   bundles,
+  feedStats,
   hasDrive,
   hasGmail,
   initialOpen,
@@ -70,6 +72,7 @@ export function SettingsClient({
         feeds={feeds}
         categories={categories}
         bundles={bundles}
+        feedStats={feedStats}
         hasDrive={hasDrive}
         hasGmail={hasGmail}
         initialOpen={initialOpen}

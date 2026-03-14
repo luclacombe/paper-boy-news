@@ -30,6 +30,7 @@ import type {
   Feed,
   CatalogCategory,
   CatalogBundle,
+  FeedStat,
   Device,
   DeliveryMethod,
 } from "@/types";
@@ -116,6 +117,7 @@ interface SettingsAccordionProps {
   feeds: Feed[];
   categories: CatalogCategory[];
   bundles: CatalogBundle[];
+  feedStats: Record<string, FeedStat>;
   hasDrive: boolean;
   hasGmail: boolean;
   initialOpen: SettingsSection | null;
@@ -130,6 +132,7 @@ export function SettingsAccordion({
   feeds,
   categories,
   bundles,
+  feedStats,
   hasDrive,
   hasGmail,
   initialOpen,
@@ -194,6 +197,14 @@ export function SettingsAccordion({
     categoryCount: number;
   } | null>(null);
 
+  // Track whether reading time was changed from Sources section
+  const [paperDirtyFromSources, setPaperDirtyFromSources] = useState(false);
+
+  const handleReadingTimeChange = useCallback((minutes: number) => {
+    setPaperValues(prev => ({ ...prev, readingTime: minutes }));
+    setPaperDirtyFromSources(true);
+  }, []);
+
   const handleSourcesDirtyChange = useCallback((dirty: boolean) => {
     setSourcesDirty(dirty);
   }, []);
@@ -210,7 +221,7 @@ export function SettingsAccordion({
   function isDirty(section: SettingsSection): boolean {
     switch (section) {
       case "sources":
-        return sourcesDirty;
+        return sourcesDirty || paperDirtyFromSources;
       case "delivery":
         return JSON.stringify(deliveryValues) !== JSON.stringify(deliverySaved);
       case "schedule":
@@ -290,6 +301,12 @@ export function SettingsAccordion({
       try {
         if (section === "sources") {
           await sourcesSaveRef.current?.();
+          // Also save paper config if reading time was changed from Sources
+          if (paperDirtyFromSources) {
+            await updateUserConfig(getFieldsForSection("paper"));
+            updateSavedSnapshot("paper");
+            setPaperDirtyFromSources(false);
+          }
         } else {
           await updateUserConfig(getFieldsForSection(section));
           updateSavedSnapshot(section);
@@ -427,7 +444,9 @@ export function SettingsAccordion({
           feeds={feeds}
           categories={categories}
           bundles={bundles}
+          feedStats={feedStats}
           readingTime={paperValues.readingTime}
+          onReadingTimeChange={handleReadingTimeChange}
           onDirtyChange={handleSourcesDirtyChange}
           onEffectiveCountChange={handleEffectiveCountChange}
           saveRef={sourcesSaveRef}
