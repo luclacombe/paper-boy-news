@@ -57,3 +57,27 @@ export function estimateTotalDailyReading(
 export function hasAnyStats(statsMap: Record<string, FeedStat>): boolean {
   return Object.keys(statsMap).length > 0;
 }
+
+/** Frequency bucket for grouping feeds in the chip grid. */
+export function getFrequencyBucket(articlesPerDay: number): string {
+  if (articlesPerDay >= 3) return "Prolific";
+  if (articlesPerDay >= 1) return "Daily";
+  if (articlesPerDay >= 0.15) return "A few/week";
+  return "Weekly or less";
+}
+
+export const FREQUENCY_BUCKETS = [
+  "Prolific",
+  "Daily",
+  "A few/week",
+  "Weekly or less",
+  "No data",
+] as const;
+
+/** Compact reading time for chip display (e.g., "3m" instead of "~3 min/day"). */
+export function formatChipReadTime(dailyReadMin: number): string | null {
+  if (dailyReadMin <= 0) return null;
+  const rounded = Math.round(dailyReadMin);
+  if (rounded === 0) return "<1m";
+  return `${rounded}m`;
+}
