@@ -46,9 +46,10 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 2. Pre-check queries Supabase for user timezones; skips Python setup if no users are in midnight–5 AM window
 3. `build_for_users.py` builds only users whose local time is midnight–5 AM (others caught by next window)
 3b. If any user has FT feeds, Playwright + Chromium are conditionally installed (~15-20s)
-4. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users in the window
-5. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
-6. Feed observations (pre-budget per-feed stats) upserted to `feed_stats` table — entry counts, freshness, word counts, extraction rates, rolling averages
+4. `fetch_feed_stats_map()` batch-queries `feed_stats` once per window — populates `FeedConfig.articles_per_day` and `estimated_read_min` for frequency-aware freshness windows and budget allocation
+5. Shared `ContentCache` deduplicates RSS fetches, article extraction, and image downloads across users in the window
+6. EPUBs uploaded to Supabase Storage; records set to `status: "built"` (or `"delivered"` for local/download users)
+7. Feed observations (pre-budget per-feed stats) upserted to `feed_stats` table — entry counts, freshness, word counts, extraction rates, rolling averages
 
 **Deliver phase** (every 30 min at :00/:30):
 1. GitHub Actions cron triggers `BUILD_MODE=deliver`
