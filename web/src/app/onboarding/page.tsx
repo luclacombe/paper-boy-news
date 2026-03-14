@@ -10,7 +10,7 @@ import { useOnboardingState } from "@/hooks/use-onboarding-state";
 import {
   readingTimeToArticleBudget,
   READING_TIME_OPTIONS,
-  estimateTotalDailyReading,
+  totalSourceDailyOutput,
   hasAnyStats,
 } from "@/lib/reading-time";
 import { BundleReadTime } from "@/components/feed-badges";
@@ -379,7 +379,7 @@ export default function OnboardingPage() {
     const feedUrls = new Set(state.feeds.map((f) => f.url));
     const readingMinutes = Number(state.readingTime) || 15;
     const statsAvailable = hasAnyStats(feedStats);
-    const estimatedMinutes = estimateTotalDailyReading(feedUrls, feedStats);
+    const sourceOutput = totalSourceDailyOutput(feedUrls, feedStats);
 
     return (
       <div className="space-y-6">
@@ -427,7 +427,7 @@ export default function OnboardingPage() {
 
         {/* Budget bar */}
         <BudgetBar
-          estimatedMinutes={estimatedMinutes}
+          sourceOutputMinutes={sourceOutput}
           budgetMinutes={readingMinutes}
           hasStats={statsAvailable}
         />
@@ -439,14 +439,14 @@ export default function OnboardingPage() {
           </h3>
           <div className="grid gap-3 sm:grid-cols-3">
             {bundles.map((b) => (
-              <div key={b.name} className="space-y-1">
+              <div key={b.name} className="flex flex-col">
                 <BundleCard
                   name={b.name}
                   description={b.description}
                   selected={selectedBundles.has(b.name)}
                   onClick={() => toggleBundle(b.name)}
                 />
-                <div className="px-1">
+                <div className="px-1 pt-1">
                   <BundleReadTime
                     bundleName={b.name}
                     bundleFeedMap={bundleFeedMap}
@@ -467,6 +467,7 @@ export default function OnboardingPage() {
             categories={categories}
             feedStats={feedStats}
             selectedUrls={feedUrls}
+            groupMode="category"
             onToggleFeed={(feed) => toggleFeed(feed)}
           />
         </div>
@@ -506,9 +507,9 @@ export default function OnboardingPage() {
           <p className="font-body text-sm text-ink">
             <span className="font-headline font-bold">{state.feeds.length}</span>{" "}
             source{state.feeds.length !== 1 ? "s" : ""} selected
-            {statsAvailable && estimatedMinutes > 0 && (
+            {statsAvailable && sourceOutput > 0 && (
               <span className="font-mono text-xs text-caption">
-                {" "}· ~{Math.round(estimatedMinutes)} min/day
+                {" "}· ~{Math.round(Math.min(sourceOutput, readingMinutes))} min/day
               </span>
             )}
           </p>

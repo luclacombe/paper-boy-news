@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { setFeeds } from "@/actions/feeds";
 import { getBundleFeeds } from "@/actions/feed-catalog";
 import { BundleCard } from "@/components/bundle-card";
-import { FeedChipGrid } from "@/components/feed-chip-grid";
+import { FeedChipGrid, type GroupMode } from "@/components/feed-chip-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,7 @@ import {
   readingTimeToArticleBudget,
   recommendedSourceRange,
   READING_TIME_OPTIONS,
-  estimateTotalDailyReading,
+  totalSourceDailyOutput,
   hasAnyStats,
 } from "@/lib/reading-time";
 import { BundleReadTime } from "@/components/feed-badges";
@@ -57,6 +57,7 @@ export function SourcesSection({
   const [customUrlError, setCustomUrlError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [bundleFeedMap, setBundleFeedMap] = useState<Map<string, CatalogFeed[]>>(new Map());
+  const [groupMode, setGroupMode] = useState<GroupMode>("category");
 
   // Pending changes (local only, not yet persisted)
   const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
@@ -265,7 +266,7 @@ export function SourcesSection({
   const [recMin, recMax] = recommendedSourceRange(budget);
 
   const statsAvailable = hasAnyStats(feedStats);
-  const estimatedMinutes = estimateTotalDailyReading(effectiveUrls, feedStats);
+  const sourceOutput = totalSourceDailyOutput(effectiveUrls, feedStats);
 
   return (
     <div className="space-y-4">
@@ -299,7 +300,7 @@ export function SourcesSection({
 
       {/* Budget bar */}
       <BudgetBar
-        estimatedMinutes={estimatedMinutes}
+        sourceOutputMinutes={sourceOutput}
         budgetMinutes={readingTime}
         hasStats={statsAvailable}
       />
@@ -312,14 +313,14 @@ export function SourcesSection({
           </h3>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {bundles.map((bundle) => (
-              <div key={bundle.name} className="space-y-1">
+              <div key={bundle.name} className="flex flex-col">
                 <BundleCard
                   name={bundle.name}
                   description={bundle.description}
                   selected={selectedBundles.has(bundle.name)}
                   onClick={() => handleToggleBundle(bundle.name)}
                 />
-                <div className="px-1">
+                <div className="px-1 pt-1">
                   <BundleReadTime
                     bundleName={bundle.name}
                     bundleFeedMap={bundleFeedMap}
@@ -334,18 +335,48 @@ export function SourcesSection({
 
       {/* Edit your sources (catalog) */}
       <div className="space-y-2">
-        <h3 className="font-headline text-sm font-bold text-ink">
-          Edit your sources
-          <span className="ml-2 font-mono text-xs font-normal text-caption">
-            {statsAvailable
-              ? `${effectiveCount} selected`
-              : `${effectiveCount} selected · ${recMin}–${recMax} recommended for ${readingTime}m`}
-          </span>
-        </h3>
+        <div className="flex items-baseline justify-between gap-4">
+          <h3 className="font-headline text-sm font-bold text-ink">
+            Edit your sources
+            <span className="ml-2 font-mono text-xs font-normal text-caption">
+              {statsAvailable
+                ? `${effectiveCount} selected`
+                : `${effectiveCount} selected · ${recMin}–${recMax} recommended for ${readingTime}m`}
+            </span>
+          </h3>
+          <div className="flex shrink-0 items-center rounded-sm border border-rule-gray">
+            <button
+              type="button"
+              onClick={() => setGroupMode("category")}
+              className={cn(
+                "px-2.5 py-1 font-mono text-[11px] transition-colors",
+                "border-r border-rule-gray",
+                groupMode === "category"
+                  ? "bg-ink font-bold text-newsprint"
+                  : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
+              )}
+            >
+              By category
+            </button>
+            <button
+              type="button"
+              onClick={() => setGroupMode("frequency")}
+              className={cn(
+                "px-2.5 py-1 font-mono text-[11px] transition-colors",
+                groupMode === "frequency"
+                  ? "bg-ink font-bold text-newsprint"
+                  : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
+              )}
+            >
+              By frequency
+            </button>
+          </div>
+        </div>
         <FeedChipGrid
           categories={categories}
           feedStats={feedStats}
           selectedUrls={effectiveUrls}
+          groupMode={groupMode}
           onToggleFeed={handleToggleCatalogFeed}
         />
       </div>

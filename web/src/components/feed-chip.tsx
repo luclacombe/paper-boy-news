@@ -1,12 +1,13 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { formatChipReadTime } from "@/lib/reading-time";
+import { formatChipReadTime, getChipFrequencyLabel } from "@/lib/reading-time";
 
 interface FeedChipProps {
   name: string;
   description: string;
-  dailyReadMin: number | null;
+  estimatedReadMin: number | null;
+  articlesPerDay: number | null;
   selected: boolean;
   onChange: () => void;
 }
@@ -14,11 +15,15 @@ interface FeedChipProps {
 export function FeedChip({
   name,
   description,
-  dailyReadMin,
+  estimatedReadMin,
+  articlesPerDay,
   selected,
   onChange,
 }: FeedChipProps) {
-  const timeLabel = dailyReadMin != null ? formatChipReadTime(dailyReadMin) : null;
+  const timeLabel =
+    estimatedReadMin != null ? formatChipReadTime(estimatedReadMin) : null;
+  const freqLabel =
+    articlesPerDay != null ? getChipFrequencyLabel(articlesPerDay) : null;
 
   return (
     <button
@@ -38,14 +43,18 @@ export function FeedChip({
       <span className="font-headline text-xs font-bold leading-tight">
         {name}
       </span>
-      {timeLabel && (
+      {(freqLabel || timeLabel) && (
         <span
           className={cn(
-            "font-mono text-[10px] leading-none",
+            "flex items-center gap-1 font-mono text-[10px] leading-none",
             selected ? "text-newsprint/70" : "text-caption"
           )}
         >
-          {timeLabel}
+          {freqLabel && <span>{freqLabel}</span>}
+          {freqLabel && timeLabel && (
+            <span className={selected ? "text-newsprint/40" : "text-rule-gray"}>·</span>
+          )}
+          {timeLabel && <span>{timeLabel}</span>}
         </span>
       )}
     </button>

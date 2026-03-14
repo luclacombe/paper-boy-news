@@ -40,8 +40,8 @@ export function formatDailyReadTime(dailyReadMin: number): string | null {
   return `~${Math.round(dailyReadMin)} min/day`;
 }
 
-/** Sum of dailyReadMin for all selected URLs that have stats. */
-export function estimateTotalDailyReading(
+/** Raw sum of dailyReadMin for all selected URLs that have stats. */
+export function totalSourceDailyOutput(
   selectedUrls: Set<string>,
   statsMap: Record<string, FeedStat>
 ): number {
@@ -74,10 +74,19 @@ export const FREQUENCY_BUCKETS = [
   "No data",
 ] as const;
 
-/** Compact reading time for chip display (e.g., "3m" instead of "~3 min/day"). */
-export function formatChipReadTime(dailyReadMin: number): string | null {
-  if (dailyReadMin <= 0) return null;
-  const rounded = Math.round(dailyReadMin);
+/** Compact per-article reading time for chip display (e.g., "3m"). */
+export function formatChipReadTime(estimatedReadMin: number): string | null {
+  if (estimatedReadMin <= 0) return null;
+  const rounded = Math.round(estimatedReadMin);
   if (rounded === 0) return "<1m";
   return `${rounded}m`;
+}
+
+/** Compact frequency label for chip display (e.g., "Daily"). */
+export function getChipFrequencyLabel(articlesPerDay: number): string | null {
+  if (articlesPerDay >= 3) return "Several/day";
+  if (articlesPerDay >= 1) return "Daily";
+  if (articlesPerDay >= 0.15) return "A few/wk";
+  if (articlesPerDay > 0) return "Weekly";
+  return null;
 }
