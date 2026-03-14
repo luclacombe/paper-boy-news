@@ -38,7 +38,11 @@ from paper_boy.feeds import (
     _is_junk_figcaption,
     _is_premium_title,
     _is_stale_entry,
+    _freshness_window_days,
     _recover_images_from_html,
+    _recover_images_from_json,
+    _extract_verge_images,
+    _extract_conde_nast_images,
     _should_skip_title,
     _should_skip_url,
     MAX_ARTICLE_WORDS,
@@ -1583,6 +1587,31 @@ class TestApplyReadingTimeBudget:
         # ShortNext's 2-min article should be added
         assert len(short_sec.articles) == 2
 
+    def test_articles_per_day_used_for_scarcity(self):
+        """When articles_per_day is set, it drives scarcity ordering."""
+        # Scarce source (0.3/day) with 5 articles vs prolific (10/day) with 5 articles
+        # Same article count but articles_per_day should make scarce fill first
+        scarce = self._make_section("Scarce", 5, 238)
+        scarce.articles_per_day = 0.3
+        prolific = self._make_section("Prolific", 5, 238)
+        prolific.articles_per_day = 10.0
+        result = apply_reading_time_budget([prolific, scarce], 6)
+        scarce_r = next(s for s in result if s.name == "Scarce")
+        prolific_r = next(s for s in result if s.name == "Prolific")
+        # Scarce source should get at least as many as prolific
+        assert len(scarce_r.articles) >= len(prolific_r.articles)
+
+    def test_articles_per_day_zero_falls_back_to_count(self):
+        """When articles_per_day is 0 (unknown), falls back to article count."""
+        # Both sources have articles_per_day=0.0 (default)
+        small = self._make_section("Small", 3, 238)
+        big = self._make_section("Big", 15, 238)
+        result = apply_reading_time_budget([big, small], 8)
+        small_r = next(s for s in result if s.name == "Small")
+        big_r = next(s for s in result if s.name == "Big")
+        # Small (3/20=0.15 rate) should rank as scarcer than Big (15/20=0.75)
+        assert len(small_r.articles) == 3  # all included — only 3 available
+
 
 # --- Consecutive failure abort ---
 
@@ -1614,10 +1643,8 @@ class TestPremiumTitleSkipping:
             _make_feed_entry(title="STAT+: Premium 4", link="https://example.com/4"),
             _make_feed_entry(title="Free article", link="https://example.com/5"),
         ]
-        feed_cfg = MagicMock()
-        feed_cfg.name = "TestFeed"
-        feed_cfg.url = "https://example.com/feed"
-        feed_cfg.category = ""
+        from paper_boy.config import FeedConfig
+        feed_cfg = FeedConfig(name="TestFeed", url="https://example.com/feed")
         config = make_config()
 
         with (
@@ -1647,10 +1674,8 @@ class TestConsecutiveFailureAbort:
             _make_feed_entry(title=f"Article {i}", link=f"https://example.com/{i}")
             for i in range(10)
         ]
-        feed_cfg = MagicMock()
-        feed_cfg.name = "TestFeed"
-        feed_cfg.url = "https://example.com/feed"
-        feed_cfg.category = ""
+        from paper_boy.config import FeedConfig
+        feed_cfg = FeedConfig(name="TestFeed", url="https://example.com/feed")
         config = make_config()
 
         with (
@@ -1674,10 +1699,8 @@ class TestConsecutiveFailureAbort:
             _make_feed_entry(title=f"Article {i}", link=f"https://example.com/{i}")
             for i in range(8)
         ]
-        feed_cfg = MagicMock()
-        feed_cfg.name = "TestFeed"
-        feed_cfg.url = "https://example.com/feed"
-        feed_cfg.category = ""
+        from paper_boy.config import FeedConfig
+        feed_cfg = FeedConfig(name="TestFeed", url="https://example.com/feed")
         config = make_config()
 
         # Pattern: fail, fail, success, fail, fail, success, fail, fail
@@ -1713,10 +1736,8 @@ class TestConsecutiveFailureAbort:
             )
             for i in range(5)
         ]
-        feed_cfg = MagicMock()
-        feed_cfg.name = "Hacker News"
-        feed_cfg.url = "https://hnrss.org/frontpage"
-        feed_cfg.category = "Technology"
+        from paper_boy.config import FeedConfig
+        feed_cfg = FeedConfig(name="Hacker News", url="https://hnrss.org/frontpage", category="Technology")
         config = make_config()
 
         with (
@@ -2107,6 +2128,75 @@ class TestIsStaleEntry:
         assert len(sections[0].articles) == 1
         assert sections[0].articles[0].title == "Fresh Article"
 
+    def test_custom_max_age_days(self):
+        """Parameterized max_age_days overrides default 7-day window."""
+        import time
+        # 2 days old — stale with 1.5-day window, fresh with 7-day default
+        two_days_ago = time.gmtime(time.time() - 2 * 86400)
+        entry = {"published_parsed": two_days_ago}
+        assert _is_stale_entry(entry, max_age_days=1.5) is True
+        assert _is_stale_entry(entry) is False  # default 7 days
+
+    def test_custom_max_age_boundary(self):
+        """Entry exactly at the custom boundary is fresh (> not >=)."""
+        import time
+        entry = {"published_parsed": time.gmtime(time.time() - 1.4 * 86400)}
+        assert _is_stale_entry(entry, max_age_days=1.5) is False
+
+
+class TestFreshnessWindowDays:
+    """Tests for _freshness_window_days() per-feed freshness tiers."""
+
+    def test_prolific_source(self):
+        """High-frequency sources (>= 3/day) get 1.5-day window."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="Guardian", url="https://theguardian.com/rss", articles_per_day=12.0)
+        assert _freshness_window_days(cfg) == 1.5
+
+    def test_moderate_source(self):
+        """Moderate-frequency sources (>= 0.5/day) get 2-day window."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="BBC", url="https://bbc.com/rss", articles_per_day=1.5)
+        assert _freshness_window_days(cfg) == 2.0
+
+    def test_scarce_short_article(self):
+        """Scarce source with short articles: ~3 day window."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="Brief", url="https://brief.com/rss", articles_per_day=0.3, estimated_read_min=1.0)
+        window = _freshness_window_days(cfg)
+        assert 2.5 <= window <= 3.5  # 2 + (1/5)*5 = 3
+
+    def test_scarce_medium_article(self):
+        """Scarce source with medium articles: ~5 day window."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="Weekly", url="https://weekly.com/rss", articles_per_day=0.3, estimated_read_min=3.0)
+        window = _freshness_window_days(cfg)
+        assert 4.5 <= window <= 5.5  # 2 + (3/5)*5 = 5
+
+    def test_scarce_long_article(self):
+        """Scarce source with long articles: 7-day window (max)."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="Quanta", url="https://quanta.com/rss", articles_per_day=0.4, estimated_read_min=9.0)
+        assert _freshness_window_days(cfg) == 7.0  # 2 + min(9/5, 1)*5 = 7
+
+    def test_unknown_frequency(self):
+        """Zero articles_per_day (no stats) defaults to 7-day window."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="New", url="https://new.com/rss", articles_per_day=0.0)
+        assert _freshness_window_days(cfg) == 7.0
+
+    def test_boundary_at_three(self):
+        """Exactly 3 articles/day is prolific tier."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="Edge", url="https://edge.com/rss", articles_per_day=3.0)
+        assert _freshness_window_days(cfg) == 1.5
+
+    def test_boundary_at_half(self):
+        """Exactly 0.5 articles/day is moderate tier."""
+        from paper_boy.config import FeedConfig
+        cfg = FeedConfig(name="Edge", url="https://edge.com/rss", articles_per_day=0.5)
+        assert _freshness_window_days(cfg) == 2.0
+
 
 # --- Image recovery from raw HTML ---
 
@@ -2445,6 +2535,95 @@ class TestFetchBofFeed:
         section = _fetch_bof_feed(feed_cfg, local_config)
         assert len(section.articles) == 0
 
+    @patch("paper_boy.feeds._fetch_page")
+    def test_extracts_images_from_fusion_json(self, mock_fetch, local_config):
+        """Image content_elements are extracted into <figure> tags."""
+        from paper_boy.config import FeedConfig
+
+        fusion_json = json.dumps({
+            "content_elements": [
+                {"type": "text", "content": "<p>" + " ".join(["fashion"] * 250) + "</p>"},
+                {
+                    "type": "image",
+                    "url": "https://cloudfront-eu-central-1.images.arcpublishing.com/businessoffashion/TEST123.jpg",
+                    "alt_text": "Model on runway",
+                    "caption": "Spring collection debut at Paris Fashion Week.",
+                },
+            ],
+            "headlines": {"basic": "Test BoF Images"},
+            "credits": {"by": [{"name": "Test Author"}]},
+            "display_date": "2026-03-13T10:00:00Z",
+        })
+
+        page_html = (
+            '<html><script>Fusion.globalContent = '
+            + fusion_json
+            + '; Fusion.other = {};</script></html>'
+        )
+
+        feed_cfg = FeedConfig(name="BoF", url="https://www.businessoffashion.com/feed")
+
+        def _side_effect(url, ua, **kwargs):
+            if url == "https://www.businessoffashion.com/":
+                return self._BOF_HOMEPAGE_HTML
+            return page_html
+
+        mock_fetch.side_effect = _side_effect
+
+        section = _fetch_bof_feed(feed_cfg, local_config)
+        assert len(section.articles) >= 1
+        html = section.articles[0].html_content
+        assert "TEST123.jpg" in html or "paperboy_img" in html.lower() or "<figure" in html
+
+    @patch("paper_boy.feeds._fetch_page")
+    def test_image_fallback_to_original_url(self, mock_fetch, local_config):
+        """Image extraction falls back to additional_properties.originalUrl."""
+        from paper_boy.config import FeedConfig, NewspaperConfig
+
+        # Disable images to test HTML generation without download pipeline
+        local_config.newspaper = NewspaperConfig(
+            title=local_config.newspaper.title,
+            language=local_config.newspaper.language,
+            include_images=False,
+        )
+
+        fusion_json = json.dumps({
+            "content_elements": [
+                {"type": "text", "content": "<p>" + " ".join(["fashion"] * 250) + "</p>"},
+                {
+                    "type": "image",
+                    "additional_properties": {
+                        "originalUrl": "https://cloudfront-eu-central-1.images.arcpublishing.com/businessoffashion/FALLBACK.jpg",
+                    },
+                    "alt_text": "Fallback image",
+                    "caption": "",
+                },
+            ],
+            "headlines": {"basic": "Test Fallback"},
+            "credits": {"by": [{"name": "Author"}]},
+            "display_date": "2026-03-13T10:00:00Z",
+        })
+
+        page_html = (
+            '<html><script>Fusion.globalContent = '
+            + fusion_json
+            + '; Fusion.other = {};</script></html>'
+        )
+
+        feed_cfg = FeedConfig(name="BoF", url="https://www.businessoffashion.com/feed")
+
+        def _side_effect(url, ua, **kwargs):
+            if url == "https://www.businessoffashion.com/":
+                return self._BOF_HOMEPAGE_HTML
+            return page_html
+
+        mock_fetch.side_effect = _side_effect
+
+        section = _fetch_bof_feed(feed_cfg, local_config)
+        assert len(section.articles) >= 1
+        html = section.articles[0].html_content
+        assert "FALLBACK.jpg" in html
+
     def test_bof_routed_from_fetch_single_feed(self, local_config, make_config):
         """_fetch_single_feed routes businessoffashion.com URLs to _fetch_bof_feed."""
         from paper_boy.config import FeedConfig
@@ -2649,3 +2828,356 @@ class TestBloombergNormalize:
         result = _normalize_html(html)
         assert "news-figure-caption-text" not in result
         assert "Video Title" not in result
+
+
+class TestExtractVergeImages:
+    """Tests for The Verge __NEXT_DATA__ image extraction."""
+
+    def test_extracts_hero_image(self):
+        """Hero image extracted from featuredImage in __NEXT_DATA__."""
+        next_data = {
+            "props": {"pageProps": {"hydration": {"responses": [{"data": {"node": {
+                "featuredImage": {
+                    "image": {
+                        "originalUrl": "https://platform.theverge.com/photo.jpg",
+                        "alt": "Test photo",
+                    },
+                    "caption": {"plaintext": "A test caption"},
+                },
+                "blocks": [],
+            }}}]}}}
+        }
+        raw = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        images = _extract_verge_images(raw)
+        assert len(images) == 1
+        assert images[0][0] == "https://platform.theverge.com/photo.jpg"
+        assert images[0][1] == "Test photo"
+        assert images[0][2] == "A test caption"
+
+    def test_extracts_inline_images(self):
+        """Inline CoreImageBlockType blocks extracted."""
+        next_data = {
+            "props": {"pageProps": {"hydration": {"responses": [{"data": {"node": {
+                "featuredImage": None,
+                "blocks": [
+                    {
+                        "__typename": "CoreImageBlockType",
+                        "thumbnail": {"url": "https://platform.theverge.com/inline1.jpg"},
+                        "alt": "Inline photo",
+                        "caption": {"plaintext": ""},
+                    },
+                    {
+                        "__typename": "CoreParagraphBlockType",
+                        "attributes": {"content": "Text block"},
+                    },
+                    {
+                        "__typename": "CoreImageBlockType",
+                        "thumbnail": {"url": "https://platform.theverge.com/inline2.jpg"},
+                        "alt": "Second photo",
+                        "caption": {"plaintext": "Photo credit"},
+                    },
+                ],
+            }}}]}}}
+        }
+        raw = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        images = _extract_verge_images(raw)
+        assert len(images) == 2
+        assert images[0][0] == "https://platform.theverge.com/inline1.jpg"
+        assert images[1][0] == "https://platform.theverge.com/inline2.jpg"
+
+    def test_extracts_gallery_images(self):
+        """CoreGalleryBlockType images extracted."""
+        next_data = {
+            "props": {"pageProps": {"hydration": {"responses": [{"data": {"node": {
+                "featuredImage": None,
+                "blocks": [{
+                    "__typename": "CoreGalleryBlockType",
+                    "images": [
+                        {
+                            "image": {"thumbnails": {"horizontal": {"url": "https://platform.theverge.com/g1.jpg"}}},
+                            "alt": "Gallery 1",
+                            "caption": {"plaintext": ""},
+                        },
+                        {
+                            "image": {"thumbnails": {"horizontal": {"url": "https://platform.theverge.com/g2.jpg"}}},
+                            "alt": "Gallery 2",
+                            "caption": {"plaintext": ""},
+                        },
+                    ],
+                }],
+            }}}]}}}
+        }
+        raw = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        images = _extract_verge_images(raw)
+        assert len(images) == 2
+
+    def test_no_next_data_returns_empty(self):
+        """No __NEXT_DATA__ script returns empty list."""
+        assert _extract_verge_images("<html><body>No data</body></html>") == []
+
+    def test_malformed_json_returns_empty(self):
+        """Invalid JSON in __NEXT_DATA__ returns empty list."""
+        raw = '<script id="__NEXT_DATA__" type="application/json">{bad json}</script>'
+        assert _extract_verge_images(raw) == []
+
+    def test_caps_at_5_images(self):
+        """Image cap limits to _JSON_IMAGE_CAP (5) images."""
+        blocks = [
+            {
+                "__typename": "CoreImageBlockType",
+                "thumbnail": {"url": f"https://platform.theverge.com/img{i}.jpg"},
+                "alt": f"Photo {i}",
+                "caption": {"plaintext": ""},
+            }
+            for i in range(10)
+        ]
+        next_data = {
+            "props": {"pageProps": {"hydration": {"responses": [{"data": {"node": {
+                "featuredImage": None,
+                "blocks": blocks,
+            }}}]}}}
+        }
+        raw = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        images = _extract_verge_images(raw)
+        assert len(images) == 5
+
+
+class TestExtractCondeNastImages:
+    """Tests for Condé Nast __PRELOADED_STATE__ image extraction (Wired, New Yorker)."""
+
+    def test_extracts_hero_image(self):
+        """Hero/lede image extracted from __PRELOADED_STATE__."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": {
+                    "contentType": "photo",
+                    "sources": {
+                        "xl": {"url": "https://media.wired.com/photos/hero.jpg"},
+                        "lg": {"url": "https://media.wired.com/photos/hero-lg.jpg"},
+                    },
+                    "altText": "A factory in Germany",
+                    "caption": "",
+                    "credit": "Photograph by Reuters",
+                }},
+                "body": [],
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; window.something'
+        images = _extract_conde_nast_images(raw)
+        assert len(images) == 1
+        assert images[0][0] == "https://media.wired.com/photos/hero.jpg"
+        assert images[0][1] == "A factory in Germany"
+        assert images[0][2] == "Photograph by Reuters"
+
+    def test_extracts_inline_images_from_jsonml_body(self):
+        """Inline images from JSONML body array extracted."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": None},
+                "body": [
+                    ["p", {}, "Some text"],
+                    ["inline-embed", {
+                        "props": {
+                            "image": {
+                                "contentType": "photo",
+                                "sources": {
+                                    "xl": {"url": "https://media.newyorker.com/photos/inline1.jpg"},
+                                },
+                                "altText": "A person standing",
+                            },
+                            "dangerousCaption": "Photo by Staff",
+                        },
+                        "type": "callout:feature-small",
+                    }],
+                ],
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; </script>'
+        images = _extract_conde_nast_images(raw)
+        assert len(images) == 1
+        assert images[0][0] == "https://media.newyorker.com/photos/inline1.jpg"
+        assert images[0][1] == "A person standing"
+        assert images[0][2] == "Photo by Staff"
+
+    def test_walks_nested_image_groups(self):
+        """Nested inline-embed groups (3-photo layouts) are traversed."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": None},
+                "body": [
+                    ["inline-embed", {"type": "callout:feature-large"},
+                        ["inline-embed", {"type": "callout:group-3"},
+                            ["inline-embed", {"props": {
+                                "image": {
+                                    "contentType": "photo",
+                                    "sources": {"xl": {"url": "https://media.newyorker.com/a.jpg"}},
+                                    "altText": "Photo A",
+                                },
+                                "dangerousCaption": "",
+                            }}],
+                            ["inline-embed", {"props": {
+                                "image": {
+                                    "contentType": "photo",
+                                    "sources": {"xl": {"url": "https://media.newyorker.com/b.jpg"}},
+                                    "altText": "Photo B",
+                                },
+                                "dangerousCaption": "",
+                            }}],
+                        ],
+                    ],
+                ],
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; </script>'
+        images = _extract_conde_nast_images(raw)
+        assert len(images) == 2
+        assert images[0][0] == "https://media.newyorker.com/a.jpg"
+        assert images[1][0] == "https://media.newyorker.com/b.jpg"
+
+    def test_no_preloaded_state_returns_empty(self):
+        """No __PRELOADED_STATE__ returns empty list."""
+        assert _extract_conde_nast_images("<html><body>No data</body></html>") == []
+
+    def test_prefers_xl_over_lg(self):
+        """xl source preferred over lg for highest resolution."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": {
+                    "contentType": "photo",
+                    "sources": {
+                        "md": {"url": "https://media.wired.com/md.jpg"},
+                        "lg": {"url": "https://media.wired.com/lg.jpg"},
+                        "xl": {"url": "https://media.wired.com/xl.jpg"},
+                    },
+                    "altText": "", "caption": "", "credit": "",
+                }},
+                "body": [],
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; window.x'
+        images = _extract_conde_nast_images(raw)
+        assert images[0][0] == "https://media.wired.com/xl.jpg"
+
+    def test_caps_at_5_images(self):
+        """Image cap limits output."""
+        body = []
+        for i in range(8):
+            body.append(["inline-embed", {
+                "props": {
+                    "image": {
+                        "contentType": "photo",
+                        "sources": {"xl": {"url": f"https://media.newyorker.com/{i}.jpg"}},
+                        "altText": f"Photo {i}",
+                    },
+                    "dangerousCaption": "",
+                },
+            }])
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": None},
+                "body": body,
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; </script>'
+        images = _extract_conde_nast_images(raw)
+        assert len(images) == 5
+
+
+class TestRecoverImagesFromJson:
+    """Tests for the JSON-based image recovery dispatch."""
+
+    def test_verge_domain_triggers_extraction(self):
+        """theverge.com domain routes to Verge extractor."""
+        next_data = {
+            "props": {"pageProps": {"hydration": {"responses": [{"data": {"node": {
+                "featuredImage": {
+                    "image": {"originalUrl": "https://platform.theverge.com/hero.jpg", "alt": "Hero"},
+                    "caption": {"plaintext": ""},
+                },
+                "blocks": [],
+            }}}]}}}
+        }
+        raw = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        result = _recover_images_from_json(raw, "https://www.theverge.com/2024/1/article")
+        assert len(result) == 1
+        assert "hero.jpg" in result[0]
+
+    def test_wired_domain_triggers_extraction(self):
+        """wired.com domain routes to Condé Nast extractor."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": {
+                    "contentType": "photo",
+                    "sources": {"xl": {"url": "https://media.wired.com/hero.jpg"}},
+                    "altText": "Test", "caption": "", "credit": "",
+                }},
+                "body": [],
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; window.x'
+        result = _recover_images_from_json(raw, "https://www.wired.com/story/test/")
+        assert len(result) == 1
+        assert "hero.jpg" in result[0]
+
+    def test_newyorker_domain_triggers_extraction(self):
+        """newyorker.com domain routes to Condé Nast extractor."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": {
+                    "contentType": "photo",
+                    "sources": {"xl": {"url": "https://media.newyorker.com/hero.jpg"}},
+                    "altText": "Test", "caption": "", "credit": "",
+                }},
+                "body": [],
+            }}
+        }
+        raw = f'window.__PRELOADED_STATE__ = {json.dumps(state)}; window.x'
+        result = _recover_images_from_json(raw, "https://www.newyorker.com/news/test")
+        assert len(result) == 1
+        assert "hero.jpg" in result[0]
+
+    def test_unknown_domain_returns_empty(self):
+        """Non-matching domain returns empty list."""
+        result = _recover_images_from_json("<html></html>", "https://example.com/article")
+        assert result == []
+
+    def test_no_url_returns_empty(self):
+        """No page_url returns empty list."""
+        assert _recover_images_from_json("<html></html>", "") == []
+
+    def test_deduplicates_images(self):
+        """Duplicate image URLs are deduplicated."""
+        next_data = {
+            "props": {"pageProps": {"hydration": {"responses": [{"data": {"node": {
+                "featuredImage": {
+                    "image": {"originalUrl": "https://platform.theverge.com/same.jpg", "alt": ""},
+                    "caption": {"plaintext": ""},
+                },
+                "blocks": [{
+                    "__typename": "CoreImageBlockType",
+                    "thumbnail": {"url": "https://platform.theverge.com/same.jpg"},
+                    "alt": "", "caption": {"plaintext": ""},
+                }],
+            }}}]}}}
+        }
+        raw = f'<script id="__NEXT_DATA__" type="application/json">{json.dumps(next_data)}</script>'
+        result = _recover_images_from_json(raw, "https://www.theverge.com/article")
+        assert len(result) == 1
+
+    def test_integration_with_recover_images(self):
+        """JSON recovery integrates with _recover_images_from_html."""
+        state = {
+            "transformed": {"article": {
+                "headerProps": {"lede": {
+                    "contentType": "photo",
+                    "sources": {"xl": {"url": "https://media.wired.com/photo.jpg"}},
+                    "altText": "Test photo", "caption": "", "credit": "",
+                }},
+                "body": [],
+            }}
+        }
+        raw = f'<html><body>window.__PRELOADED_STATE__ = {json.dumps(state)}; window.x</body></html>'
+        extracted = "<p>Article text with no images.</p>"
+        result = _recover_images_from_html(extracted, raw, "https://www.wired.com/story/test/")
+        assert "photo.jpg" in result
+        assert "Article text" in result

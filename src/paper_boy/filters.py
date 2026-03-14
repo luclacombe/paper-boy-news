@@ -148,6 +148,11 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
     [
         r"like\s+this\s+content\??\s*consider\s+sign(?:ing)?\s+up\b.*",  # Politico Playbook
     ],
+    # --- BoF runway gallery artifacts ---
+    [
+        r"\d+\s+of\s+\d+",  # "0 of 44" slideshow counter
+        r"\w[\w\s]+\s+look\s+\d+\.\s*\(Launchmetrics\b.*",  # "Brand AW26 look 1. (Launchmetrics...)"
+    ],
 ]
 
 # Compile once at import time — same regex as before, just organized
@@ -366,6 +371,8 @@ _TRAILING_JUNK_RULES: list[re.Pattern] = [
     re.compile(r"^\w[\w\s.]+ is Space\.com.s\b", re.IGNORECASE),
     # Correction notes
     re.compile(r"^Correction:", re.IGNORECASE),
+    # BoF standalone byline: "By Name, Name" — case-sensitive to avoid "By all accounts..."
+    re.compile(r"^By\s+[A-Z][a-z]+(?:(?:\s+(?:and\s+)?|,\s*)[A-Z][a-z.'-]+)*$"),
 ]
 
 

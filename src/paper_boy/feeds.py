@@ -116,8 +116,8 @@ def _article_read_minutes(article: "Article") -> float:
 _MAX_ENTRY_AGE_DAYS = 7
 
 
-def _is_stale_entry(entry) -> bool:
-    """Return True if a feed entry is older than _MAX_ENTRY_AGE_DAYS.
+def _is_stale_entry(entry, max_age_days: float = _MAX_ENTRY_AGE_DAYS) -> bool:
+    """Return True if a feed entry is older than max_age_days.
 
     Uses feedparser's pre-parsed UTC time tuples. Entries with no date
     are assumed fresh (not skipped).
@@ -128,9 +128,35 @@ def _is_stale_entry(entry) -> bool:
     try:
         entry_ts = calendar.timegm(date_tuple[:9])
         age_days = (time.time() - entry_ts) / 86400
-        return age_days > _MAX_ENTRY_AGE_DAYS
+        return age_days > max_age_days
     except (TypeError, OverflowError, ValueError):
         return False
+
+
+def _freshness_window_days(feed_cfg: FeedConfig) -> float:
+    """Compute per-feed freshness window based on publishing frequency.
+
+    | Tier       | Condition              | Window    |
+    |------------|------------------------|-----------|
+    | Prolific   | articles_per_day >= 3  | 1.5 days  |
+    | Moderate   | articles_per_day >= 0.5| 2 days    |
+    | Scarce     | articles_per_day < 0.5 | 2–7 days  |
+    | Unknown    | articles_per_day == 0  | 7 days    |
+
+    Scarce tier scales with article length: longer articles persist longer.
+    """
+    apd = feed_cfg.articles_per_day
+    if apd <= 0:
+        # No stats — preserve current 7-day default
+        return float(_MAX_ENTRY_AGE_DAYS)
+    if apd >= 3:
+        return 1.5
+    if apd >= 0.5:
+        return 2.0
+    # Scarce: scale window with article length (longer = more persistent)
+    read_min = feed_cfg.estimated_read_min
+    bonus_days = min(read_min / 5.0, 1.0) * 5.0
+    return 2.0 + bonus_days
 
 
 def _entry_age_hours(entry) -> float | None:
@@ -524,6 +550,7 @@ class Section:
     name: str
     category: str = ""
     articles: list[Article] = field(default_factory=list)
+    articles_per_day: float = 0.0  # from FeedConfig, used by budget algorithm
 
 
 # --- Public API ---
@@ -641,9 +668,15 @@ def apply_reading_time_budget(
     # Phase 1: guarantee 1 article per source, scarce sources first.
     # Weekly sources (2-3 articles) get placed before daily sources (15+)
     # so they aren't squeezed out if phase 1 hits the budget.
+    # When articles_per_day is available (from feed_stats), use it for more
+    # accurate scarcity ranking. Otherwise approximate from article count.
     scarce_order = sorted(
         range(len(sections)),
-        key=lambda i: len(sections[i].articles),
+        key=lambda i: (
+            sections[i].articles_per_day
+            if sections[i].articles_per_day > 0
+            else len(sections[i].articles) / 20.0  # normalize to ~daily rate
+        ),
     )
 
     for i in scarce_order:
@@ -709,7 +742,11 @@ def _fetch_single_feed(
     if "businessoffashion.com" in urlparse(feed_cfg.url).netloc:
         return _fetch_bof_feed(feed_cfg, config, cache=cache, seen_urls=seen_urls)
 
-    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    section = Section(
+        name=feed_cfg.name,
+        category=feed_cfg.category,
+        articles_per_day=feed_cfg.articles_per_day,
+    )
 
     if not is_safe_url(feed_cfg.url):
         logger.warning("Blocked unsafe feed URL: %s", feed_cfg.url)
@@ -765,11 +802,12 @@ def _fetch_single_feed(
         feed_domain, _MAX_CONSECUTIVE_FAILURES
     )
 
+    max_age = _freshness_window_days(feed_cfg)
     consecutive_failures = 0
     attempted = 0
     for entry in entries:
-        # Skip stale entries (older than _MAX_ENTRY_AGE_DAYS)
-        if _is_stale_entry(entry):
+        # Skip stale entries (per-feed freshness window)
+        if _is_stale_entry(entry, max_age):
             logger.debug("Skipping stale entry: %s", entry.get("title", ""))
             continue
         # Skip entries explicitly marked as premium/subscriber-only by title
@@ -1230,7 +1268,7 @@ def _fetch_bloomberg_feed(
     (e.g. /technology/, /markets/) or /businessweek/ for the latest issue.
     Technique from Calibre's bloomberg.recipe by unkn0wn.
     """
-    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    section = Section(name=feed_cfg.name, category=feed_cfg.category, articles_per_day=feed_cfg.articles_per_day)
 
     parsed = urlparse(feed_cfg.url)
     path = parsed.path.strip("/")
@@ -1417,7 +1455,7 @@ def _fetch_reuters_feed(
     with full article content — no HTML extraction needed.
     Feed URL should be a reuters.com section URL (e.g. /world/, /business/).
     """
-    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    section = Section(name=feed_cfg.name, category=feed_cfg.category, articles_per_day=feed_cfg.articles_per_day)
 
     # Derive the section path from the feed URL
     # e.g. "https://www.reuters.com/world/" → "/world/"
@@ -1583,7 +1621,7 @@ def _fetch_sciam_feed(
     latest issue) or a specific issue URL like /issue/sa/2026/03-01/.
     Technique from Calibre's scientific_american.recipe by Kovid Goyal.
     """
-    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    section = Section(name=feed_cfg.name, category=feed_cfg.category, articles_per_day=feed_cfg.articles_per_day)
 
     try:
         articles_meta = _fetch_sciam_issue_articles(feed_cfg.url)
@@ -1730,7 +1768,7 @@ def _fetch_bof_feed(
     content is embedded in each page as a Fusion.globalContent JavaScript
     object, regardless of paywall status (client-side JS paywall only).
     """
-    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    section = Section(name=feed_cfg.name, category=feed_cfg.category, articles_per_day=feed_cfg.articles_per_day)
     include_images = config.newspaper.include_images
 
     # Scrape article links from homepage
@@ -1801,6 +1839,19 @@ def _fetch_bof_feed(
             content = el.get("content", "")
             if el_type in ("text", "header", "raw_html") and content:
                 html_parts.append(content)
+            elif el_type == "image":
+                img_url = el.get("url", "")
+                if not img_url:
+                    orig = el.get("additional_properties", {})
+                    img_url = orig.get("originalUrl", "")
+                if img_url:
+                    alt = el.get("alt_text", "") or el.get("subtitle", "")
+                    caption = el.get("caption", "")
+                    img_html = f'<figure><img src="{img_url}" alt="{alt}"/>'
+                    if caption:
+                        img_html += f"<figcaption>{caption}</figcaption>"
+                    img_html += "</figure>"
+                    html_parts.append(img_html)
             elif el_type == "list":
                 list_items = el.get("list_items", [])
                 if list_items:
@@ -1957,7 +2008,7 @@ def _extract_ft_articles(
 
     Returns empty section if playwright is not installed (graceful degradation).
     """
-    section = Section(name=feed_cfg.name, category=feed_cfg.category)
+    section = Section(name=feed_cfg.name, category=feed_cfg.category, articles_per_day=feed_cfg.articles_per_day)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -1988,6 +2039,7 @@ def _extract_ft_articles(
         return section
 
     UA = "Mozilla/5.0 (Java) outbrain"
+    max_age = _freshness_window_days(feed_cfg)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -2001,7 +2053,7 @@ def _extract_ft_articles(
                 continue
             if _should_skip_url(url) or _should_skip_title(title):
                 continue
-            if _is_stale_entry(entry):
+            if _is_stale_entry(entry, max_age):
                 continue
             if _is_premium_title(title):
                 continue
@@ -2411,6 +2463,215 @@ def _get_feed_content(entry) -> str | None:
 # Regex to detect existing images in extracted HTML (img or TEI graphic tags)
 _HAS_IMAGE_RE = re.compile(r"<(?:img|graphic)\b", re.IGNORECASE)
 
+# Max images to recover from JSON data (prevents gallery floods)
+_JSON_IMAGE_CAP = 5
+
+
+def _extract_verge_images(raw_html: str) -> list[tuple[str, str, str]]:
+    """Extract images from The Verge's __NEXT_DATA__ JSON.
+
+    Returns list of (url, alt, caption) tuples.
+    """
+    m = re.search(
+        r'<script\s+id="__NEXT_DATA__"[^>]*>(.*?)</script>', raw_html, re.DOTALL
+    )
+    if not m:
+        return []
+
+    try:
+        data = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    images: list[tuple[str, str, str]] = []
+
+    # Navigate to the article node
+    try:
+        responses = (
+            data.get("props", {})
+            .get("pageProps", {})
+            .get("hydration", {})
+            .get("responses", [])
+        )
+        if not responses:
+            return []
+        node = responses[0].get("data", {}).get("node", {})
+    except (IndexError, AttributeError):
+        return []
+
+    # Hero image
+    featured = node.get("featuredImage") or node.get("ledeMediaData") or {}
+    img_data = featured.get("image", {})
+    hero_url = img_data.get("originalUrl", "")
+    if not hero_url:
+        # Try thumbnail variants
+        thumbs = img_data.get("thumbnails", {})
+        for key in ("horizontal", "square", "social"):
+            if key in thumbs:
+                hero_url = thumbs[key].get("url", "")
+                if hero_url:
+                    break
+    if hero_url:
+        alt = img_data.get("alt", "")
+        caption_data = featured.get("caption", {})
+        caption = caption_data.get("plaintext", "") if isinstance(caption_data, dict) else ""
+        images.append((hero_url, alt, caption))
+
+    # Inline images from blocks
+    for block in node.get("blocks", []):
+        typename = block.get("__typename", "")
+        if typename == "CoreImageBlockType":
+            thumb = block.get("thumbnail", {})
+            url = thumb.get("url", "")
+            if url:
+                alt = block.get("alt", "")
+                cap_data = block.get("caption", {})
+                cap = cap_data.get("plaintext", "") if isinstance(cap_data, dict) else ""
+                images.append((url, alt, cap))
+        elif typename == "CoreGalleryBlockType":
+            for gi in block.get("images", []):
+                gi_img = gi.get("image", {})
+                thumbs = gi_img.get("thumbnails", {})
+                url = thumbs.get("horizontal", {}).get("url", "")
+                if url:
+                    alt = gi.get("alt", "")
+                    cap_data = gi.get("caption", {})
+                    cap = cap_data.get("plaintext", "") if isinstance(cap_data, dict) else ""
+                    images.append((url, alt, cap))
+
+    return images[:_JSON_IMAGE_CAP]
+
+
+def _extract_conde_nast_images(raw_html: str) -> list[tuple[str, str, str]]:
+    """Extract images from Condé Nast's __PRELOADED_STATE__ JSON (Wired, New Yorker).
+
+    Returns list of (url, alt, caption) tuples.
+    """
+    m = re.search(
+        r"window\.__PRELOADED_STATE__\s*=\s*(\{.*?\});\s*(?:window\.|</script>)",
+        raw_html,
+        re.DOTALL,
+    )
+    if not m:
+        return []
+
+    try:
+        data = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    images: list[tuple[str, str, str]] = []
+
+    article = data.get("transformed", {}).get("article", {})
+    if not article:
+        return []
+
+    # Hero/lede image
+    lede = article.get("headerProps", {}).get("lede", {})
+    if lede and lede.get("contentType") == "photo":
+        sources = lede.get("sources", {})
+        # Pick a good resolution (xl > lg > md)
+        for size_key in ("xl", "lg", "md"):
+            src = sources.get(size_key, {})
+            url = src.get("url", "")
+            if url:
+                alt = lede.get("altText", "")
+                caption = lede.get("caption", "")
+                credit = lede.get("credit", "")
+                cap = caption or credit
+                images.append((url, alt, cap))
+                break
+
+    # Inline images from JSONML body
+    body = article.get("body", [])
+    _walk_conde_nast_body(body, images)
+
+    return images[:_JSON_IMAGE_CAP]
+
+
+def _walk_conde_nast_body(
+    elements: list, images: list[tuple[str, str, str]]
+) -> None:
+    """Recursively walk Condé Nast JSONML body to find inline-embed images."""
+    if not isinstance(elements, list):
+        return
+
+    for el in elements:
+        if not isinstance(el, list) or len(el) < 2:
+            continue
+
+        tag = el[0] if isinstance(el[0], str) else ""
+        if tag == "inline-embed":
+            attrs = el[1] if isinstance(el[1], dict) else {}
+            props = attrs.get("props", {})
+            image = props.get("image", {})
+            if image and image.get("contentType") == "photo":
+                sources = image.get("sources", {})
+                for size_key in ("xl", "lg", "md"):
+                    src = sources.get(size_key, {})
+                    url = src.get("url", "")
+                    if url:
+                        alt = image.get("altText", "")
+                        caption = props.get("dangerousCaption", "")
+                        images.append((url, alt, caption))
+                        break
+
+            # Recurse into nested embeds (image groups)
+            for child in el[2:]:
+                if isinstance(child, list):
+                    _walk_conde_nast_body([child], images)
+
+
+# Domain → JSON image extractor mapping
+_JSON_IMAGE_EXTRACTORS: dict[str, callable] = {
+    "theverge.com": _extract_verge_images,
+    "wired.com": _extract_conde_nast_images,
+    "newyorker.com": _extract_conde_nast_images,
+}
+
+
+def _recover_images_from_json(raw_html: str, page_url: str) -> list[str]:
+    """Try to recover images from embedded JSON data for supported domains.
+
+    Returns a list of <img> tag strings, or empty list if not applicable.
+    """
+    if not page_url:
+        return []
+
+    domain = urlparse(page_url).netloc.replace("www.", "")
+    extractor = None
+    for d, fn in _JSON_IMAGE_EXTRACTORS.items():
+        if d in domain:
+            extractor = fn
+            break
+
+    if not extractor:
+        return []
+
+    try:
+        images = extractor(raw_html)
+    except Exception:
+        logger.debug("JSON image extraction failed for %s", page_url)
+        return []
+
+    if not images:
+        return []
+
+    img_tags: list[str] = []
+    seen: set[str] = set()
+    for url, alt, caption in images:
+        if not url or url in seen or _should_skip_image(url):
+            continue
+        seen.add(url)
+        # Sanitize alt/caption for HTML attributes
+        alt = _html_mod.escape(alt or "", quote=True)
+        tag = f'<img src="{url}" alt="{alt}"/>'
+        img_tags.append(tag)
+
+    if img_tags:
+        logger.debug("Recovered %d image(s) from JSON data for %s", len(img_tags), page_url)
+    return img_tags
+
 
 def _recover_images_from_html(extracted: str, raw_html: str, page_url: str = "") -> str:
     """Recover images from raw HTML that trafilatura dropped.
@@ -2432,6 +2693,11 @@ def _recover_images_from_html(extracted: str, raw_html: str, page_url: str = "")
     # Already has images — no recovery needed
     if _HAS_IMAGE_RE.search(extracted):
         return extracted
+
+    # Try JSON-based extraction first (most precise, structured data)
+    json_imgs = _recover_images_from_json(raw_html, page_url)
+    if json_imgs:
+        return "\n".join(json_imgs) + "\n" + extracted
 
     try:
         from lxml import html as lxml_html

@@ -208,6 +208,37 @@ class TestBuildConfigFromProfile:
         config = build_config_from_profile(prof, _make_feed_list())
         assert config.newspaper.reading_time_minutes == 0
 
+    def test_feed_stats_map_populates_frequency(self):
+        """feed_stats_map populates articles_per_day and estimated_read_min."""
+        feeds = _make_feed_list()
+        stats_map = {
+            feeds[0]["url"]: {"articles_per_day": 5.0, "estimated_read_min": 3.5},
+            feeds[1]["url"]: {"articles_per_day": 0.3, "estimated_read_min": 8.0},
+        }
+        config = build_config_from_profile(_make_profile(), feeds, feed_stats_map=stats_map)
+        assert config.feeds[0].articles_per_day == 5.0
+        assert config.feeds[0].estimated_read_min == 3.5
+        assert config.feeds[1].articles_per_day == 0.3
+        assert config.feeds[1].estimated_read_min == 8.0
+
+    def test_feed_stats_map_missing_feed(self):
+        """Feeds not in feed_stats_map get default 0.0 values."""
+        feeds = _make_feed_list()
+        stats_map = {
+            feeds[0]["url"]: {"articles_per_day": 5.0, "estimated_read_min": 3.5},
+            # feeds[1] not in map
+        }
+        config = build_config_from_profile(_make_profile(), feeds, feed_stats_map=stats_map)
+        assert config.feeds[1].articles_per_day == 0.0
+        assert config.feeds[1].estimated_read_min == 0.0
+
+    def test_feed_stats_map_none(self):
+        """No feed_stats_map (None) preserves backward compat — all defaults."""
+        config = build_config_from_profile(_make_profile(), _make_feed_list(), feed_stats_map=None)
+        for fc in config.feeds:
+            assert fc.articles_per_day == 0.0
+            assert fc.estimated_read_min == 0.0
+
 
 # ─── _build_for_user — delivery method snapshotting ─────────────────
 
