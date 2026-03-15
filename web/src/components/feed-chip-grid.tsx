@@ -118,10 +118,10 @@ export function FeedChipGrid({
           type="button"
           onClick={() => setActiveFilter(null)}
           className={cn(
-            "shrink-0 rounded-sm border px-2.5 py-1 font-mono text-[11px] transition-colors",
+            "shrink-0 border-b-2 px-2 py-0.5 font-body text-[10px] uppercase tracking-wider transition-colors",
             activeFilter === null
-              ? "border-ink bg-ink text-newsprint"
-              : "border-rule-gray bg-card text-caption hover:border-caption hover:text-ink"
+              ? "border-ink text-ink"
+              : "border-transparent text-caption hover:text-ink"
           )}
         >
           All
@@ -134,10 +134,10 @@ export function FeedChipGrid({
               setActiveFilter((prev) => (prev === label ? null : label))
             }
             className={cn(
-              "shrink-0 whitespace-nowrap rounded-sm border px-2.5 py-1 font-mono text-[11px] transition-colors",
+              "shrink-0 whitespace-nowrap border-b-2 px-2 py-0.5 font-body text-[10px] uppercase tracking-wider transition-colors",
               activeFilter === label
-                ? "border-ink bg-ink text-newsprint"
-                : "border-rule-gray bg-card text-caption hover:border-caption hover:text-ink"
+                ? "border-ink text-ink"
+                : "border-transparent text-caption hover:text-ink"
             )}
           >
             {label}
