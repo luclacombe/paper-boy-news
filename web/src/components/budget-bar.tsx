@@ -55,9 +55,14 @@ export function BudgetBar({
   }
 
   // Bar + pipeline calculations
+  // The build pipeline allows up to 5 min overshoot so the last article
+  // isn't awkwardly cut. maxArticles reflects what will actually be served.
+  const OVERSHOOT_CAP = 5;
   const canFill = budgetMinutes > 0 && sourceOutputMinutes >= budgetMinutes;
   const maxArticles =
-    avgArticleMin > 0 ? Math.floor(budgetMinutes / avgArticleMin) : 0;
+    avgArticleMin > 0
+      ? Math.floor((budgetMinutes + OVERSHOOT_CAP) / avgArticleMin)
+      : 0;
   const paperMinutes = canFill ? budgetMinutes : Math.round(sourceOutputMinutes);
   const ratio = budgetMinutes > 0 ? sourceOutputMinutes / budgetMinutes : 0;
   const pct = Math.min(ratio * 100, 100);
@@ -70,6 +75,12 @@ export function BudgetBar({
         : "bg-edition-red";
 
   const showBar = hasStats && sourceCount > 0;
+
+  // Warning: sources that won't fit
+  const sourcesWithoutRoom =
+    showBar && canFill && sourceCount > maxArticles
+      ? sourceCount - maxArticles
+      : 0;
 
   // Pipeline text segments
   function getPipeline(): { articles: string; picked: string; paper: string } | null {
@@ -158,6 +169,14 @@ export function BudgetBar({
           <span>{pipeline.picked}</span>
           <span className="mx-1 text-rule-gray">→</span>
           <span className="text-ink">{pipeline.paper}</span>
+        </p>
+      )}
+
+      {/* Warning: some sources won't fit */}
+      {sourcesWithoutRoom > 0 && (
+        <p className="font-body text-xs text-building">
+          {sourcesWithoutRoom} of your {sourceCount} sources won&apos;t have
+          room in a {budgetMinutes}m paper
         </p>
       )}
     </div>
