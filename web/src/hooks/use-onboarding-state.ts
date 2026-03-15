@@ -187,6 +187,7 @@ export function useOnboardingState() {
       };
       saveToStorage(currentState);
       emitChange();
+      window.scrollTo({ top: 0, behavior: "smooth" });
     },
     []
   );
