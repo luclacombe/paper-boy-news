@@ -5,6 +5,7 @@ import {
   getFrequencyLabel,
   formatDailyReadTime,
   totalSourceDailyOutput,
+  totalDailyArticles,
   hasAnyStats,
   getFrequencyBucket,
   formatChipReadTime,
@@ -139,6 +140,30 @@ describe("hasAnyStats", () => {
 
   it("returns true when populated", () => {
     expect(hasAnyStats({ "https://a.com/feed": makeStat() })).toBe(true);
+  });
+});
+
+describe("totalDailyArticles", () => {
+  it("returns 0 for empty set", () => {
+    const stats = { "https://a.com/feed": makeStat({ url: "https://a.com/feed", articlesPerDay: 5 }) };
+    expect(totalDailyArticles(new Set(), stats)).toBe(0);
+  });
+
+  it("sums and rounds matching URLs", () => {
+    const stats = {
+      "https://a.com/feed": makeStat({ url: "https://a.com/feed", articlesPerDay: 3.2 }),
+      "https://b.com/feed": makeStat({ url: "https://b.com/feed", articlesPerDay: 1.8 }),
+    };
+    const selected = new Set(["https://a.com/feed", "https://b.com/feed"]);
+    expect(totalDailyArticles(selected, stats)).toBe(5);
+  });
+
+  it("ignores URLs without stats", () => {
+    const stats = {
+      "https://a.com/feed": makeStat({ url: "https://a.com/feed", articlesPerDay: 2.5 }),
+    };
+    const selected = new Set(["https://a.com/feed", "https://unknown.com/feed"]);
+    expect(totalDailyArticles(selected, stats)).toBe(3);
   });
 });
 

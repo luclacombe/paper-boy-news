@@ -91,6 +91,19 @@ export function avgEstimatedReadMin(
   return count > 0 ? total / count : 3; // default ~3m/article
 }
 
+/** Total estimated daily articles across selected sources. */
+export function totalDailyArticles(
+  selectedUrls: Set<string>,
+  statsMap: Record<string, FeedStat>
+): number {
+  let total = 0;
+  for (const url of selectedUrls) {
+    const stat = statsMap[url];
+    if (stat) total += stat.articlesPerDay;
+  }
+  return Math.round(total);
+}
+
 /** Compact per-article reading time for chip display (e.g., "3m"). */
 export function formatChipReadTime(estimatedReadMin: number): string | null {
   if (estimatedReadMin <= 0) return null;

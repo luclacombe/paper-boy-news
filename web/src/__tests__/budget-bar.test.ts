@@ -18,25 +18,38 @@ describe("BudgetBar logic", () => {
       : Math.round(sourceOutput);
   }
 
-  function getHelperMessage(
-    ratio: number,
+  function getPipeline(
+    dailyArticles: number,
     canFill: boolean,
-    tooManySources: boolean,
     maxArticles: number,
-  ): string | null {
-    if (ratio === 0) return null;
-    if (!canFill) return "Add more sources to fill your reading time.";
-    if (tooManySources) return `Your paper fits ~${maxArticles} articles — sources are rotated so each gets featured.`;
-    return "Articles are curated from your sources to match your reading time.";
+    budgetMinutes: number,
+    paperMinutes: number,
+  ): { articles: string; picked: string; paper: string } | null {
+    if (dailyArticles === 0) return null;
+
+    const articles = `~${dailyArticles} article${dailyArticles !== 1 ? "s" : ""}`;
+
+    let picked: string;
+    if (!canFill || dailyArticles <= maxArticles) {
+      picked = "all picked";
+    } else {
+      picked = `best ${maxArticles} picked`;
+    }
+
+    const paper = canFill
+      ? `${budgetMinutes}m paper`
+      : `${paperMinutes}m of ${budgetMinutes}m`;
+
+    return { articles, picked, paper };
   }
 
-  it("returns green when sources fill ≥ 80% of budget", () => {
+  it("returns green when sources fill >= 80% of budget", () => {
     expect(getBarColor(25 / 30)).toBe("green");
     expect(getBarColor(1.0)).toBe("green");
     expect(getBarColor(5.0)).toBe("green");
   });
 
-  it("returns amber for ratio ≥ 0.5 and < 0.8", () => {
+  it("returns amber for ratio >= 0.5 and < 0.8", () => {
     expect(getBarColor(15 / 30)).toBe("amber");
     expect(getBarColor(0.5)).toBe("amber");
   });
@@ -54,20 +67,36 @@ describe("BudgetBar logic", () => {
     expect(getPaperMinutes(12.4, 20)).toBe(12);
   });
 
-  it("shows curation message when sources can fill budget", () => {
-    const msg = getHelperMessage(1.5, true, false, 6);
-    expect(msg).toContain("curated");
+  it("shows 'best N picked' when more articles than budget fits", () => {
+    // 25 articles/day, budget fits 7
+    const result = getPipeline(25, true, 7, 20, 20);
+    expect(result).not.toBeNull();
+    expect(result!.articles).toBe("~25 articles");
+    expect(result!.picked).toBe("best 7 picked");
+    expect(result!.paper).toBe("20m paper");
   });
 
-  it("shows rotation message when too many sources", () => {
-    // 10 sources, 10m budget, ~3m/article → maxArticles=3
-    const msg = getHelperMessage(5.0, true, true, 3);
-    expect(msg).toContain("rotated");
-    expect(msg).toContain("~3");
+  it("shows 'all picked' when articles fit within budget", () => {
+    // 5 articles/day, budget fits 7
+    const result = getPipeline(5, true, 7, 20, 20);
+    expect(result!.picked).toBe("all picked");
   });
 
-  it("shows add-more message when not enough sources", () => {
-    const msg = getHelperMessage(0.4, false, false, 3);
-    expect(msg).toContain("Add more");
+  it("shows shortfall when sources cannot fill budget", () => {
+    // 3 articles, can't fill, paper is 8m of 20m
+    const result = getPipeline(3, false, 7, 20, 8);
+    expect(result!.articles).toBe("~3 articles");
+    expect(result!.picked).toBe("all picked");
+    expect(result!.paper).toBe("8m of 20m");
+  });
+
+  it("returns null when no daily articles", () => {
+    const result = getPipeline(0, false, 0, 20, 0);
+    expect(result).toBeNull();
+  });
+
+  it("handles singular article", () => {
+    const result = getPipeline(1, false, 7, 20, 3);
+    expect(result!.articles).toBe("~1 article");
   });
 });

@@ -1,6 +1,8 @@
 "use client";
 
+import { Minus, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { READING_TIME_OPTIONS } from "@/lib/reading-time";
 
 interface BudgetBarProps {
   /** Raw total daily output from all selected sources (sum of dailyReadMin). */
@@ -11,40 +13,54 @@ interface BudgetBarProps {
   sourceCount: number;
   /** Average per-article reading time across selected sources. */
   avgArticleMin: number;
+  /** Total estimated articles per day across selected sources. */
+  dailyArticles: number;
   hasStats: boolean;
+  /** Callback to change reading time (steps through READING_TIME_OPTIONS). */
+  onReadingTimeChange?: (minutes: number) => void;
 }
 
 /**
- * Budget bar with contextual messaging about how the paper is curated.
+ * Budget bar with stepper and pipeline messaging.
  *
- * Three states:
- * 1. Enough sources → bar full, reassuring curation message
- * 2. Too many sources for budget → bar full, note about rotation
- * 3. Not enough sources → bar partial, prompt to add more
+ * Shows:
+ * 1. Reading time stepper: [-] 20m [+]
+ * 2. Fill bar (color-coded)
+ * 3. Pipeline: "~25 articles → best 7 picked → 20m paper"
  */
 export function BudgetBar({
   sourceOutputMinutes,
   budgetMinutes,
   sourceCount,
   avgArticleMin,
+  dailyArticles,
   hasStats,
+  onReadingTimeChange,
 }: BudgetBarProps) {
-  if (!hasStats || sourceCount === 0) return null;
+  // Stepper logic
+  const currentIdx = READING_TIME_OPTIONS.indexOf(budgetMinutes);
+  const canDecrease = currentIdx > 0;
+  const canIncrease = currentIdx < READING_TIME_OPTIONS.length - 1;
 
-  // How many articles can roughly fit in the budget?
-  const maxArticles = avgArticleMin > 0 ? Math.floor(budgetMinutes / avgArticleMin) : 0;
+  function handleDecrease() {
+    if (canDecrease && onReadingTimeChange) {
+      onReadingTimeChange(READING_TIME_OPTIONS[currentIdx - 1]);
+    }
+  }
 
-  // Can the selected sources fill the budget?
+  function handleIncrease() {
+    if (canIncrease && onReadingTimeChange) {
+      onReadingTimeChange(READING_TIME_OPTIONS[currentIdx + 1]);
+    }
+  }
+
+  // Bar + pipeline calculations
   const canFill = budgetMinutes > 0 && sourceOutputMinutes >= budgetMinutes;
-  const paperMinutes = canFill
-    ? budgetMinutes
-    : Math.round(sourceOutputMinutes);
-  const ratio =
-    budgetMinutes > 0 ? sourceOutputMinutes / budgetMinutes : 0;
+  const maxArticles =
+    avgArticleMin > 0 ? Math.floor(budgetMinutes / avgArticleMin) : 0;
+  const paperMinutes = canFill ? budgetMinutes : Math.round(sourceOutputMinutes);
+  const ratio = budgetMinutes > 0 ? sourceOutputMinutes / budgetMinutes : 0;
   const pct = Math.min(ratio * 100, 100);
-
-  // More sources than the paper can fit articles from
-  const tooManySources = sourceCount > maxArticles && maxArticles > 0;
 
   const barColor =
     ratio >= 0.8
@@ -53,39 +69,95 @@ export function BudgetBar({
         ? "bg-building"
         : "bg-edition-red";
 
-  // Contextual helper message
-  let helperMessage: string | null = null;
-  if (ratio === 0) {
-    // no output (edge case)
-  } else if (!canFill) {
-    helperMessage = "Add more sources to fill your reading time.";
-  } else if (tooManySources) {
-    helperMessage = `Your paper fits ~${maxArticles} articles — sources are rotated so each gets featured.`;
-  } else {
-    helperMessage =
-      "Articles are curated from your sources to match your reading time.";
+  const showBar = hasStats && sourceCount > 0;
+
+  // Pipeline text segments
+  function getPipeline(): { articles: string; picked: string; paper: string } | null {
+    if (!showBar || dailyArticles === 0) return null;
+
+    const articles = `~${dailyArticles} article${dailyArticles !== 1 ? "s" : ""}`;
+
+    let picked: string;
+    if (!canFill || dailyArticles <= maxArticles) {
+      picked = "all picked";
+    } else {
+      picked = `best ${maxArticles} picked`;
+    }
+
+    const paper = canFill
+      ? `${budgetMinutes}m paper`
+      : `${paperMinutes}m of ${budgetMinutes}m`;
+
+    return { articles, picked, paper };
   }
 
+  const pipeline = getPipeline();
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between font-mono text-xs">
-        <span className="text-ink">
-          Your paper: ~{paperMinutes}m
-        </span>
-        <span className="text-caption">of {budgetMinutes}m</span>
-      </div>
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-rule-gray">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all duration-300",
-            barColor
-          )}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      {helperMessage && (
-        <p className="font-body text-xs italic text-caption">
-          {helperMessage}
+    <div className="space-y-2">
+      {/* Stepper row */}
+      {onReadingTimeChange && (
+        <div className="flex items-center justify-between">
+          <h3 className="font-headline text-sm font-bold text-ink">
+            Reading time
+          </h3>
+          <div className="flex items-center">
+            <button
+              type="button"
+              onClick={handleDecrease}
+              disabled={!canDecrease}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center border border-rule-gray transition-colors",
+                canDecrease
+                  ? "bg-card text-ink hover:bg-warm-gray"
+                  : "bg-warm-gray/50 text-caption/40 cursor-not-allowed"
+              )}
+              aria-label="Decrease reading time"
+            >
+              <Minus className="h-3 w-3" />
+            </button>
+            <span className="flex h-7 w-10 items-center justify-center border-y border-rule-gray bg-ink font-mono text-xs font-bold text-newsprint letterpress">
+              {budgetMinutes}m
+            </span>
+            <button
+              type="button"
+              onClick={handleIncrease}
+              disabled={!canIncrease}
+              className={cn(
+                "flex h-7 w-7 items-center justify-center border border-rule-gray transition-colors",
+                canIncrease
+                  ? "bg-card text-ink hover:bg-warm-gray"
+                  : "bg-warm-gray/50 text-caption/40 cursor-not-allowed"
+              )}
+              aria-label="Increase reading time"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Fill bar */}
+      {showBar && (
+        <div className="h-2 w-full overflow-hidden rounded-full bg-rule-gray">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-300",
+              barColor
+            )}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+
+      {/* Pipeline */}
+      {pipeline && (
+        <p className="font-mono text-xs text-caption">
+          <span>{pipeline.articles}</span>
+          <span className="mx-1 text-rule-gray">→</span>
+          <span>{pipeline.picked}</span>
+          <span className="mx-1 text-rule-gray">→</span>
+          <span className="text-ink">{pipeline.paper}</span>
         </p>
       )}
     </div>

@@ -12,6 +12,7 @@ import {
   READING_TIME_OPTIONS,
   totalSourceDailyOutput,
   avgEstimatedReadMin,
+  totalDailyArticles,
   hasAnyStats,
 } from "@/lib/reading-time";
 import { BundleReadTime } from "@/components/feed-badges";
@@ -382,6 +383,7 @@ export default function OnboardingPage() {
     const statsAvailable = hasAnyStats(feedStats);
     const sourceOutput = totalSourceDailyOutput(feedUrls, feedStats);
     const avgArticleMin = avgEstimatedReadMin(feedUrls, feedStats);
+    const dailyArticleCount = totalDailyArticles(feedUrls, feedStats);
 
     return (
       <div className="space-y-6">
@@ -394,46 +396,20 @@ export default function OnboardingPage() {
           </p>
         </div>
 
-        {/* Inline reading time picker */}
-        <div className="space-y-1.5">
-          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
-            Reading Time
-          </h3>
-          <div className="flex border border-rule-gray">
-            {READING_TIME_OPTIONS.map((minutes) => {
-              const isSelected = readingMinutes === minutes;
-              return (
-                <button
-                  key={minutes}
-                  type="button"
-                  onClick={() =>
-                    update({
-                      readingTime: String(minutes),
-                      totalArticleBudget: readingTimeToArticleBudget(minutes),
-                    })
-                  }
-                  className={cn(
-                    "flex-1 py-2.5 font-mono text-xs transition-colors",
-                    "border-r border-rule-gray last:border-r-0",
-                    isSelected
-                      ? "letterpress bg-ink font-bold text-newsprint"
-                      : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
-                  )}
-                >
-                  {minutes}m
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Budget bar */}
+        {/* Budget bar with reading time stepper */}
         <BudgetBar
           sourceOutputMinutes={sourceOutput}
           budgetMinutes={readingMinutes}
           sourceCount={feedUrls.size}
           avgArticleMin={avgArticleMin}
+          dailyArticles={dailyArticleCount}
           hasStats={statsAvailable}
+          onReadingTimeChange={(minutes) =>
+            update({
+              readingTime: String(minutes),
+              totalArticleBudget: readingTimeToArticleBudget(minutes),
+            })
+          }
         />
 
         {/* Bundles */}

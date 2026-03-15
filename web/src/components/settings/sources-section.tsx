@@ -13,9 +13,9 @@ import { Label } from "@/components/ui/label";
 import {
   readingTimeToArticleBudget,
   recommendedSourceRange,
-  READING_TIME_OPTIONS,
   totalSourceDailyOutput,
   avgEstimatedReadMin,
+  totalDailyArticles,
   hasAnyStats,
 } from "@/lib/reading-time";
 import { BundleReadTime } from "@/components/feed-badges";
@@ -269,44 +269,19 @@ export function SourcesSection({
   const statsAvailable = hasAnyStats(feedStats);
   const sourceOutput = totalSourceDailyOutput(effectiveUrls, feedStats);
   const avgArticleMin = avgEstimatedReadMin(effectiveUrls, feedStats);
+  const dailyArticleCount = totalDailyArticles(effectiveUrls, feedStats);
 
   return (
     <div className="space-y-4">
-      {/* Inline reading time picker */}
-      <div className="space-y-1.5">
-        <h3 className="font-headline text-sm font-bold text-ink">
-          Reading time
-        </h3>
-        <div className="flex border border-rule-gray">
-          {READING_TIME_OPTIONS.map((minutes) => {
-            const isSelected = readingTime === minutes;
-            return (
-              <button
-                key={minutes}
-                type="button"
-                onClick={() => onReadingTimeChange(minutes)}
-                className={cn(
-                  "flex-1 py-2.5 font-mono text-xs transition-colors",
-                  "border-r border-rule-gray last:border-r-0",
-                  isSelected
-                    ? "letterpress bg-ink font-bold text-newsprint"
-                    : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
-                )}
-              >
-                {minutes}m
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Budget bar */}
+      {/* Budget bar with reading time stepper */}
       <BudgetBar
         sourceOutputMinutes={sourceOutput}
         budgetMinutes={readingTime}
         sourceCount={effectiveCount}
         avgArticleMin={avgArticleMin}
+        dailyArticles={dailyArticleCount}
         hasStats={statsAvailable}
+        onReadingTimeChange={onReadingTimeChange}
       />
 
       {/* Quick add bundles */}
