@@ -532,7 +532,9 @@ export default function OnboardingPage() {
   function renderStep3() {
     const methods = getDeliveryMethodsForDevice(state.device);
     const readingMinutes = Number(state.readingTime) || 15;
-    const deviceLabel = DEVICES.find((d) => d.value === state.device)?.label ?? "device";
+    const deviceLabel = state.device === "other"
+      ? "device"
+      : DEVICES.find((d) => d.value === state.device)?.label ?? "device";
 
     return (
       <div className="space-y-6">
