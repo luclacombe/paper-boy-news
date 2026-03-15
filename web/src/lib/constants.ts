@@ -5,25 +5,33 @@ export const DEVICES: { value: Device; label: string; description: string }[] =
     {
       value: "kindle",
       label: "Kindle",
-      description: "Amazon's e-reader. Delivery via Send-to-Kindle email.",
+      description:
+        "Amazon's e-reader. Delivery via Send-to-Kindle email, download, or wireless sync.",
     },
     {
       value: "kobo",
       label: "Kobo",
       description:
-        "Rakuten Kobo e-reader. Delivery via Google Drive auto-sync.",
+        "Rakuten Kobo e-reader. Delivery via Google Drive, download, or wireless sync.",
     },
     {
       value: "remarkable",
       label: "reMarkable",
-      description: "reMarkable paper tablet. Download and transfer via USB/app.",
+      description:
+        "reMarkable paper tablet. Delivery via email, Google Drive, download, or wireless sync.",
     },
     {
       value: "other",
       label: "Other",
-      description: "Any other e-reader or reading app. Download EPUB directly.",
+      description:
+        "Any other e-reader or tablet. Delivery via email, Google Drive, or download.",
     },
   ];
+
+/** Default Google Drive folder name per device. */
+export function defaultDriveFolderForDevice(device: Device | null): string {
+  return device === "kobo" ? "Rakuten Kobo" : "Paper Boy News";
+}
 
 export const TIMEZONES = [
   { value: "Pacific/Honolulu", label: "Hawaii (HST)" },

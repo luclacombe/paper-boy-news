@@ -36,7 +36,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { DEVICES, DELIVERY_TIMES, TIMEZONES } from "@/lib/constants";
+import { DEVICES, DELIVERY_TIMES, TIMEZONES, defaultDriveFolderForDevice } from "@/lib/constants";
 import type {
   CatalogBundle,
   CatalogCategory,
@@ -198,12 +198,6 @@ export default function OnboardingPage() {
       case "kobo":
         return [
           {
-            value: "koreader",
-            label: "Wireless sync",
-            description:
-              "Your paper downloads automatically over WiFi via KOReader — no cable needed",
-          },
-          {
             value: "google_drive",
             label: "Google Drive",
             description: "Auto-sync via Kobo's built-in Google Drive",
@@ -212,6 +206,12 @@ export default function OnboardingPage() {
             value: "local",
             label: "Download",
             description: "Download EPUB and transfer manually",
+          },
+          {
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Auto-download over WiFi via KOReader. Requires one-time setup on your device",
           },
         ];
       case "kindle":
@@ -222,24 +222,28 @@ export default function OnboardingPage() {
             description: "Deliver via email to your Kindle",
           },
           {
-            value: "koreader",
-            label: "Wireless sync",
-            description:
-              "Auto-download via KOReader (requires jailbreak)",
-          },
-          {
             value: "local",
             label: "Download",
             description: "Download EPUB and transfer via USB",
+          },
+          {
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Auto-download via KOReader. Requires jailbreak and setup",
           },
         ];
       case "remarkable":
         return [
           {
-            value: "koreader",
-            label: "Wireless sync",
-            description:
-              "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+            value: "email",
+            label: "Email",
+            description: "Send EPUB to an email address",
+          },
+          {
+            value: "google_drive",
+            label: "Google Drive",
+            description: "Sync via Google Drive. Access from your reMarkable's app",
           },
           {
             value: "local",
@@ -247,18 +251,23 @@ export default function OnboardingPage() {
             description: "Download EPUB and transfer via USB or app",
           },
           {
-            value: "email",
-            label: "Email",
-            description: "Send EPUB to an email address",
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Auto-download over WiFi via KOReader. Requires one-time setup on your device",
           },
         ];
       default:
         return [
           {
-            value: "koreader",
-            label: "Wireless sync",
-            description:
-              "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+            value: "email",
+            label: "Email",
+            description: "Send EPUB to an email address",
+          },
+          {
+            value: "google_drive",
+            label: "Google Drive",
+            description: "Sync via Google Drive. Access your paper from any device",
           },
           {
             value: "local",
@@ -266,9 +275,10 @@ export default function OnboardingPage() {
             description: "Download EPUB and transfer to your device",
           },
           {
-            value: "email",
-            label: "Email",
-            description: "Send EPUB to an email address",
+            value: "koreader",
+            label: "Wireless sync",
+            description:
+              "Auto-download over WiFi via KOReader. Requires third-party app setup",
           },
         ];
     }
@@ -342,10 +352,13 @@ export default function OnboardingPage() {
               label={d.label}
               selected={state.device === d.value}
               onClick={() => {
-                update({ device: d.value });
-                // Set default delivery method for device
+                // Set default delivery method and Drive folder for device
                 const methods = getDeliveryMethodsForDevice(d.value);
-                update({ deliveryMethod: methods[0].value });
+                update({
+                  device: d.value,
+                  deliveryMethod: methods[0].value,
+                  googleDriveFolder: defaultDriveFolderForDevice(d.value),
+                });
               }}
             />
           ))}
@@ -497,14 +510,14 @@ export default function OnboardingPage() {
 
         <div className="flex justify-between">
           <Button
-            onClick={() => goToStep(1)}
+            onClick={() => goToStep(2)}
             variant="outline"
             className="letterpress font-body text-sm uppercase tracking-wider"
           >
             Back
           </Button>
           <Button
-            onClick={() => goToStep(3)}
+            onClick={() => goToStep(4)}
             disabled={state.feeds.length === 0}
             className="letterpress bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
           >
@@ -571,7 +584,7 @@ export default function OnboardingPage() {
               Google Drive sync is supported on{" "}
               <strong>Kobo Forma, Sage, Elipsa, Elipsa 2E, and Libra Colour</strong>{" "}
               (firmware 4.37+). Clara models and older devices don&apos;t
-              support it &mdash; choose Download instead.
+              support it. Choose Download instead.
             </p>
             <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
               <li>
@@ -588,7 +601,7 @@ export default function OnboardingPage() {
                 connect after creating your account
               </li>
               <li>
-                Paper Boy News will place your newspaper in the folder &mdash; sync
+                Paper Boy News will place your newspaper in the folder. Sync
                 your Kobo over Wi-Fi to download it
               </li>
             </ol>
@@ -616,8 +629,8 @@ export default function OnboardingPage() {
               <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
                 <li>
                   Find your Kindle email: on your Kindle, go to{" "}
-                  <strong>Settings &rarr; Your Account</strong> &mdash;
-                  it ends in <strong>@kindle.com</strong>
+                  <strong>Settings &rarr; Your Account</strong>.
+                  It ends in <strong>@kindle.com</strong>
                 </li>
                 <li>
                   You&apos;ll also need to approve the sender email in{" "}
@@ -744,14 +757,14 @@ export default function OnboardingPage() {
 
         <div className="flex justify-between">
           <Button
-            onClick={() => goToStep(2)}
+            onClick={() => goToStep(1)}
             variant="outline"
             className="letterpress font-body text-sm uppercase tracking-wider"
           >
             Back
           </Button>
           <Button
-            onClick={() => goToStep(4)}
+            onClick={() => goToStep(3)}
             className="letterpress bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
           >
             Continue
@@ -811,8 +824,7 @@ export default function OnboardingPage() {
 
         {/* Why create an account? */}
         <div className="newsprint-card overflow-hidden border border-rule-gray bg-card px-5 py-4 space-y-2.5">
-          {(state.device === "kindle" || state.device === "kobo") &&
-            state.deliveryMethod !== "local" && (
+          {(state.deliveryMethod === "google_drive" || state.deliveryMethod === "email") && (
               <div className="flex items-start gap-2">
                 <span className="mt-0.5 font-display text-sm text-edition-red">
                   *
@@ -821,9 +833,9 @@ export default function OnboardingPage() {
                   <span className="font-headline font-bold">
                     Recommended: Sign in with Google.
                   </span>{" "}
-                  {state.device === "kindle"
-                    ? "This lets Paper Boy News deliver your newspaper via Gmail\u2019s Send-to-Kindle service\u00a0\u2014 no app passwords needed."
-                    : "This lets Paper Boy News sync your newspaper to Google Drive, where your Kobo picks it up automatically."}
+                  {state.deliveryMethod === "email"
+                    ? "This lets Paper Boy News deliver your newspaper via Gmail. No app passwords needed."
+                    : "This lets Paper Boy News sync your newspaper to Google Drive automatically."}
                 </p>
               </div>
             )}
@@ -1012,8 +1024,8 @@ export default function OnboardingPage() {
                 className="animate-step-in"
               >
                 {state.step === 1 && renderStep1()}
-                {state.step === 2 && renderStep2()}
-                {state.step === 3 && renderStep3()}
+                {state.step === 2 && renderStep3()}
+                {state.step === 3 && renderStep2()}
                 {state.step === 4 && renderStep4()}
               </div>
           </div>

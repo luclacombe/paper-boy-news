@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { DEVICES } from "@/lib/constants";
+import { DEVICES, defaultDriveFolderForDevice } from "@/lib/constants";
 import type { Device, DeliveryMethod, EmailMethod } from "@/types";
 
 export interface DeliveryValues {
@@ -47,12 +47,6 @@ function getDeliveryMethodsForDevice(
     case "kobo":
       return [
         {
-          value: "koreader",
-          label: "Wireless sync",
-          description:
-            "Your paper downloads automatically over WiFi via KOReader — no cable needed",
-        },
-        {
           value: "google_drive",
           label: "Google Drive",
           description: "Auto-sync via Kobo's built-in Google Drive",
@@ -61,6 +55,12 @@ function getDeliveryMethodsForDevice(
           value: "local",
           label: "Download",
           description: "Download EPUB and transfer manually",
+        },
+        {
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Auto-download over WiFi via KOReader. Requires one-time setup on your device",
         },
       ];
     case "kindle":
@@ -71,24 +71,28 @@ function getDeliveryMethodsForDevice(
           description: "Deliver via email to your Kindle",
         },
         {
-          value: "koreader",
-          label: "Wireless sync",
-          description:
-            "Auto-download via KOReader (requires jailbreak)",
-        },
-        {
           value: "local",
           label: "Download",
           description: "Download EPUB and transfer via USB",
+        },
+        {
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Auto-download via KOReader. Requires jailbreak and setup",
         },
       ];
     case "remarkable":
       return [
         {
-          value: "koreader",
-          label: "Wireless sync",
-          description:
-            "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+          value: "email",
+          label: "Email",
+          description: "Send EPUB to an email address",
+        },
+        {
+          value: "google_drive",
+          label: "Google Drive",
+          description: "Sync via Google Drive. Access from your reMarkable's app",
         },
         {
           value: "local",
@@ -96,18 +100,23 @@ function getDeliveryMethodsForDevice(
           description: "Download EPUB and transfer via USB or app",
         },
         {
-          value: "email",
-          label: "Email",
-          description: "Send EPUB to an email address",
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Auto-download over WiFi via KOReader. Requires one-time setup on your device",
         },
       ];
     default:
       return [
         {
-          value: "koreader",
-          label: "Wireless sync",
-          description:
-            "Your paper downloads automatically over WiFi via KOReader — no cable needed",
+          value: "email",
+          label: "Email",
+          description: "Send EPUB to an email address",
+        },
+        {
+          value: "google_drive",
+          label: "Google Drive",
+          description: "Sync via Google Drive. Access your paper from any device",
         },
         {
           value: "local",
@@ -115,9 +124,10 @@ function getDeliveryMethodsForDevice(
           description: "Download EPUB and transfer to your device",
         },
         {
-          value: "email",
-          label: "Email",
-          description: "Send EPUB to an email address",
+          value: "koreader",
+          label: "Wireless sync",
+          description:
+            "Auto-download over WiFi via KOReader. Requires third-party app setup",
         },
       ];
   }
@@ -146,7 +156,7 @@ function KoboSetupInstructions() {
           into the root of your Kobo&apos;s storage
         </li>
         <li>
-          Eject your Kobo &mdash; KOReader will appear as a second reading app
+          Eject your Kobo. KOReader will appear as a second reading app
         </li>
         <li>
           Open KOReader, go to the file manager, and tap the OPDS icon
@@ -154,12 +164,12 @@ function KoboSetupInstructions() {
         </li>
         <li>Tap &ldquo;Add new OPDS catalog&rdquo; and paste the URL above</li>
         <li>
-          Your paper will appear in the catalog each morning &mdash; just tap to
+          Your paper will appear in the catalog each morning. Just tap to
           download
         </li>
       </ol>
       <p className="mt-1.5 font-body text-xs text-caption">
-        Works with all Kobo models &mdash; no jailbreak needed.
+        Works with all Kobo models. No jailbreak needed.
       </p>
     </>
   );
@@ -185,7 +195,7 @@ function RemarkableSetupInstructions() {
           package manager on your reMarkable
         </li>
         <li>
-          Install KOReader via Toltec &mdash; see the{" "}
+          Install KOReader via Toltec. See the{" "}
           <a
             href="https://github.com/koreader/koreader/wiki/Installation-on-reMarkable"
             target="_blank"
@@ -217,7 +227,7 @@ function KindleSetupInstructions() {
       </p>
       <ol className="mt-1.5 list-decimal space-y-1 pl-4 font-body text-xs text-caption">
         <li>
-          Install KOReader via KUAL &mdash; see the{" "}
+          Install KOReader via KUAL. See the{" "}
           <a
             href="https://github.com/koreader/koreader/wiki/Installation-on-Kindle-devices"
             target="_blank"
@@ -304,7 +314,11 @@ export function DeliverySection({
 
   function handleDeviceChange(d: Device) {
     const newMethods = getDeliveryMethodsForDevice(d);
-    update({ device: d, deliveryMethod: newMethods[0].value });
+    update({
+      device: d,
+      deliveryMethod: newMethods[0].value,
+      googleDriveFolder: defaultDriveFolderForDevice(d),
+    });
   }
 
   // Auto-generate OPDS token when KOReader is selected and no URL exists
@@ -556,7 +570,7 @@ export function DeliverySection({
                 Google Drive sync is supported on{" "}
                 <strong>Kobo Forma, Sage, Elipsa, Elipsa 2E, and Libra Colour</strong>{" "}
                 (firmware 4.37+). Clara models and older devices don&apos;t
-                support it &mdash; choose Download instead.
+                support it. Choose Download instead.
               </p>
               <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
                 <li>
@@ -577,7 +591,7 @@ export function DeliverySection({
                   <strong>
                     {values.googleDriveFolder || "Rakuten Kobo"}
                   </strong>{" "}
-                  folder &mdash; sync your Kobo over Wi-Fi to download it
+                  folder. Sync your Kobo over Wi-Fi to download it
                 </li>
               </ol>
             </div>
@@ -608,7 +622,7 @@ export function DeliverySection({
                 <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
                   <li>
                     Find your Kindle email: on your Kindle, go to{" "}
-                    <strong>Settings &rarr; Your Account</strong> &mdash;
+                    <strong>Settings &rarr; Your Account</strong>.
                     it ends in <strong>@kindle.com</strong>
                   </li>
                   <li>
