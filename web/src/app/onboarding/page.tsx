@@ -405,7 +405,8 @@ export default function OnboardingPage() {
             Pick Your Sources
           </h2>
           <p className="mt-1 font-body text-sm italic text-caption">
-            Start with a bundle or pick individual feeds.
+            These are the news sources your paper draws from. Start with a
+            bundle or pick individual feeds. You can change them anytime.
           </p>
         </div>
 
@@ -531,23 +532,151 @@ export default function OnboardingPage() {
   function renderStep3() {
     const methods = getDeliveryMethodsForDevice(state.device);
     const readingMinutes = Number(state.readingTime) || 15;
+    const deviceLabel = DEVICES.find((d) => d.value === state.device)?.label ?? "device";
 
     return (
       <div className="space-y-6">
         <div className="section-rule text-center">
           <h2 className="font-display text-2xl font-bold text-ink">
-            Delivery Settings
+            Set Up Your Paper
           </h2>
           <p className="mt-1 font-body text-sm italic text-caption">
-            How and when should your newspaper arrive?
+            Configure your daily newspaper and how it reaches you.
           </p>
         </div>
 
+        {/* Your Paper */}
+        <div className="space-y-4">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
+            Your Paper
+          </h3>
+          <div className="space-y-2">
+            <Label className="font-headline text-sm text-ink">
+              Newspaper Title
+            </Label>
+            <p className="font-body text-xs text-caption">
+              This appears on the cover of your newspaper each morning.
+            </p>
+            <Input
+              value={state.title}
+              onChange={(e) => update({ title: e.target.value })}
+              placeholder="The Morning Paper"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="font-headline text-sm text-ink">
+              Reading Time
+              <span className="ml-1 font-mono text-xs text-caption">
+                (~{readingTimeToArticleBudget(readingMinutes)} articles total)
+              </span>
+            </Label>
+            <p className="font-body text-xs text-caption">
+              How long you&apos;d like to spend reading. We&apos;ll pick the
+              best articles to fill this time.
+            </p>
+            <div className="flex border border-rule-gray">
+              {READING_TIME_OPTIONS.map((minutes) => {
+                const isSelected = readingMinutes === minutes;
+                return (
+                  <button
+                    key={minutes}
+                    type="button"
+                    onClick={() =>
+                      update({
+                        readingTime: String(minutes),
+                        totalArticleBudget:
+                          readingTimeToArticleBudget(minutes),
+                      })
+                    }
+                    className={cn(
+                      "flex-1 py-2.5 font-mono text-xs transition-colors",
+                      "border-r border-rule-gray last:border-r-0",
+                      isSelected
+                        ? "letterpress bg-ink font-bold text-newsprint"
+                        : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
+                    )}
+                  >
+                    {minutes}m
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <label className="flex items-center gap-3">
+            <Checkbox
+              checked={state.includeImages}
+              onCheckedChange={(checked) =>
+                update({ includeImages: checked === true })
+              }
+            />
+            <span className="font-body text-sm text-ink">
+              Include images in articles
+            </span>
+          </label>
+        </div>
+
+        {/* Schedule */}
+        <div className="ornamental-divider" />
+        <div className="space-y-3">
+          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
+            Schedule
+          </h3>
+          <p className="font-body text-xs text-caption">
+            Your paper is built overnight and delivered at this time.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
+                Delivery Time
+              </Label>
+              <Select
+                value={state.deliveryTime}
+                onValueChange={(v) => update({ deliveryTime: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DELIVERY_TIMES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
+                Timezone
+              </Label>
+              <Select
+                value={state.timezone}
+                onValueChange={(v) => update({ timezone: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMEZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
         {/* Delivery method */}
+        <div className="ornamental-divider" />
         <div className="space-y-3">
           <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
             Delivery Method
           </Label>
+          <p className="font-body text-xs text-caption">
+            How the finished newspaper gets to your {deviceLabel}.
+          </p>
           <RadioGroup
             value={state.deliveryMethod}
             onValueChange={(v) =>
@@ -646,114 +775,6 @@ export default function OnboardingPage() {
             </div>
           </div>
         )}
-
-        {/* Schedule */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
-              Delivery Time
-            </Label>
-            <Select
-              value={state.deliveryTime}
-              onValueChange={(v) => update({ deliveryTime: v })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DELIVERY_TIMES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    {t.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
-              Timezone
-            </Label>
-            <Select
-              value={state.timezone}
-              onValueChange={(v) => update({ timezone: v })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {TIMEZONES.map((tz) => (
-                  <SelectItem key={tz.value} value={tz.value}>
-                    {tz.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Newspaper settings */}
-        <div className="ornamental-divider" />
-        <div className="space-y-4">
-          <h3 className="small-caps font-headline text-xs font-bold uppercase tracking-widest text-caption">
-            Newspaper Settings
-          </h3>
-          <div className="space-y-2">
-            <Label className="font-headline text-sm text-ink">
-              Newspaper Title
-            </Label>
-            <Input
-              value={state.title}
-              onChange={(e) => update({ title: e.target.value })}
-              placeholder="The Morning Paper"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="font-headline text-sm text-ink">
-              Reading Time
-              <span className="ml-1 font-mono text-xs text-caption">
-                (~{readingTimeToArticleBudget(readingMinutes)} articles total)
-              </span>
-            </Label>
-            <div className="flex border border-rule-gray">
-              {READING_TIME_OPTIONS.map((minutes) => {
-                const isSelected = readingMinutes === minutes;
-                return (
-                  <button
-                    key={minutes}
-                    type="button"
-                    onClick={() =>
-                      update({
-                        readingTime: String(minutes),
-                        totalArticleBudget:
-                          readingTimeToArticleBudget(minutes),
-                      })
-                    }
-                    className={cn(
-                      "flex-1 py-2.5 font-mono text-xs transition-colors",
-                      "border-r border-rule-gray last:border-r-0",
-                      isSelected
-                        ? "letterpress bg-ink font-bold text-newsprint"
-                        : "bg-card text-caption hover:bg-warm-gray hover:text-ink"
-                    )}
-                  >
-                    {minutes}m
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <label className="flex items-center gap-3">
-            <Checkbox
-              checked={state.includeImages}
-              onCheckedChange={(checked) =>
-                update({ includeImages: checked === true })
-              }
-            />
-            <span className="font-body text-sm text-ink">
-              Include images in articles
-            </span>
-          </label>
-        </div>
 
         <div className="flex justify-between">
           <Button
