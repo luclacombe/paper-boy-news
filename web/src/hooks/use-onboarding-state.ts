@@ -86,7 +86,7 @@ const DEFAULTS: OnboardingState = {
   includeImages: true,
   deliveryTime: "06:00",
   timezone: typeof window !== "undefined" ? detectTimezone() : "America/New_York",
-  googleDriveFolder: "Rakuten Kobo",
+  googleDriveFolder: "Paper Boy News",
   kindleEmail: "",
   emailMethod: "gmail",
 };
