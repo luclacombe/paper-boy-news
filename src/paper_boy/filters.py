@@ -634,3 +634,54 @@ def check_quality(html: str) -> bool:
         return True
 
     return False
+
+
+# --- HTML sanitization for EPUB output ---
+
+# Safe tags for e-reader EPUB content
+_SANITIZE_TAGS = {
+    "p", "h1", "h2", "h3", "h4", "h5", "h6",
+    "img", "figure", "figcaption",
+    "a", "em", "strong", "b", "i", "u",
+    "ul", "ol", "li",
+    "blockquote", "table", "tr", "td", "th", "thead", "tbody",
+    "br", "hr",
+    "span", "div", "small", "sub", "sup",
+    "dl", "dt", "dd",
+}
+
+_SANITIZE_ATTRIBUTES: dict[str, set[str]] = {
+    "a": {"href", "title"},
+    "img": {"src", "alt", "width", "height"},
+    "*": {"class", "id"},
+}
+
+
+def sanitize_html(html: str) -> str:
+    """Sanitize HTML for safe EPUB inclusion.
+
+    Strips <script>, <style>, <iframe>, <object>, <embed>, event handlers,
+    javascript: URIs, and data: URIs on src attributes.
+    """
+    if not html:
+        return html
+
+    try:
+        import nh3
+    except ImportError:
+        # Graceful fallback: strip the most dangerous patterns manually
+        html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r"<iframe[^>]*>.*?</iframe>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r"<object[^>]*>.*?</object>", "", html, flags=re.DOTALL | re.IGNORECASE)
+        html = re.sub(r"<embed[^>]*>", "", html, flags=re.IGNORECASE)
+        html = re.sub(r"\bon\w+\s*=", "", html, flags=re.IGNORECASE)
+        html = re.sub(r"javascript:", "", html, flags=re.IGNORECASE)
+        return html
+
+    return nh3.clean(
+        html,
+        tags=_SANITIZE_TAGS,
+        attributes=_SANITIZE_ATTRIBUTES,
+        url_schemes={"http", "https"},
+    )

@@ -241,8 +241,9 @@ def _get_google_credentials(config: Config, *, token_data: dict | None = None):
 
 def _find_or_create_folder(service, folder_name: str) -> str:
     """Find an existing folder by name, or create it."""
+    safe_name = folder_name.replace("\\", "\\\\").replace("'", "\\'")
     query = (
-        f"name = '{folder_name}' "
+        f"name = '{safe_name}' "
         f"and mimeType = 'application/vnd.google-apps.folder' "
         f"and trashed = false"
     )
