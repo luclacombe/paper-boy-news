@@ -44,6 +44,7 @@ export const userProfiles = pgTable("user_profiles", {
 
   // OPDS wireless sync (KOReader)
   opdsToken: text("opds_token"),
+  opdsTokenExpiresAt: timestamp("opds_token_expires_at", { withTimezone: true }),
 
   // Onboarding
   onboardingComplete: boolean("onboarding_complete").notNull().default(false),

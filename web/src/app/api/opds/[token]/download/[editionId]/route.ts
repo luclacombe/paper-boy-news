@@ -26,7 +26,10 @@ export async function GET(
 
   // Look up user by token
   const [profile] = await db
-    .select({ id: userProfiles.id })
+    .select({
+      id: userProfiles.id,
+      opdsTokenExpiresAt: userProfiles.opdsTokenExpiresAt,
+    })
     .from(userProfiles)
     .where(eq(userProfiles.opdsToken, token))
     .limit(1);
@@ -34,7 +37,15 @@ export async function GET(
   if (!profile) {
     return new NextResponse("Not found", {
       status: 404,
-      headers: { "X-Content-Type-Options": "nosniff" },
+      headers: { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" },
+    });
+  }
+
+  // Check token expiry
+  if (profile.opdsTokenExpiresAt && profile.opdsTokenExpiresAt < new Date()) {
+    return new NextResponse("Token expired — regenerate in settings", {
+      status: 403,
+      headers: { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" },
     });
   }
 
@@ -82,6 +93,7 @@ export async function GET(
       "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "private, max-age=86400",
       "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
     },
   });
 }
