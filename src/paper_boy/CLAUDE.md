@@ -159,7 +159,8 @@ Web app builds always use time mode — `build_for_users.py` parses `reading_tim
   - `check_quality(html)` — rejects articles < 200 words post-cleaning (`MIN_CLEAN_WORDS`), and correction-only notices < 100 words
   - `strip_lede_dupe(html)` — removes duplicate lede paragraph that repeats an opening `<em>` block (Reuters mobile API pattern: `<p><em>Summary</em></p> <p><small>By Author</small></p> <p>Summary</p>`). Skips `<p><small>` byline metadata. Also used directly in `_fetch_reuters_feed()`.
   - `strip_figcaption_paragraph_dupe(html)` — removes `<p>` elements that duplicate the preceding `<figcaption>` text (NPR/Space.com pattern). Runs after image processing (which creates `<figure>`/`<figcaption>` tags). Also used in `_fetch_reuters_feed()` and `_fetch_bloomberg_feed()`.
-  - Order matters: `strip_junk` → `strip_lede_dupe` → `strip_sciencedaily_metadata` → `strip_bbc_related` → `strip_section_junk` → `strip_trailing_junk` → `detect_paywall` → `check_quality` → (image processing) → `strip_figcaption_paragraph_dupe`
+  - `sanitize_html(html)` — XSS prevention: strips `<script>`, `<style>`, `<iframe>`, `<object>`, `<embed>`, event handlers, `javascript:` URIs via `nh3` (Rust-based sanitizer). Whitelists safe tags/attributes for EPUB. Called in `epub.py` at EPUB insertion point. Graceful regex fallback if `nh3` not installed.
+  - Order matters: `strip_junk` → `strip_lede_dupe` → `strip_sciencedaily_metadata` → `strip_bbc_related` → `strip_section_junk` → `strip_trailing_junk` → `detect_paywall` → `check_quality` → (image processing) → `strip_figcaption_paragraph_dupe` → (EPUB insertion) → `sanitize_html`
 - **Declarative pattern architecture**: Both `feeds.py` and `filters.py` use declarative rule lists for easy extension:
   - `_NORMALIZE_RULES` in `feeds.py` — list of `(pattern, replacement)` tuples for HTML normalization
   - `_JUNK_PATTERN_GROUPS` in `filters.py` — grouped pattern strings compiled into `_JUNK_PATTERNS` regex

@@ -209,6 +209,19 @@ Each subdirectory has its own CLAUDE.md:
 
 Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only for behavioral rules and cross-session gotchas not covered in any CLAUDE.md.
 
+## Security
+
+- **SMTP passwords**: AES-256-GCM encrypted at rest via `SMTP_ENCRYPTION_KEY` env var (64 hex chars). Encrypt on write (`updateUserConfig`), decrypt on read (`getUserConfig`, `build_for_users.py`). Graceful fallback for pre-existing plaintext. See `web/src/lib/encryption.ts`
+- **Google OAuth**: `client_id`/`client_secret` NOT stored in DB — build runner uses env vars exclusively
+- **OPDS tokens**: 90-day expiry (`opds_token_expires_at`), auto-regenerate on expire. `Referrer-Policy: no-referrer` on all OPDS responses
+- **Input validation**: Zod schema on `updateUserConfig()`, URL scheme validation on `addFeed()`/`setFeeds()`/`completeOnboarding()`
+- **Security headers**: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security`, `Referrer-Policy`, `Permissions-Policy` via `next.config.ts`
+- **XSS prevention**: `nh3` HTML sanitizer strips `<script>`, event handlers, `javascript:` URIs before EPUB insertion (see `filters.py:sanitize_html()`)
+- **Account deletion**: Profile (credentials) deleted first, then storage, then auth user — partial failure never leaves sensitive data orphaned
+- **GitHub Actions**: Actions pinned to commit SHAs, `record_id` UUID-validated before use
+- **GDrive API**: Single quotes escaped in folder name queries
+- **Dependabot**: Automated security updates for npm, pip, and GitHub Actions (`.github/dependabot.yml`)
+
 ## Conventions
 
 - TypeScript strict mode, path alias `@/*` → `src/*`
@@ -247,7 +260,7 @@ Edition date = **today's calendar date** in the user's configured timezone (no r
 Key files:
 - `web/src/lib/edition-date.ts` — timezone-aware edition date calculation
 - `web/src/actions/build.ts` — `getItNow()` action with dedup guard + GitHub dispatch
-- `web/src/components/dashboard-client.tsx` — 9-state dashboard state machine with polling
+- `web/src/components/dashboard-client.tsx` — 11-state dashboard state machine with polling
 - `scripts/build_for_users.py` — build runner for GitHub Actions (3 modes: build, deliver, on-demand)
 
 ## Feed Stats System
@@ -277,7 +290,7 @@ Observed per-feed metrics stored in the `feed_stats` table (global, not per-user
 ## Current Status
 
 - Core library, auth, and server actions are complete
-- Dashboard (`/dashboard`) — 9-state status card (including `awaiting-delivery`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
+- Dashboard (`/dashboard`) — 11-state status card (including `awaiting-delivery`, `fetched-early`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
 - Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), chip grid source selection with category/frequency filters, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Account section: email display, password change (email users), account deletion with confirmation
 - Wireless sync (KOReader) — first-class delivery method (`"koreader"`). Per-user OPDS feed (`/api/opds/[token]/feed.xml`) + EPUB download proxy. Pull-based — build treats like `"local"` (skip deliver phase). Token auto-generated on method selection; device-specific setup instructions with external guide links
 - Feed validation and SMTP test run as Next.js API routes (no external backend needed)

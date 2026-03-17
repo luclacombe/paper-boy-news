@@ -147,9 +147,9 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Feed stats threading**: `settings/page.tsx` calls `getAllFeedStats()` and threads the result down through `settings-client.tsx` → `settings-accordion.tsx` → `sources-section.tsx`. The same `feedStats` prop flows into onboarding Step 2. Components use `FeedBadges`, `BundleReadTime`, and `BudgetBar` to display per-feed badges, per-bundle totals, and the budget bar with pipeline messaging (`~25 articles → best 7 picked → 20m paper`).
 - **Orphaned feed cleanup**: `cleanOrphanedFeeds()` runs on settings page load — removes feeds whose URL is no longer in the catalog (unless category is "Custom"). Handles sources removed from `feed-catalog.yaml` (e.g. Bloomberg, FT)
 - **Per-page headers**: AppMasthead is rendered by dashboard (not shared layout), shows user email next to sign out. Settings has its own compact header with back link + sign out
-- **Account management**: `account.ts` server actions use admin client (`lib/supabase/admin.ts`) with service role key for `changePassword()` (verifies current password via `signInWithPassword`, then admin update) and `deleteAccount()` (deletes profile via Drizzle cascade, cleans Storage, deletes auth user). Google OAuth users cannot change password
+- **Account management**: `account.ts` server actions use admin client (`lib/supabase/admin.ts`) with service role key for `changePassword()` (verifies current password via `signInWithPassword`, then admin update) and `deleteAccount()` (deletes profile first → cleans Storage → deletes auth user — profile-first order ensures credentials are cleaned even if auth deletion fails). Google OAuth users cannot change password
 - **Send to device**: File System Access API (`showDirectoryPicker`) lets Chrome/Edge users save EPUBs directly to a USB-mounted e-reader folder. Handle persisted in IndexedDB. Falls back to regular download on unsupported browsers. See `src/lib/download-epub.ts`
-- **Wireless sync (KOReader)**: First-class delivery method (`"koreader"` in `DeliveryMethod` union). Per-user OPDS feed with token-based auth (256-bit `crypto.randomBytes`). `/api/opds/[token]/feed.xml` returns Atom XML; `/api/opds/[token]/download/[editionId]` proxies EPUB from Storage. Token auto-generated when user selects "Wireless sync" (`enableOpdsSync()` via `useEffect`, idempotent). `regenerateOpdsUrl()` is immediate action. Device-specific setup instructions (Kobo, reMarkable, Kindle, Other) with links to external KOReader installation guides. Build pipeline treats like `"local"` (skip deliver phase). See `src/lib/opds.ts`, `src/actions/opds.ts`
+- **Wireless sync (KOReader)**: First-class delivery method (`"koreader"` in `DeliveryMethod` union). Per-user OPDS feed with token-based auth (256-bit `crypto.randomBytes`, 90-day expiry). `/api/opds/[token]/feed.xml` returns Atom XML; `/api/opds/[token]/download/[editionId]` proxies EPUB from Storage. Token auto-generated when user selects "Wireless sync" (`enableOpdsSync()` via `useEffect`, idempotent — auto-regenerates if expired). `regenerateOpdsUrl()` is immediate action. `Referrer-Policy: no-referrer` on all OPDS responses. Device-specific setup instructions (Kobo, reMarkable, Kindle, Other) with links to external KOReader installation guides. Build pipeline treats like `"local"` (skip deliver phase). See `src/lib/opds.ts`, `src/actions/opds.ts`
 
 ## Design System
 
@@ -160,7 +160,10 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 
 ## Environment Variables
 
-See `.env.example` for cloud vars, `.env.local.example` for local Supabase:
+See `.env.example` for cloud vars, `.env.local.example` for local Supabase.
+
+**Required for production security:**
+- `SMTP_ENCRYPTION_KEY` — 64 hex chars (32 bytes) for AES-256-GCM SMTP password encryption. Generate: `openssl rand -hex 32`. Must match across Vercel + GitHub Actions.
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - `DATABASE_URL` (Supabase PostgreSQL connection string)
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for Drive/Gmail OAuth)
@@ -188,7 +191,7 @@ Dashboard states (in priority order): build-in-progress (client fetching or DB "
 ## Current Status
 
 - Auth, onboarding, and server actions are complete
-- Dashboard (`/dashboard`) — 9-state status card with timezone-aware edition logic, async build with polling, past editions, schedule nudges
+- Dashboard (`/dashboard`) — 11-state status card with timezone-aware edition logic, async build with polling, past editions, schedule nudges
 - Settings (`/settings`) — accordion with 5 colored-border cards: Sources, Delivery, Schedule, Your Paper, Account. Deep linking from dashboard via `?open=`. Batch save with undo toast (3s countdown + halftone). Sources managed via chip grid (`feed-chip-grid.tsx`) with category/frequency filter bar; grouping toggle (segmented control) is inline with "Edit your sources" heading in `sources-section.tsx`. Chips show per-article read time (`estimatedReadMin`). Budget bar with compact reading time stepper ([-] 20m [+]) and pipeline messaging (`~25 articles → best 7 picked → 20m paper`); canonical full picker in Your Paper section. Bundle cards show source count + avg per-article time. Frequency buckets: "Several per day", "Daily", "A few/week", "Weekly or less", "No data". `feedStats` threaded from page → client → accordion → sources section
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Landing page and login flow are functional
