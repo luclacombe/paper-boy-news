@@ -14,6 +14,7 @@ from ebooklib import epub
 from paper_boy.config import Config
 from paper_boy.cover import generate_cover
 from paper_boy.feeds import IMG_PLACEHOLDER_PREFIX, Section
+from paper_boy.filters import sanitize_html
 
 # CSS optimized for e-reader displays (Kobo, Kindle, reMarkable)
 # Avoids CSS Grid/Flexbox, complex selectors, and custom fonts (poorly supported)
@@ -560,10 +561,13 @@ def _build_article_chapter(article, article_index: int, section_name: str) -> ep
     # Show domain instead of full URL
     domain = urlparse(article.url).netloc.removeprefix("www.")
 
+    # Sanitize article body HTML to strip <script>, event handlers, etc.
+    safe_content = sanitize_html(article.html_content) if article.html_content else ""
+
     html = f"""<h1>{article.title}</h1>
 <p class="article-meta">{meta_line}</p>
 <div class="article-body">
-{article.html_content}
+{safe_content}
 </div>
 <p class="article-source">via {domain}</p>"""
 
