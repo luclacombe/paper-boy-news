@@ -42,13 +42,22 @@ jobs:
           done
           echo "needed=$NEED_BUILD" >> $GITHUB_OUTPUT
 
+      - name: Validate record_id format (on-demand only)
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          RECORD_ID="${{ github.event.client_payload.record_id }}"
+          if [[ ! "$RECORD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
+            echo "::error::Invalid record_id format: $RECORD_ID"
+            exit 1
+          fi
+
       - name: Checkout repository
         if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Python
         if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
