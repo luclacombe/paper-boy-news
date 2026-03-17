@@ -61,13 +61,11 @@ export async function GET(request: NextRequest) {
 
   const tokenData = await tokenResponse.json();
 
-  // 3. Build GoogleTokens object
+  // 3. Build GoogleTokens object (client_id/secret NOT stored — build runner uses env vars)
   const googleTokens: GoogleTokens = {
     token: tokenData.access_token,
     refreshToken: tokenData.refresh_token,
     tokenUri: "https://oauth2.googleapis.com/token",
-    clientId: process.env.GOOGLE_CLIENT_ID!,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     scopes: tokenData.scope?.split(" ") ?? [],
     expiry: tokenData.expires_in
       ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()

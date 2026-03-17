@@ -27,6 +27,18 @@ export async function getFeeds(): Promise<Feed[]> {
   }));
 }
 
+function validateFeedUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("Invalid feed URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Feed URL must use HTTP or HTTPS");
+  }
+}
+
 export async function addFeed(
   name: string,
   url: string,
@@ -34,6 +46,8 @@ export async function addFeed(
 ): Promise<void> {
   const profile = await getUserProfile();
   if (!profile) throw new Error("Not authenticated");
+
+  validateFeedUrl(url);
 
   // Get the next position
   const existing = await db
@@ -68,6 +82,11 @@ export async function setFeeds(
 ): Promise<void> {
   const profile = await getUserProfile();
   if (!profile) throw new Error("Not authenticated");
+
+  // Validate all feed URLs
+  for (const feed of feeds) {
+    validateFeedUrl(feed.url);
+  }
 
   // Delete all existing feeds, then bulk insert
   await db.delete(userFeeds).where(eq(userFeeds.userId, profile.id));

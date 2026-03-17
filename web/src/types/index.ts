@@ -34,6 +34,7 @@ export interface UserConfig {
 
   // OPDS wireless sync
   opdsToken: string | null;
+  opdsTokenExpiresAt: string | null;
 
   // OAuth
   googleTokens: GoogleTokens | null;
@@ -101,8 +102,6 @@ export interface GoogleTokens {
   token: string;
   refreshToken: string;
   tokenUri: string;
-  clientId: string;
-  clientSecret: string;
   scopes: string[];
   expiry: string | null;
 }

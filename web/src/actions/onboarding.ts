@@ -28,6 +28,16 @@ function validateOnboardingData(data: OnboardingData): void {
     if (!feed.url || typeof feed.url !== "string") {
       throw new Error("Invalid feed URL");
     }
+    // Validate URL scheme (prevent file://, javascript:, etc.)
+    try {
+      const parsed = new URL(feed.url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        throw new Error("Feed URLs must use HTTP or HTTPS");
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message === "Feed URLs must use HTTP or HTTPS") throw e;
+      throw new Error("Invalid feed URL");
+    }
     if (!feed.name || typeof feed.name !== "string") {
       throw new Error("Invalid feed name");
     }
