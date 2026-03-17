@@ -213,7 +213,7 @@ describe("deleteAccount", () => {
     await expect(deleteAccount()).rejects.toThrow("Profile not found");
   });
 
-  it("deletes auth user, cleans storage, then deletes profile", async () => {
+  it("deletes profile first, cleans storage, then deletes auth user", async () => {
     mockGetAuthUser.mockResolvedValue(FAKE_USER_EMAIL);
     mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
     mockStorageList.mockResolvedValue({
@@ -225,12 +225,12 @@ describe("deleteAccount", () => {
     const result = await deleteAccount();
 
     expect(result).toEqual({ success: true });
-    expect(mockAdminDeleteUser).toHaveBeenCalledWith("auth-1");
+    expect(mockDeleteWhere).toHaveBeenCalled();
     expect(mockStorageList).toHaveBeenCalledWith("auth-1");
     expect(mockStorageRemove).toHaveBeenCalledWith([
       "auth-1/paper-2025-01-01.epub",
     ]);
-    expect(mockDeleteWhere).toHaveBeenCalled();
+    expect(mockAdminDeleteUser).toHaveBeenCalledWith("auth-1");
   });
 
   it("succeeds even when storage cleanup fails", async () => {
@@ -259,7 +259,7 @@ describe("deleteAccount", () => {
     expect(mockStorageRemove).not.toHaveBeenCalled();
   });
 
-  it("throws when auth deletion fails and does not delete profile", async () => {
+  it("throws when auth deletion fails but profile is already deleted", async () => {
     mockGetAuthUser.mockResolvedValue(FAKE_USER_EMAIL);
     mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
     mockAdminDeleteUser.mockResolvedValue({
@@ -268,6 +268,7 @@ describe("deleteAccount", () => {
 
     const { deleteAccount } = await import("@/actions/account");
     await expect(deleteAccount()).rejects.toThrow("Failed to delete account");
-    expect(mockDeleteWhere).not.toHaveBeenCalled();
+    // Profile is deleted first (credentials cleaned up), even if auth deletion fails
+    expect(mockDeleteWhere).toHaveBeenCalled();
   });
 });

@@ -77,11 +77,12 @@ export async function deleteAccount(): Promise<{ success: true }> {
 
   const admin = createAdminClient();
 
-  // Step 1: Delete auth user first (if this fails, everything remains intact)
-  const { error } = await admin.auth.admin.deleteUser(user.id);
-  if (error) {
-    throw new Error("Failed to delete account");
-  }
+  // Step 1: Delete profile first (cascades to user_feeds + delivery_history)
+  // This removes credentials (SMTP password, Google tokens) before anything else,
+  // so a partial failure never leaves sensitive data orphaned.
+  await db
+    .delete(userProfiles)
+    .where(eq(userProfiles.authId, user.id));
 
   // Step 2: Clean up Supabase Storage (non-blocking)
   try {
@@ -97,10 +98,11 @@ export async function deleteAccount(): Promise<{ success: true }> {
     // Storage cleanup failure should not block account deletion
   }
 
-  // Step 3: Delete user_profiles row (cascades to user_feeds + delivery_history)
-  await db
-    .delete(userProfiles)
-    .where(eq(userProfiles.authId, user.id));
+  // Step 3: Delete auth user last (if this fails, credentials are already gone)
+  const { error } = await admin.auth.admin.deleteUser(user.id);
+  if (error) {
+    throw new Error("Failed to delete account");
+  }
 
   return { success: true };
 }
