@@ -316,13 +316,23 @@ export default function OnboardingPage() {
 
     setAuthLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
       if (error.message.includes("already registered")) {
         setAuthError("already_registered");
       } else {
         setAuthError(error.message);
+      }
+      setAuthLoading(false);
+    } else if (!data.session) {
+      // No session means either:
+      // 1. Repeated signup (email already exists) — identities array is empty
+      // 2. New signup but email confirmation required — identities present
+      if (data.user?.identities?.length === 0) {
+        setAuthError("already_registered");
+      } else {
+        setAuthError("check_email");
       }
       setAuthLoading(false);
     } else {
@@ -1009,6 +1019,8 @@ export default function OnboardingPage() {
                   Sign in instead
                 </Link>
               </>
+            ) : authError === "check_email" ? (
+              "Check your email for a confirmation link, then sign in."
             ) : (
               authError
             )}
