@@ -98,18 +98,25 @@ def render_delivery_email(
   <!-- Body -->
   <tr><td style="padding:4px 0 8px;text-align:center;">
     <p style="margin:0 0 6px;font-size:16px;line-height:1.7;color:{_INK};">
-      Good morning. Today&rsquo;s edition is attached and ready to read.
+      Good morning. Today&rsquo;s edition is attached &mdash; open the file below to start reading.
     </p>
-    <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:{_CAPTION};font-style:italic;">
+    <p style="margin:0;font-size:14px;line-height:1.6;color:{_CAPTION};font-style:italic;">
       {stats}
     </p>
-    <a href="https://www.paper-boy-news.com/dashboard"
-       style="display:inline-block;padding:14px 36px;background:{_EDITION_RED};color:{_NEWSPRINT};font-family:Georgia,serif;text-decoration:none;font-size:14px;letter-spacing:1px;text-transform:uppercase;font-weight:700;">
-      View your edition
-    </a>
   </td></tr>
 
-  <!-- Spacing -->
-  <tr><td style="padding:16px 0 20px;">&nbsp;</td></tr>
+  <!-- Thin rule -->
+  <tr><td style="padding:16px 40px;"><div style="border-top:1px solid {_WARM_GRAY};"></div></td></tr>
+
+  <!-- Settings link -->
+  <tr><td style="padding:4px 0 20px;text-align:center;">
+    <p style="margin:0 0 12px;font-size:13px;line-height:1.6;color:{_CAPTION};">
+      Change your sources, reading time, delivery schedule, and more.
+    </p>
+    <a href="https://www.paper-boy-news.com/settings"
+       style="display:inline-block;padding:10px 28px;background:{_EDITION_RED};color:{_NEWSPRINT};font-family:Georgia,serif;text-decoration:none;font-size:12px;letter-spacing:1px;text-transform:uppercase;font-weight:700;">
+      Manage your paper
+    </a>
+  </td></tr>
 
 {_WRAPPER_END}"""
