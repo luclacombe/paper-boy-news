@@ -52,8 +52,7 @@ export default function OnboardingCompletePage() {
         deliveryTime: stored.deliveryTime,
         timezone: stored.timezone,
         googleDriveFolder: stored.googleDriveFolder,
-        kindleEmail: stored.kindleEmail,
-        emailMethod: stored.emailMethod,
+        recipientEmail: stored.recipientEmail,
       };
 
       // Retry once in case the profile trigger hasn't fired yet

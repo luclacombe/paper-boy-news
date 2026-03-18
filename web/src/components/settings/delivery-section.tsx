@@ -17,25 +17,19 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { DEVICES, defaultDriveFolderForDevice } from "@/lib/constants";
-import type { Device, DeliveryMethod, EmailMethod } from "@/types";
+import type { Device, DeliveryMethod } from "@/types";
 
 export interface DeliveryValues {
   device: Device;
   deliveryMethod: DeliveryMethod;
-  kindleEmail: string;
+  recipientEmail: string;
   googleDriveFolder: string;
-  emailMethod: EmailMethod;
-  emailSmtpHost: string;
-  emailSmtpPort: string;
-  emailSender: string;
-  emailPassword: string;
 }
 
 interface DeliverySectionProps {
   values: DeliveryValues;
   onChange: (values: DeliveryValues) => void;
   hasDrive: boolean;
-  hasGmail: boolean;
   opdsUrl: string;
   onOpdsUrlChange: (url: string) => void;
 }
@@ -296,13 +290,11 @@ export function DeliverySection({
   values,
   onChange,
   hasDrive,
-  hasGmail,
   opdsUrl,
   onOpdsUrlChange,
 }: DeliverySectionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [smtpTesting, setSmtpTesting] = useState(false);
   const [opdsBusy, setOpdsBusy] = useState(false);
   const [copyLabel, setCopyLabel] = useState("Copy");
 
@@ -364,32 +356,6 @@ export function DeliverySection({
         toast.error("Failed to disconnect");
       }
     });
-  }
-
-  async function handleSmtpTest() {
-    setSmtpTesting(true);
-    try {
-      const res = await fetch("/api/smtp-test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          smtp_host: values.emailSmtpHost,
-          smtp_port: Number(values.emailSmtpPort) || 465,
-          sender: values.emailSender,
-          password: values.emailPassword,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("SMTP connection successful");
-      } else {
-        toast.error(data.message ?? "SMTP test failed");
-      }
-    } catch {
-      toast.error("SMTP test failed");
-    } finally {
-      setSmtpTesting(false);
-    }
   }
 
   return (
@@ -602,149 +568,55 @@ export function DeliverySection({
       {/* Email config */}
       {values.deliveryMethod === "email" && (
         <div className="space-y-3">
-          {values.device === "kindle" && (
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label className="font-headline text-sm text-ink">
-                  Kindle email address
-                </Label>
-                <Input
-                  type="email"
-                  value={values.kindleEmail}
-                  onChange={(e) => update({ kindleEmail: e.target.value })}
-                  placeholder="your-kindle@kindle.com"
-                />
-              </div>
-              <div className="border-l-2 border-rule-gray/50 pl-3">
-                <p className="font-headline text-xs font-bold text-ink">
-                  Kindle setup
-                </p>
-                <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
-                  <li>
-                    Find your Kindle email: on your Kindle, go to{" "}
-                    <strong>Settings &rarr; Your Account</strong>.
-                    it ends in <strong>@kindle.com</strong>
-                  </li>
-                  <li>
-                    Approve the sender: go to{" "}
-                    <strong>
-                      amazon.com &rarr; Manage Your Content and Devices &rarr;
-                      Preferences &rarr; Personal Document Settings
-                    </strong>
-                  </li>
-                  <li>
-                    Add the email address Paper Boy News sends from to your{" "}
-                    <strong>Approved Personal Document E-mail List</strong>
-                  </li>
-                </ol>
-                <p className="mt-1.5 font-body text-xs text-caption">
-                  Works with all Kindle devices and the Kindle app. EPUB files
-                  are converted automatically.
-                </p>
-              </div>
-            </div>
-          )}
-
           <div className="space-y-1.5">
-            <Label className="font-headline text-sm text-ink">Send via</Label>
-            <RadioGroup
-              value={values.emailMethod}
-              onValueChange={(v) => update({ emailMethod: v as EmailMethod })}
-              className="flex gap-4"
-            >
-              <label className="flex items-center gap-2">
-                <RadioGroupItem value="gmail" />
-                <span className="font-body text-sm text-ink">Gmail API</span>
-              </label>
-              <label className="flex items-center gap-2">
-                <RadioGroupItem value="smtp" />
-                <span className="font-body text-sm text-ink">SMTP</span>
-              </label>
-            </RadioGroup>
+            <Label className="font-headline text-sm text-ink">
+              {values.device === "kindle"
+                ? "Kindle email address"
+                : "Email address"}
+            </Label>
+            <Input
+              type="email"
+              value={values.recipientEmail}
+              onChange={(e) => update({ recipientEmail: e.target.value })}
+              placeholder={
+                values.device === "kindle"
+                  ? "your-kindle@kindle.com"
+                  : "you@example.com"
+              }
+            />
+            <p className="font-body text-xs text-caption">
+              Your newspaper will be sent from{" "}
+              <strong>delivery@paper-boy-news.com</strong>
+            </p>
           </div>
 
-          {values.emailMethod === "gmail" && (
-            <div className="space-y-3">
-              {hasGmail ? (
-                <div className="flex items-center gap-3">
-                  <span className="font-body text-xs italic text-delivered">
-                    Gmail connected
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleGoogleDisconnect}
-                    disabled={isPending}
-                    className="font-body text-xs"
-                  >
-                    Disconnect
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={handleGoogleConnect}
-                  className="letterpress bg-ink text-newsprint hover:bg-ink/90"
-                >
-                  Connect Gmail
-                </Button>
-              )}
-            </div>
-          )}
-
-          {values.emailMethod === "smtp" && (
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label className="font-headline text-sm text-ink">
-                    SMTP host
-                  </Label>
-                  <Input
-                    value={values.emailSmtpHost}
-                    onChange={(e) => update({ emailSmtpHost: e.target.value })}
-                    placeholder="smtp.gmail.com"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="font-headline text-sm text-ink">Port</Label>
-                  <Input
-                    type="number"
-                    value={values.emailSmtpPort}
-                    onChange={(e) => update({ emailSmtpPort: e.target.value })}
-                    placeholder="465"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="font-headline text-sm text-ink">
-                  Sender email
-                </Label>
-                <Input
-                  type="email"
-                  value={values.emailSender}
-                  onChange={(e) => update({ emailSender: e.target.value })}
-                  placeholder="you@gmail.com"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="font-headline text-sm text-ink">
-                  App password
-                </Label>
-                <Input
-                  type="password"
-                  value={values.emailPassword}
-                  onChange={(e) => update({ emailPassword: e.target.value })}
-                  placeholder="App-specific password"
-                />
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSmtpTest}
-                disabled={smtpTesting}
-              >
-                {smtpTesting ? "Testing..." : "Test connection"}
-              </Button>
+          {values.device === "kindle" && (
+            <div className="border-l-2 border-rule-gray/50 pl-3">
+              <p className="font-headline text-xs font-bold text-ink">
+                Kindle setup
+              </p>
+              <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+                <li>
+                  Find your Kindle email: on your Kindle, go to{" "}
+                  <strong>Settings &rarr; Your Account</strong>.
+                  It ends in <strong>@kindle.com</strong>
+                </li>
+                <li>
+                  Approve the sender: go to{" "}
+                  <strong>
+                    amazon.com &rarr; Manage Your Content and Devices &rarr;
+                    Preferences &rarr; Personal Document Settings
+                  </strong>
+                </li>
+                <li>
+                  Add <strong>delivery@paper-boy-news.com</strong> to your{" "}
+                  <strong>Approved Personal Document E-mail List</strong>
+                </li>
+              </ol>
+              <p className="mt-1.5 font-body text-xs text-caption">
+                Works with all Kindle devices and the Kindle app. EPUB files
+                are converted automatically.
+              </p>
             </div>
           )}
         </div>

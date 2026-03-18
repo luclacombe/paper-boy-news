@@ -28,12 +28,7 @@ export const userProfiles = pgTable("user_profiles", {
   googleDriveFolder: text("google_drive_folder")
     .notNull()
     .default("Rakuten Kobo"),
-  kindleEmail: text("kindle_email").default(""),
-  emailMethod: text("email_method").default("gmail"),
-  emailSmtpHost: text("email_smtp_host").default("smtp.gmail.com"),
-  emailSmtpPort: integer("email_smtp_port").default(465),
-  emailSender: text("email_sender").default(""),
-  emailPassword: text("email_password").default(""),
+  recipientEmail: text("recipient_email").default(""),
 
   // Schedule
   deliveryTime: text("delivery_time").notNull().default("06:00"),

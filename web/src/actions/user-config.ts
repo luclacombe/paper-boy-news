@@ -6,7 +6,6 @@ import { db } from "@/db";
 import { userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import type { UserConfig } from "@/types";
-import { encryptField, decryptField } from "@/lib/encryption";
 
 const userConfigUpdateSchema = z.object({
   title: z.string().min(1).max(100),
@@ -17,12 +16,7 @@ const userConfigUpdateSchema = z.object({
   device: z.enum(["kobo", "kindle", "remarkable", "other"]),
   deliveryMethod: z.enum(["local", "google_drive", "email", "koreader"]),
   googleDriveFolder: z.string().max(100),
-  kindleEmail: z.string().max(254),
-  emailMethod: z.enum(["gmail", "smtp"]),
-  emailSmtpHost: z.string().max(255),
-  emailSmtpPort: z.number().int().min(1).max(65535),
-  emailSender: z.string().max(254),
-  emailPassword: z.string().max(500),
+  recipientEmail: z.union([z.string().email().max(254), z.literal("")]),
   deliveryTime: z.string().regex(/^\d{2}:\d{2}$/),
   timezone: z.string().min(1).max(64),
 }).partial();
@@ -42,12 +36,7 @@ export async function getUserConfig(): Promise<UserConfig | null> {
     device: profile.device as UserConfig["device"],
     deliveryMethod: profile.deliveryMethod as UserConfig["deliveryMethod"],
     googleDriveFolder: profile.googleDriveFolder,
-    kindleEmail: profile.kindleEmail ?? "",
-    emailMethod: (profile.emailMethod ?? "gmail") as UserConfig["emailMethod"],
-    emailSmtpHost: profile.emailSmtpHost ?? "smtp.gmail.com",
-    emailSmtpPort: profile.emailSmtpPort ?? 465,
-    emailSender: profile.emailSender ?? "",
-    emailPassword: decryptField(profile.emailPassword ?? ""),
+    recipientEmail: profile.recipientEmail ?? "",
     deliveryTime: profile.deliveryTime,
     timezone: profile.timezone,
     opdsToken: profile.opdsToken ?? null,
@@ -82,13 +71,8 @@ export async function updateUserConfig(
     updates.deliveryMethod = v.deliveryMethod;
   if (v.googleDriveFolder !== undefined)
     updates.googleDriveFolder = v.googleDriveFolder;
-  if (v.kindleEmail !== undefined) updates.kindleEmail = v.kindleEmail;
-  if (v.emailMethod !== undefined) updates.emailMethod = v.emailMethod;
-  if (v.emailSmtpHost !== undefined) updates.emailSmtpHost = v.emailSmtpHost;
-  if (v.emailSmtpPort !== undefined) updates.emailSmtpPort = v.emailSmtpPort;
-  if (v.emailSender !== undefined) updates.emailSender = v.emailSender;
-  if (v.emailPassword !== undefined)
-    updates.emailPassword = encryptField(v.emailPassword);
+  if (v.recipientEmail !== undefined)
+    updates.recipientEmail = v.recipientEmail;
   if (v.deliveryTime !== undefined) updates.deliveryTime = v.deliveryTime;
   if (v.timezone !== undefined) updates.timezone = v.timezone;
 

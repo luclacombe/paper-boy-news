@@ -30,7 +30,7 @@ describe("getGoogleAuthUrl", () => {
     const url = await getGoogleAuthUrl();
     expect(url).toContain("client_id=test-client-id");
     expect(url).toContain("drive.file");
-    expect(url).toContain("gmail.send");
+    expect(url).not.toContain("gmail.send");
     expect(url).toContain("access_type=offline");
     expect(url).toContain("prompt=consent");
   });
@@ -62,34 +62,6 @@ describe("disconnectGoogle", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ googleTokens: null })
     );
-  });
-});
-
-describe("hasGmailScope", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns false when no profile", async () => {
-    mockGetUserProfile.mockResolvedValue(null);
-    const { hasGmailScope } = await import("@/actions/google-oauth");
-    expect(await hasGmailScope()).toBe(false);
-  });
-
-  it("returns false when no google tokens", async () => {
-    mockGetUserProfile.mockResolvedValue({ googleTokens: null });
-    const { hasGmailScope } = await import("@/actions/google-oauth");
-    expect(await hasGmailScope()).toBe(false);
-  });
-
-  it("returns true when gmail.send scope is present", async () => {
-    mockGetUserProfile.mockResolvedValue({
-      googleTokens: {
-        scopes: ["https://www.googleapis.com/auth/gmail.send"],
-      },
-    });
-    const { hasGmailScope } = await import("@/actions/google-oauth");
-    expect(await hasGmailScope()).toBe(true);
   });
 });
 

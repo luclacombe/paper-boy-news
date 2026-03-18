@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore, useCallback } from "react";
 import { TIMEZONES } from "@/lib/constants";
-import type { Device, DeliveryMethod, EmailMethod } from "@/types";
+import type { Device, DeliveryMethod } from "@/types";
 
 const STORAGE_KEY = "paperboy_onboarding";
 
@@ -70,8 +70,7 @@ export interface OnboardingState {
   deliveryTime: string;
   timezone: string;
   googleDriveFolder: string;
-  kindleEmail: string;
-  emailMethod: EmailMethod;
+  recipientEmail: string;
 }
 
 const DEFAULTS: OnboardingState = {
@@ -87,8 +86,7 @@ const DEFAULTS: OnboardingState = {
   deliveryTime: "06:00",
   timezone: typeof window !== "undefined" ? detectTimezone() : "America/New_York",
   googleDriveFolder: "Paper Boy News",
-  kindleEmail: "",
-  emailMethod: "gmail",
+  recipientEmail: "",
 };
 
 // ── Module-level external store for onboarding state ──

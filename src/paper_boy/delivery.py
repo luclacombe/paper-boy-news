@@ -25,10 +25,8 @@ def deliver(epub_path: Path, config: Config, *, token_data: dict | None = None) 
 
     if method == "google_drive":
         deliver_google_drive(epub_path, config, token_data=token_data)
-    elif method == "gmail_api":
-        deliver_gmail_api(epub_path, config, token_data=token_data)
     elif method == "email":
-        deliver_email(epub_path, config)
+        deliver_resend(epub_path, config)
     elif method == "local":
         logger.info("Local delivery: file at %s", epub_path)
     else:
@@ -84,100 +82,69 @@ def deliver_google_drive(
     _cleanup_old_issues(service, folder_id, config.delivery.keep_days)
 
 
-def deliver_email(epub_path: Path, config: Config) -> None:
-    """Send EPUB via email (Send-to-Kindle, etc.)."""
-    import smtplib
-    from email import encoders
-    from email.mime.base import MIMEBase
-    from email.mime.multipart import MIMEMultipart
+def deliver_resend(epub_path: Path, config: Config) -> None:
+    """Send EPUB via Resend email API."""
+    import re
 
-    email_cfg = config.delivery.email
-    if not email_cfg.sender or not email_cfg.recipient:
-        raise ValueError(
-            "Email delivery requires sender and recipient addresses. "
-            "Configure these in your delivery settings."
-        )
-    if not email_cfg.password:
-        raise ValueError(
-            "Email delivery requires an app password for the sender account."
-        )
+    import resend
 
-    msg = MIMEMultipart()
-    msg["From"] = email_cfg.sender
-    msg["To"] = email_cfg.recipient
-    msg["Subject"] = config.newspaper.title
-
-    part = MIMEBase("application", "epub+zip")
-    with open(epub_path, "rb") as f:
-        part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header(
-        "Content-Disposition",
-        f'attachment; filename="{epub_path.name}"',
-    )
-    msg.attach(part)
-
-    with smtplib.SMTP_SSL(email_cfg.smtp_host, email_cfg.smtp_port) as server:
-        server.login(email_cfg.sender, email_cfg.password)
-        server.send_message(msg)
-
-    logger.info(
-        "Emailed %s to %s via %s",
-        epub_path.name,
-        email_cfg.recipient,
-        email_cfg.smtp_host,
-    )
-
-
-def deliver_gmail_api(
-    epub_path: Path, config: Config, *, token_data: dict | None = None
-) -> None:
-    """Send EPUB via the Gmail API (OAuth2, no App Password needed)."""
-    import base64
-    from email import encoders
-    from email.mime.base import MIMEBase
-    from email.mime.multipart import MIMEMultipart
-
-    try:
-        from googleapiclient.discovery import build
-    except ImportError:
-        raise RuntimeError(
-            "Google API libraries not installed. "
-            "Install with: pip install google-api-python-client google-auth-oauthlib"
-        )
+    from paper_boy.email_template import render_delivery_email
 
     email_cfg = config.delivery.email
     if not email_cfg.recipient:
         raise ValueError(
-            "Gmail API delivery requires a recipient email address. "
-            "Configure your Kindle email in delivery settings."
+            "Email delivery requires a recipient email address. "
+            "Configure this in your delivery settings."
         )
 
-    creds = _get_google_credentials(config, token_data=token_data)
+    # Defense-in-depth: validate email format even though the web app validates too
+    if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email_cfg.recipient):
+        raise ValueError(f"Invalid recipient email address: {email_cfg.recipient}")
 
-    msg = MIMEMultipart()
-    msg["To"] = email_cfg.recipient
-    msg["Subject"] = config.newspaper.title
+    api_key = os.environ.get("RESEND_API_KEY")
+    if not api_key:
+        raise RuntimeError("RESEND_API_KEY environment variable is not set.")
 
-    part = MIMEBase("application", "epub+zip")
-    with open(epub_path, "rb") as f:
-        part.set_payload(f.read())
-    encoders.encode_base64(part)
-    part.add_header(
-        "Content-Disposition",
-        f'attachment; filename="{epub_path.name}"',
+    resend.api_key = api_key
+
+    # Build edition date from filename (e.g. "Morning-Digest-2026-03-18.epub")
+    stem = epub_path.stem
+    date_part = "-".join(stem.rsplit("-", 3)[-3:])  # "2026-03-18"
+    try:
+        from datetime import datetime as dt
+
+        edition_date = dt.strptime(date_part, "%Y-%m-%d").strftime("%B %-d, %Y")
+    except (ValueError, IndexError):
+        edition_date = date_part
+
+    title = config.newspaper.title
+    html = render_delivery_email(
+        title=title,
+        edition_date=edition_date,
+        article_count=0,  # not available at delivery time
+        source_count=0,
     )
-    msg.attach(part)
 
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    service = build("gmail", "v1", credentials=creds)
-    service.users().messages().send(
-        userId="me",
-        body={"raw": raw},
-    ).execute()
+    with open(epub_path, "rb") as f:
+        epub_bytes = f.read()
+
+    params: resend.Emails.SendParams = {
+        "from": "Paper Boy News <delivery@paper-boy-news.com>",
+        "to": [email_cfg.recipient],
+        "subject": f"{title} — {edition_date}",
+        "html": html,
+        "attachments": [
+            {
+                "filename": epub_path.name,
+                "content": list(epub_bytes),
+            }
+        ],
+    }
+
+    resend.Emails.send(params)
 
     logger.info(
-        "Sent %s to %s via Gmail API",
+        "Sent %s to %s via Resend",
         epub_path.name,
         email_cfg.recipient,
     )
@@ -193,7 +160,6 @@ def _get_google_credentials(config: Config, *, token_data: dict | None = None):
     """
     scopes = [
         "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/gmail.send",
     ]
 
     # Path 1: OAuth2 user credentials (from web app)

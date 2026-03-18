@@ -78,7 +78,7 @@ export async function deleteAccount(): Promise<{ success: true }> {
   const admin = createAdminClient();
 
   // Step 1: Delete profile first (cascades to user_feeds + delivery_history)
-  // This removes credentials (SMTP password, Google tokens) before anything else,
+  // This removes credentials (Google tokens) before anything else,
   // so a partial failure never leaves sensitive data orphaned.
   await db
     .delete(userProfiles)

@@ -1,4 +1,4 @@
-"""Tests for delivery backends — Google Drive, email, and local."""
+"""Tests for delivery backends — Google Drive, Resend email, and local."""
 
 from __future__ import annotations
 
@@ -14,8 +14,7 @@ from paper_boy.delivery import (
     _find_or_create_folder,
     _get_google_credentials,
     deliver,
-    deliver_email,
-    deliver_gmail_api,
+    deliver_resend,
 )
 
 
@@ -50,21 +49,12 @@ class TestDeliver:
         deliver(epub, gdrive_config)
         mock_gdrive.assert_called_once_with(epub, gdrive_config, token_data=None)
 
-    @patch("paper_boy.delivery.deliver_email")
-    def test_dispatches_to_email(self, mock_email, email_config, tmp_path):
-        """method='email' calls deliver_email."""
+    @patch("paper_boy.delivery.deliver_resend")
+    def test_dispatches_to_email(self, mock_resend, email_config, tmp_path):
+        """method='email' calls deliver_resend."""
         epub = _make_epub_file(tmp_path)
         deliver(epub, email_config)
-        mock_email.assert_called_once_with(epub, email_config)
-
-    @patch("paper_boy.delivery.deliver_gmail_api")
-    def test_dispatches_to_gmail_api(self, mock_gmail, make_config, tmp_path):
-        """method='gmail_api' calls deliver_gmail_api."""
-        config = make_config(method="gmail_api", recipient="k@kindle.com")
-        epub = _make_epub_file(tmp_path)
-        token_data = {"refresh_token": "rt", "client_id": "cid", "client_secret": "cs"}
-        deliver(epub, config, token_data=token_data)
-        mock_gmail.assert_called_once_with(epub, config, token_data=token_data)
+        mock_resend.assert_called_once_with(epub, email_config)
 
     @patch("paper_boy.delivery.deliver_google_drive")
     def test_passes_token_data_to_google_drive(self, mock_gdrive, gdrive_config, tmp_path):
@@ -87,65 +77,68 @@ class TestDeliver:
             deliver(epub, config)
 
 
-# --- TestDeliverEmail ---
+# --- TestDeliverResend ---
 
 
-class TestDeliverEmail:
-    @patch("smtplib.SMTP_SSL")
-    def test_sends_email_with_attachment(self, mock_smtp_cls, email_config, tmp_path):
-        """EPUB is sent as attachment via SMTP_SSL."""
+class TestDeliverResend:
+    @pytest.fixture(autouse=True)
+    def _mock_resend(self):
+        """Mock the resend module since it may not be installed in test env."""
+        self.mock_resend = MagicMock()
+        with patch.dict("sys.modules", {"resend": self.mock_resend}):
+            yield
+
+    def test_sends_epub_via_resend(self, email_config, tmp_path, monkeypatch):
+        """EPUB is sent as attachment via Resend API."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
         epub = _make_epub_file(tmp_path)
-        mock_server = MagicMock()
-        mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_server)
-        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        deliver_email(epub, email_config)
+        deliver_resend(epub, email_config)
 
-        mock_server.login.assert_called_once_with("me@gmail.com", "app-secret")
-        mock_server.send_message.assert_called_once()
+        self.mock_resend.Emails.send.assert_called_once()
+        call_args = self.mock_resend.Emails.send.call_args[0][0]
+        assert call_args["to"] == ["kindle@kindle.com"]
+        assert "paper-boy-2026-03-01.epub" in call_args["attachments"][0]["filename"]
 
-    def test_raises_if_no_sender(self, make_config, tmp_path):
-        """ValueError raised when sender is empty."""
-        config = make_config(method="email", recipient="k@kindle.com", password="pwd")
-        epub = _make_epub_file(tmp_path)
-        with pytest.raises(ValueError, match="sender and recipient"):
-            deliver_email(epub, config)
-
-    def test_raises_if_no_recipient(self, make_config, tmp_path):
+    def test_raises_if_no_recipient(self, make_config, tmp_path, monkeypatch):
         """ValueError raised when recipient is empty."""
-        config = make_config(method="email", sender="me@gmail.com", password="pwd")
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+        config = make_config(method="email")  # recipient defaults to ""
         epub = _make_epub_file(tmp_path)
-        with pytest.raises(ValueError, match="sender and recipient"):
-            deliver_email(epub, config)
+        with pytest.raises(ValueError, match="recipient"):
+            deliver_resend(epub, config)
 
-    def test_raises_if_no_password(self, make_config, tmp_path):
-        """ValueError raised when password is empty."""
-        config = make_config(
-            method="email", sender="me@gmail.com", recipient="k@kindle.com"
-        )
+    def test_reads_epub_and_attaches(self, make_config, tmp_path, monkeypatch):
+        """EPUB file content is read and included as attachment."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+        config = make_config(method="email", recipient="user@example.com")
         epub = _make_epub_file(tmp_path)
-        with pytest.raises(ValueError, match="app password"):
-            deliver_email(epub, config)
+        epub_content = epub.read_bytes()
 
-    @patch("smtplib.SMTP_SSL")
-    def test_uses_correct_smtp_host_and_port(self, mock_smtp_cls, make_config, tmp_path):
-        """SMTP_SSL is called with configured host and port."""
-        config = make_config(
-            method="email",
-            sender="me@gmail.com",
-            password="pwd",
-            recipient="k@kindle.com",
-            smtp_host="smtp.custom.com",
-            smtp_port=587,
-        )
+        deliver_resend(epub, config)
+
+        call_args = self.mock_resend.Emails.send.call_args[0][0]
+        attachment = call_args["attachments"][0]
+        assert attachment["content"] == list(epub_content)
+
+    def test_uses_newspaper_title_in_subject(self, make_config, tmp_path, monkeypatch):
+        """Email subject includes the newspaper title."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+        config = make_config(method="email", recipient="user@example.com", title="My Daily News")
         epub = _make_epub_file(tmp_path)
-        mock_server = MagicMock()
-        mock_smtp_cls.return_value.__enter__ = MagicMock(return_value=mock_server)
-        mock_smtp_cls.return_value.__exit__ = MagicMock(return_value=False)
 
-        deliver_email(epub, config)
+        deliver_resend(epub, config)
 
-        mock_smtp_cls.assert_called_once_with("smtp.custom.com", 587)
+        call_args = self.mock_resend.Emails.send.call_args[0][0]
+        assert "My Daily News" in call_args["subject"]
+
+    def test_raises_if_no_api_key(self, make_config, tmp_path, monkeypatch):
+        """RuntimeError raised when RESEND_API_KEY is not set."""
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        config = make_config(method="email", recipient="user@example.com")
+        epub = _make_epub_file(tmp_path)
+        with pytest.raises(RuntimeError, match="RESEND_API_KEY"):
+            deliver_resend(epub, config)
 
 
 # --- TestGetGoogleCredentials ---
@@ -263,72 +256,6 @@ class TestCleanupOldIssues:
 
         _cleanup_old_issues(service, "folder-id", keep_days=30)
         service.files().delete.assert_not_called()
-
-
-# --- TestDeliverGmailApi ---
-
-
-class TestDeliverGmailApi:
-    @patch("paper_boy.delivery._get_google_credentials")
-    @patch("googleapiclient.discovery.build")
-    def test_sends_epub_via_gmail_api(self, mock_build, mock_get_creds, make_config, tmp_path):
-        """EPUB is sent as attachment through Gmail API."""
-        config = make_config(method="gmail_api", recipient="kindle@kindle.com")
-        epub = _make_epub_file(tmp_path)
-        token_data = {"refresh_token": "rt", "client_id": "cid", "client_secret": "cs"}
-
-        mock_service = MagicMock()
-        mock_build.return_value = mock_service
-        mock_get_creds.return_value = MagicMock()
-
-        deliver_gmail_api(epub, config, token_data=token_data)
-
-        mock_build.assert_called_once_with("gmail", "v1", credentials=mock_get_creds.return_value)
-        mock_service.users().messages().send.assert_called_once()
-
-    def test_raises_if_no_recipient(self, make_config, tmp_path):
-        """ValueError raised when recipient email is empty."""
-        config = make_config(method="gmail_api")  # recipient defaults to ""
-        epub = _make_epub_file(tmp_path)
-        with pytest.raises(ValueError, match="recipient"):
-            deliver_gmail_api(epub, config, token_data={"refresh_token": "rt"})
-
-    @patch("paper_boy.delivery._get_google_credentials")
-    @patch("googleapiclient.discovery.build")
-    def test_passes_token_data_to_get_credentials(
-        self, mock_build, mock_get_creds, make_config, tmp_path
-    ):
-        """token_data is forwarded to _get_google_credentials."""
-        config = make_config(method="gmail_api", recipient="k@kindle.com")
-        epub = _make_epub_file(tmp_path)
-        tokens = {"refresh_token": "rt", "client_id": "cid", "client_secret": "cs"}
-
-        mock_build.return_value = MagicMock()
-        mock_get_creds.return_value = MagicMock()
-
-        deliver_gmail_api(epub, config, token_data=tokens)
-
-        mock_get_creds.assert_called_once_with(config, token_data=tokens)
-
-    @patch("paper_boy.delivery._get_google_credentials")
-    @patch("googleapiclient.discovery.build")
-    def test_uses_newspaper_title_as_subject(
-        self, mock_build, mock_get_creds, make_config, tmp_path
-    ):
-        """Email subject is the configured newspaper title."""
-        config = make_config(
-            method="gmail_api", recipient="k@kindle.com", title="My Daily News"
-        )
-        epub = _make_epub_file(tmp_path)
-
-        mock_service = MagicMock()
-        mock_build.return_value = mock_service
-        mock_get_creds.return_value = MagicMock()
-
-        deliver_gmail_api(epub, config, token_data={"refresh_token": "rt"})
-
-        call_kwargs = mock_service.users().messages().send.call_args[1]
-        assert call_kwargs["userId"] == "me"
 
 
 # --- TestGetGoogleCredentialsOAuth ---

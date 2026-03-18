@@ -56,9 +56,9 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong>Delivery credentials</strong> — if you choose Google
-              Drive or Gmail delivery, an OAuth token scoped to file creation
-              (drive.file) and/or email sending (gmail.send); if you choose
-              SMTP email delivery, your SMTP settings
+              Drive delivery, an OAuth token scoped to file creation
+              (drive.file). Email delivery uses Resend (no credentials
+              stored)
             </li>
             <li>
               <strong>OPDS sync token</strong> — if you enable wireless sync,

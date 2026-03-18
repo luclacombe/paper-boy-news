@@ -63,11 +63,7 @@ const FAKE_PROFILE = {
   device: "kobo",
   deliveryMethod: "local",
   googleDriveFolder: "Rakuten Kobo",
-  kindleEmail: "",
-  emailSmtpHost: "smtp.gmail.com",
-  emailSmtpPort: 465,
-  emailSender: "",
-  emailPassword: "",
+  recipientEmail: "",
   googleTokens: null,
   timezone: "UTC",
 };

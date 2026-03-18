@@ -1,7 +1,7 @@
 import { getUserConfig } from "@/actions/user-config";
 import { getFeeds } from "@/actions/feeds";
 import { getDeliveryHistory, getEditionCount } from "@/actions/delivery-history";
-import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
+import { hasDriveScope } from "@/actions/google-oauth";
 import { getAuthUser } from "@/lib/auth";
 import { computeSetupStatus } from "@/lib/setup-status";
 import {
@@ -14,20 +14,19 @@ import { AppMasthead } from "@/components/app-masthead";
 import { redirect } from "next/navigation";
 
 export default async function DashboardPage() {
-  const [config, feeds, history, editionCount, hasDrive, hasGmail, authUser] =
+  const [config, feeds, history, editionCount, hasDrive, authUser] =
     await Promise.all([
       getUserConfig(),
       getFeeds(),
       getDeliveryHistory(6),
       getEditionCount(),
       hasDriveScope(),
-      hasGmailScope(),
       getAuthUser(),
     ]);
 
   if (!config) redirect("/login");
 
-  const setupStatus = computeSetupStatus(config, editionCount, hasDrive, hasGmail);
+  const setupStatus = computeSetupStatus(config, editionCount, hasDrive);
 
   const editionDate = getEditionDate(config.timezone);
   const beforeCutoff = isBeforeEditionCutoff(config.timezone);

@@ -52,11 +52,7 @@ def _make_profile(**overrides) -> dict:
         "device": "kobo",
         "delivery_method": "google_drive",
         "google_drive_folder": "Rakuten Kobo",
-        "kindle_email": "",
-        "email_smtp_host": "smtp.gmail.com",
-        "email_smtp_port": 465,
-        "email_sender": "",
-        "email_password": "",
+        "recipient_email": "",
         "delivery_time": "06:00",
         "timezone": "UTC",
         "google_tokens": {
@@ -133,34 +129,18 @@ class TestBuildConfigFromProfile:
         config = build_config_from_profile(prof, _make_feed_list())
         assert config.delivery.method == "local"
 
-    def test_gmail_api_detection(self):
-        """Email method with gmail.send scope should route to gmail_api."""
+    def test_email_delivery_method(self):
+        """Email method creates config with method='email' (no gmail_api sniffing)."""
         prof = _make_profile(
             delivery_method="email",
-            google_tokens={
-                "token": "t",
-                "refreshToken": "r",
-                "scopes": ["https://www.googleapis.com/auth/gmail.send"],
-            },
-        )
-        config = build_config_from_profile(prof, _make_feed_list())
-        assert config.delivery.method == "gmail_api"
-
-    def test_email_without_gmail_scope(self):
-        """Email method without gmail.send scope stays as regular email."""
-        prof = _make_profile(
-            delivery_method="email",
-            google_tokens={
-                "token": "t",
-                "refreshToken": "r",
-                "scopes": ["https://www.googleapis.com/auth/drive.file"],
-            },
+            recipient_email="kindle@kindle.com",
         )
         config = build_config_from_profile(prof, _make_feed_list())
         assert config.delivery.method == "email"
+        assert config.delivery.email.recipient == "kindle@kindle.com"
 
     def test_email_without_tokens(self):
-        """Email method without any Google tokens stays as regular email."""
+        """Email method without any Google tokens still works (uses Resend, not Gmail)."""
         prof = _make_profile(delivery_method="email", google_tokens=None)
         config = build_config_from_profile(prof, _make_feed_list())
         assert config.delivery.method == "email"
@@ -719,9 +699,7 @@ class TestMidBuildSettingsChange:
         rec = _make_record(delivery_method="google_drive")
         prof = _make_profile(
             delivery_method="email",
-            email_sender="me@gmail.com",
-            email_password="pass",
-            kindle_email="kindle@kindle.com",
+            recipient_email="kindle@kindle.com",
         )
 
         _setup_sb_for_on_demand(sb, rec, prof)
@@ -752,7 +730,7 @@ class TestHelperFunctions:
         assert _format_file_size(1_048_576) == "1.0 MB"
         assert _format_file_size(2_500_000) == "2.4 MB"
 
-    def test_generate_delivery_message(self):
+    def test_generate_delivery_message_google_drive(self):
         from paper_boy.config import Config, DeliveryConfig, GoogleDriveConfig, EmailConfig, NewspaperConfig
 
         config = Config(
@@ -768,6 +746,24 @@ class TestHelperFunctions:
         )
         assert "Google Drive" in _generate_delivery_message(config)
         assert "Test Folder" in _generate_delivery_message(config)
+
+    def test_generate_delivery_message_email(self):
+        from paper_boy.config import Config, DeliveryConfig, GoogleDriveConfig, EmailConfig, NewspaperConfig
+
+        config = Config(
+            newspaper=NewspaperConfig(title="Test"),
+            feeds=[],
+            delivery=DeliveryConfig(
+                method="email",
+                device="kobo",
+                google_drive=GoogleDriveConfig(),
+                email=EmailConfig(recipient="user@example.com"),
+                keep_days=30,
+            ),
+        )
+        msg = _generate_delivery_message(config)
+        assert "Emailed to" in msg
+        assert "user@example.com" in msg
 
     def test_get_token_data_with_tokens(self):
         prof = _make_profile()

@@ -5,9 +5,7 @@ import type { SetupStatus, DeliveryRecord } from "@/types";
 const CONFIGURED: SetupStatus = {
   isFirstVisit: false,
   needsDriveAuth: false,
-  needsGmailAuth: false,
-  needsSmtpConfig: false,
-  needsKindleEmail: false,
+  needsRecipientEmail: false,
   isFullyConfigured: true,
 };
 

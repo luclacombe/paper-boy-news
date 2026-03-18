@@ -25,10 +25,6 @@ class GoogleDriveConfig:
 
 @dataclass
 class EmailConfig:
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 465
-    sender: str = ""
-    password: str = ""
     recipient: str = ""
 
 
@@ -114,10 +110,6 @@ def load_config(path: str | Path) -> Config:
     )
     email_raw = del_raw.get("email", {})
     email_config = EmailConfig(
-        smtp_host=email_raw.get("smtp_host", "smtp.gmail.com"),
-        smtp_port=email_raw.get("smtp_port", 465),
-        sender=email_raw.get("sender", ""),
-        password=email_raw.get("password", ""),
         recipient=email_raw.get("recipient", ""),
     )
     delivery = DeliveryConfig(
