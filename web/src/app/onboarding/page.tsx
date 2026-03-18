@@ -77,14 +77,14 @@ export default function OnboardingPage() {
   const [authLoading, setAuthLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Pre-fill signup email from delivery email (once available)
+  // Pre-fill signup email from delivery email when arriving at step 4
   const emailPreFilled = useRef(false);
   useEffect(() => {
-    if (!emailPreFilled.current && state.recipientEmail && !email) {
+    if (state.step === 4 && !emailPreFilled.current && state.recipientEmail && !email) {
       setEmail(state.recipientEmail);
       emailPreFilled.current = true;
     }
-  }, [state.recipientEmail, email]);
+  }, [state.step, state.recipientEmail, email]);
 
   // Check if user is already signed in
   useEffect(() => {
