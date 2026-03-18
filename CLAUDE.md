@@ -4,7 +4,7 @@ Automated morning newspaper generator for e-readers (Kobo, Kindle, reMarkable).
 
 ## Project Overview
 
-Paper Boy News fetches news from RSS feeds, compiles them into a well-formatted EPUB, and delivers it to e-readers via Google Drive (Kobo), email (Kindle Send-to-Kindle), or direct download.
+Paper Boy News fetches news from RSS feeds, compiles them into a well-formatted EPUB, and delivers it to e-readers via Google Drive (Kobo), email (Resend from `delivery@paper-boy-news.com`), or direct download.
 
 The project has two main components:
 
@@ -54,7 +54,7 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 **Deliver phase** (every 30 min at :00/:30):
 1. GitHub Actions cron triggers `BUILD_MODE=deliver`
 2. `build_for_users.py` scans for `status: "built"` records within ±15 min of each user's delivery window
-3. Downloads EPUB from Storage, delivers via Google Drive/email/Gmail, updates to `status: "delivered"`
+3. Downloads EPUB from Storage, delivers via Google Drive/Resend email, updates to `status: "delivered"`
 
 **"Get it now" flow** (on-demand):
 1. Next.js server action creates `delivery_history` record with `status: "building"` + snapshots `delivery_method`
@@ -71,6 +71,7 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
   cache.py               # In-memory content cache (feeds, articles, images)
+  email_template.py      # Branded HTML email template for Resend delivery
   feeds.py               # RSS fetching, article text extraction, image optimization, domain-specific handlers (FT/BoF/Bloomberg/Reuters/WaPo/SciAm)
   filters.py             # Post-extraction content filters (paywall, junk, quality)
 web/                     # Next.js web app (see web/CLAUDE.md)
@@ -112,7 +113,7 @@ Run one category per session. Findings persist across sessions via the two track
 
 | Component | Stack |
 |-----------|-------|
-| Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, click, playwright (optional, for FT) |
+| Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, click, resend, playwright (optional, for FT) |
 | Build runner | GitHub Actions, `scripts/build_for_users.py`, Supabase Python client |
 | Web app | Next.js 16, React 19, TypeScript (strict), Tailwind CSS v4, shadcn/ui |
 | Auth | Supabase Auth (Google OAuth + email/password) |
@@ -190,7 +191,7 @@ For testing auth flows (onboarding, sign-up, login, delivery) without touching p
 | Auth API | http://localhost:54321/auth/v1 |
 | REST API | http://localhost:54321/rest/v1 |
 
-**Note**: Google OAuth sign-in doesn't work locally — use email/password instead (no email confirmation required). Google Drive/Gmail delivery testing still requires real OAuth tokens.
+**Note**: Google OAuth sign-in doesn't work locally — use email/password instead (no email confirmation required). Google Drive delivery testing still requires real OAuth tokens.
 
 ## Documentation Rules
 
@@ -211,8 +212,8 @@ Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only
 
 ## Security
 
-- **SMTP passwords**: AES-256-GCM encrypted at rest via `SMTP_ENCRYPTION_KEY` env var (64 hex chars). Encrypt on write (`updateUserConfig`), decrypt on read (`getUserConfig`, `build_for_users.py`). Graceful fallback for pre-existing plaintext. See `web/src/lib/encryption.ts`
-- **Google OAuth**: `client_id`/`client_secret` NOT stored in DB — build runner uses env vars exclusively
+- **Email delivery**: Resend API from `delivery@paper-boy-news.com` — `RESEND_API_KEY` env var in GitHub Actions
+- **Google OAuth**: `client_id`/`client_secret` NOT stored in DB — build runner uses env vars exclusively. OAuth requests `drive.file` scope only
 - **OPDS tokens**: 90-day expiry (`opds_token_expires_at`), auto-regenerate on expire. `Referrer-Policy: no-referrer` on all OPDS responses
 - **Input validation**: Zod schema on `updateUserConfig()`, URL scheme validation on `addFeed()`/`setFeeds()`/`completeOnboarding()`
 - **Security headers**: `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Strict-Transport-Security`, `Referrer-Policy`, `Permissions-Policy` via `next.config.ts`
@@ -293,7 +294,7 @@ Observed per-feed metrics stored in the `feed_stats` table (global, not per-user
 - Dashboard (`/dashboard`) — 11-state status card (including `awaiting-delivery`, `fetched-early`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
 - Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), chip grid source selection with category/frequency filters, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Account section: email display, password change (email users), account deletion with confirmation
 - Wireless sync (KOReader) — first-class delivery method (`"koreader"`). Per-user OPDS feed (`/api/opds/[token]/feed.xml`) + EPUB download proxy. Pull-based — build treats like `"local"` (skip deliver phase). Token auto-generated on method selection; device-specific setup instructions with external guide links
-- Feed validation and SMTP test run as Next.js API routes (no external backend needed)
+- Feed validation runs as a Next.js API route (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
 - Onboarding wizard and login flow are functional
 - Legacy Streamlit prototype archived in `legacy/streamlit/`

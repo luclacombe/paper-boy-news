@@ -64,8 +64,7 @@ src/
 │       ├── auth/      # OAuth callback routes (Supabase + Google)
 │       ├── feeds/validate/ # RSS feed URL validation (replaces FastAPI)
 │       ├── opds/[token]/feed.xml/     # OPDS catalog feed (token-based auth)
-│       ├── opds/[token]/download/[editionId]/ # EPUB download proxy
-│       └── smtp-test/ # SMTP connection test (replaces FastAPI)
+│       └── opds/[token]/download/[editionId]/ # EPUB download proxy
 ├── components/
 │   ├── ui/            # shadcn/ui primitives (button, card, input, etc.)
 │   ├── settings/      # Settings section panels (sources, delivery, schedule, paper, account)
@@ -116,7 +115,7 @@ src/
 
 4 tables (3 with RLS policies, 1 global):
 
-- **user_profiles** — extends Supabase auth.users (newspaper settings, device, delivery config, Google tokens, onboarding state)
+- **user_profiles** — extends Supabase auth.users (newspaper settings, device, delivery config incl. `recipient_email`, Google Drive tokens, onboarding state)
 - **user_feeds** — user's RSS feeds (name, url, category, position), FK → user_profiles
 - **delivery_history** — build/delivery records (status, article count, sections JSON, EPUB storage path), FK → user_profiles
 - **feed_stats** — global per-feed-URL observed metrics (entry counts, freshness, word counts, extraction rates, rolling averages, 30-day history JSONB). No RLS — written by build script (service role), read by Drizzle (direct DB). Keyed by feed URL, not per-user
@@ -131,7 +130,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 2. Onboarding wizard saves state to localStorage (no auth required for `/onboarding`)
 3. Google OAuth redirect → `/onboarding/complete` saves localStorage state to DB
 4. Proxy protects `/dashboard`, `/settings` (and legacy `/sources`, `/delivery`, `/editions`) — requires auth
-5. Google Drive/Gmail OAuth is **separate** from sign-in OAuth (scopes: drive.file, gmail.send)
+5. Google Drive OAuth is **separate** from sign-in OAuth (scope: drive.file)
 
 ## Key Patterns
 
@@ -139,7 +138,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Path alias** `@/*` maps to `src/*`
 - **Types** centralized in `src/types/index.ts`
 - **Supabase clients**: use `server.ts` in Server Components/Actions, `client.ts` in Client Components
-- **Feed validation + SMTP test** run as Next.js API routes (`/api/feeds/validate`, `/api/smtp-test`)
+- **Feed validation** runs as a Next.js API route (`/api/feeds/validate`)
 - **Edition model**: edition date = today's calendar date in the user's timezone (no rollover). One per day, enforced by partial unique DB index. `isBeforeEditionCutoff()` checks if before 5 AM local for UI messaging. See `src/lib/edition-date.ts`
 - **Build pipeline**: Two-phase: 6 build windows every 4 hours build users in midnight–5 AM local (`BUILD_MODE=build`), deliver at each user's time (`BUILD_MODE=deliver`). Pre-check skips Python setup if no users need building. `getItNow()` action → checks dedup → if `"built"` exists dispatches delivery-only, else creates "building" record → fires `repository_dispatch` → returns immediately. Dashboard polls Supabase every 5s. Status lifecycle: `building → built → delivered` (or `→ failed`)
 - **Dashboard state machine**: 9 states computed from edition status, time of day, and setup completeness. Includes `"awaiting-delivery"` for `status="built"` (paper ready, delivery pending). Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability. **Priority**: active build states (client fetching, DB "building") take precedence over `setup-incomplete`, so mid-build settings changes don't hide the progress bar
@@ -162,13 +161,13 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 
 See `.env.example` for cloud vars, `.env.local.example` for local Supabase.
 
-**Required for production security:**
-- `SMTP_ENCRYPTION_KEY` — 64 hex chars (32 bytes) for AES-256-GCM SMTP password encryption. Generate: `openssl rand -hex 32`. Must match across Vercel + GitHub Actions.
+**Required for production:**
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - `DATABASE_URL` (Supabase PostgreSQL connection string)
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for Drive/Gmail OAuth)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for Drive OAuth)
 - `NEXT_PUBLIC_APP_URL` (for OAuth redirects)
 - `GITHUB_PAT`, `GITHUB_REPO` (server-side only, for build dispatch)
+- `RESEND_API_KEY` (GitHub Actions only, for email delivery via Resend)
 
 **Env file strategy**:
 - `.env.local` — active env (used by Next.js, gitignored)
