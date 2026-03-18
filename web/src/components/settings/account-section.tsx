@@ -3,7 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { changePassword, deleteAccount } from "@/actions/account";
+import {
+  changePassword,
+  deleteAccount,
+  sendPasswordReset,
+} from "@/actions/account";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +26,10 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
   // Password change state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+
+  // Password reset state
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   // Delete confirmation state
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -124,6 +132,36 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
           >
             {isPending ? "Updating..." : "Change password"}
           </Button>
+          {resetSent ? (
+            <p className="font-body text-xs text-delivered-green">
+              Reset link sent — check your email.
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={resetLoading}
+              onClick={async () => {
+                setResetLoading(true);
+                try {
+                  await sendPasswordReset();
+                  setResetSent(true);
+                } catch (err) {
+                  toast.error(
+                    err instanceof Error
+                      ? err.message
+                      : "Failed to send reset email"
+                  );
+                } finally {
+                  setResetLoading(false);
+                }
+              }}
+              className="font-body text-xs text-caption hover:text-ink hover:underline disabled:opacity-50"
+            >
+              {resetLoading
+                ? "Sending..."
+                : "Forgot your current password?"}
+            </button>
+          )}
         </div>
       ) : (
         <p className="font-body text-xs text-caption">

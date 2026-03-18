@@ -3,6 +3,7 @@
 import { getAuthUser, getUserProfile } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { db } from "@/db";
 import { userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -43,9 +44,14 @@ export async function changePassword(
     throw new Error("New password must be at least 8 characters");
   }
 
-  // Verify current password
-  const supabase = await createClient();
-  const { error: signInError } = await supabase.auth.signInWithPassword({
+  // Verify current password using a standalone client (no cookies)
+  // to avoid disrupting the existing session
+  const verifyClient = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+  const { error: signInError } = await verifyClient.auth.signInWithPassword({
     email: user.email!,
     password: currentPassword,
   });
@@ -63,6 +69,22 @@ export async function changePassword(
 
   if (updateError) {
     throw new Error("Failed to update password");
+  }
+
+  return { success: true };
+}
+
+export async function sendPasswordReset(): Promise<{ success: true }> {
+  const user = await getAuthUser();
+  if (!user?.email) throw new Error("Not authenticated");
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/confirm`,
+  });
+
+  if (error) {
+    throw new Error("Failed to send reset email");
   }
 
   return { success: true };

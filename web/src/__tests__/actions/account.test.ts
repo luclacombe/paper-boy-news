@@ -42,16 +42,27 @@ vi.mock("@/lib/supabase/admin", () => ({
   }),
 }));
 
-// Mock Supabase server client (for signInWithPassword)
-const mockSignInWithPassword = vi.fn();
+// Mock Supabase server client (for sendPasswordReset)
+const mockResetPasswordForEmail = vi.fn().mockResolvedValue({ error: null });
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () =>
     Promise.resolve({
       auth: {
-        signInWithPassword: (...args: unknown[]) =>
-          mockSignInWithPassword(...args),
+        resetPasswordForEmail: (...args: unknown[]) =>
+          mockResetPasswordForEmail(...args),
       },
     }),
+}));
+
+// Mock standalone Supabase client (for password verification in changePassword)
+const mockSignInWithPassword = vi.fn();
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: () => ({
+    auth: {
+      signInWithPassword: (...args: unknown[]) =>
+        mockSignInWithPassword(...args),
+    },
+  }),
 }));
 
 const FAKE_USER_EMAIL = {
@@ -270,5 +281,49 @@ describe("deleteAccount", () => {
     await expect(deleteAccount()).rejects.toThrow("Failed to delete account");
     // Profile is deleted first (credentials cleaned up), even if auth deletion fails
     expect(mockDeleteWhere).toHaveBeenCalled();
+  });
+});
+
+describe("sendPasswordReset", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("throws when not authenticated", async () => {
+    mockGetAuthUser.mockResolvedValue(null);
+    const { sendPasswordReset } = await import("@/actions/account");
+    await expect(sendPasswordReset()).rejects.toThrow("Not authenticated");
+  });
+
+  it("throws when user has no email", async () => {
+    mockGetAuthUser.mockResolvedValue({ id: "auth-1", app_metadata: {} });
+    const { sendPasswordReset } = await import("@/actions/account");
+    await expect(sendPasswordReset()).rejects.toThrow("Not authenticated");
+  });
+
+  it("sends reset email successfully", async () => {
+    mockGetAuthUser.mockResolvedValue(FAKE_USER_EMAIL);
+    mockResetPasswordForEmail.mockResolvedValue({ error: null });
+
+    const { sendPasswordReset } = await import("@/actions/account");
+    const result = await sendPasswordReset();
+
+    expect(result).toEqual({ success: true });
+    expect(mockResetPasswordForEmail).toHaveBeenCalledWith(
+      "user@example.com",
+      expect.objectContaining({ redirectTo: expect.stringContaining("/api/auth/confirm") })
+    );
+  });
+
+  it("throws when Supabase returns an error", async () => {
+    mockGetAuthUser.mockResolvedValue(FAKE_USER_EMAIL);
+    mockResetPasswordForEmail.mockResolvedValue({
+      error: { message: "Rate limit exceeded" },
+    });
+
+    const { sendPasswordReset } = await import("@/actions/account");
+    await expect(sendPasswordReset()).rejects.toThrow(
+      "Failed to send reset email"
+    );
   });
 });
