@@ -423,7 +423,11 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             epub_path = os.path.join(tmp_dir, deliver_filename)
             Path(epub_path).write_bytes(epub_bytes)
 
-            deliver(epub_path, config, token_data=token_data)
+            deliver(
+                epub_path, config, token_data=token_data,
+                article_count=rec.get("article_count", 0) or 0,
+                source_count=rec.get("source_count", 0) or 0,
+            )
 
             delivery_message = _generate_delivery_message(config)
             _write_back_tokens(sb, prof, user_id, token_data)
@@ -547,7 +551,11 @@ def build_and_deliver_for_record(
 
             if record_delivery_method not in ("local", "koreader"):
                 try:
-                    deliver(result.epub_path, config, token_data=token_data)
+                    deliver(
+                        result.epub_path, config, token_data=token_data,
+                        article_count=result.total_articles,
+                        source_count=len(feed_list),
+                    )
                     delivery_message = _generate_delivery_message(config)
                     _write_back_tokens(sb, prof, user_id, token_data)
                 except Exception as e:

@@ -78,6 +78,10 @@ def build_and_deliver(
     result = build_newspaper(config, output_path, issue_date, cache=cache)
 
     # Deliver
-    deliver(result.epub_path, config)
+    deliver(
+        result.epub_path, config,
+        article_count=result.total_articles,
+        source_count=len(result.sections),
+    )
 
     return result

@@ -556,7 +556,7 @@ export function DashboardClient({
     if (config.deliveryMethod === "google_drive") {
       deliveryDesc = `will be delivered to your ${deviceLabel} via Google Drive at ${timeLabel}`;
     } else if (config.deliveryMethod === "email") {
-      deliveryDesc = `will be emailed to your ${deviceLabel} at ${timeLabel}`;
+      deliveryDesc = `will be emailed to you at ${timeLabel}`;
     }
 
     return (

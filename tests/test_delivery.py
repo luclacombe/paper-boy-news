@@ -54,7 +54,9 @@ class TestDeliver:
         """method='email' calls deliver_resend."""
         epub = _make_epub_file(tmp_path)
         deliver(epub, email_config)
-        mock_resend.assert_called_once_with(epub, email_config)
+        mock_resend.assert_called_once_with(
+            epub, email_config, article_count=0, source_count=0
+        )
 
     @patch("paper_boy.delivery.deliver_google_drive")
     def test_passes_token_data_to_google_drive(self, mock_gdrive, gdrive_config, tmp_path):

@@ -45,7 +45,9 @@ export function getDeliveryPastTense(config: UserConfig): string {
     return `delivered to your ${deviceLabel} via Google Drive`;
   }
   if (config.deliveryMethod === "email") {
-    return `emailed to your ${deviceLabel}`;
+    return config.recipientEmail
+      ? `emailed to ${config.recipientEmail}`
+      : "emailed to you";
   }
   return "ready to download";
 }
@@ -60,7 +62,7 @@ export function getNextDeliverySentence(config: UserConfig): string {
     return `Your next edition will be delivered to your ${deviceLabel} tomorrow at ${time}`;
   }
   if (config.deliveryMethod === "email") {
-    return `Your next edition will be emailed to your ${deviceLabel} tomorrow at ${time}`;
+    return `Your next edition will be emailed to you tomorrow at ${time}`;
   }
   return `Your next edition will be ready for download tomorrow at ${time}`;
 }
@@ -79,7 +81,7 @@ export function getPreBuildSentence(
       return `Your custom paper will be delivered to your ${deviceLabel} via Google Drive at ${delivery}, every morning.`;
     }
     if (config.deliveryMethod === "email") {
-      return `Your custom paper will be emailed to your ${deviceLabel} at ${delivery}, every morning.`;
+      return `Your custom paper will be emailed to you at ${delivery}, every morning.`;
     }
     return `Your custom paper will be ready for download here at ${delivery}, every morning.`;
   }
@@ -111,7 +113,7 @@ export function getEarlyDeliveryDescription(config: UserConfig): string {
     return `It will be delivered to your ${deviceLabel} via Google Drive`;
   }
   if (config.deliveryMethod === "email") {
-    return `It will be emailed to your ${deviceLabel}`;
+    return "It will be emailed to you";
   }
   return "It will be ready to download right away";
 }
