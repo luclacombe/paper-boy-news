@@ -19,6 +19,12 @@ export function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
 
+  // Forgot password state
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
   async function handleGoogleSignIn() {
     setGoogleLoading(true);
     setError(null);
@@ -51,6 +57,25 @@ export function LoginForm() {
       setLoading(false);
     } else {
       router.push("/dashboard");
+    }
+  }
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setResetLoading(true);
+    setError(null);
+
+    const supabase = createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: `${window.location.origin}/api/auth/confirm`,
+    });
+
+    if (error) {
+      setError(error.message);
+      setResetLoading(false);
+    } else {
+      setResetSent(true);
+      setResetLoading(false);
     }
   }
 
@@ -128,7 +153,7 @@ export function LoginForm() {
           />
         </div>
 
-        {error && (
+        {error && !showForgotPassword && (
           <p className="font-body text-sm text-edition-red">{error}</p>
         )}
 
@@ -141,6 +166,67 @@ export function LoginForm() {
           {loading ? "Signing in..." : "Sign In with Email"}
         </Button>
       </form>
+
+      {/* Forgot password */}
+      {!showForgotPassword ? (
+        <p className="text-center font-body text-sm">
+          <button
+            type="button"
+            onClick={() => {
+              setShowForgotPassword(true);
+              setResetEmail(email);
+              setError(null);
+            }}
+            className="text-caption hover:text-ink hover:underline"
+          >
+            Forgot your password?
+          </button>
+        </p>
+      ) : resetSent ? (
+        <div className="rounded-sm bg-delivered-green/10 px-4 py-3 text-center">
+          <p className="font-body text-sm text-delivered-green">
+            Check your email for a password reset link.
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={handleForgotPassword} className="space-y-3 rounded border border-rule-gray/30 p-4">
+          <p className="font-body text-sm text-caption">
+            Enter your email and we&apos;ll send a reset link.
+          </p>
+          <Input
+            type="email"
+            value={resetEmail}
+            onChange={(e) => setResetEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+            autoComplete="email"
+          />
+          {error && (
+            <p className="font-body text-sm text-edition-red">{error}</p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              type="submit"
+              disabled={resetLoading || !resetEmail}
+              variant="outline"
+              className="font-body text-sm font-semibold"
+            >
+              {resetLoading ? "Sending..." : "Send reset link"}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setShowForgotPassword(false);
+                setError(null);
+              }}
+              variant="ghost"
+              className="font-body text-sm text-caption"
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      )}
 
       <p className="text-center font-body text-sm text-caption">
         New here?{" "}

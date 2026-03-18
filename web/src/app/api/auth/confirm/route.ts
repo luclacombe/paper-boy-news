@@ -41,12 +41,17 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.verifyOtp({
     token_hash: tokenHash,
-    type: type as "signup" | "email",
+    type: type as "signup" | "email" | "recovery",
   });
 
-  const redirectUrl = error
-    ? new URL("/login?message=Email+link+is+invalid+or+has+expired.+Please+try+again.", request.url)
-    : new URL("/dashboard", request.url);
+  let redirectUrl: URL;
+  if (error) {
+    redirectUrl = new URL("/login?message=Email+link+is+invalid+or+has+expired.+Please+try+again.", request.url);
+  } else if (type === "recovery") {
+    redirectUrl = new URL("/reset-password", request.url);
+  } else {
+    redirectUrl = new URL("/dashboard", request.url);
+  }
 
   const response = NextResponse.redirect(redirectUrl);
 
