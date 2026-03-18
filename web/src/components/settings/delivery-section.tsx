@@ -32,6 +32,7 @@ interface DeliverySectionProps {
   hasDrive: boolean;
   opdsUrl: string;
   onOpdsUrlChange: (url: string) => void;
+  userEmail?: string;
 }
 
 function getDeliveryMethodsForDevice(
@@ -292,6 +293,7 @@ export function DeliverySection({
   hasDrive,
   opdsUrl,
   onOpdsUrlChange,
+  userEmail,
 }: DeliverySectionProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -588,6 +590,13 @@ export function DeliverySection({
               Your newspaper will be sent from{" "}
               <strong>delivery@paper-boy-news.com</strong>
             </p>
+            {userEmail &&
+              values.recipientEmail &&
+              values.recipientEmail !== userEmail && (
+                <p className="font-body text-xs italic text-caption">
+                  This is different from your account email ({userEmail}).
+                </p>
+              )}
           </div>
 
           {values.device === "kindle" && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -76,6 +76,15 @@ export default function OnboardingPage() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Pre-fill signup email from delivery email (once available)
+  const emailPreFilled = useRef(false);
+  useEffect(() => {
+    if (!emailPreFilled.current && state.recipientEmail && !email) {
+      setEmail(state.recipientEmail);
+      emailPreFilled.current = true;
+    }
+  }, [state.recipientEmail, email]);
 
   // Check if user is already signed in
   useEffect(() => {
