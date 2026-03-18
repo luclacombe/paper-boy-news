@@ -42,6 +42,12 @@ function validateOnboardingData(data: OnboardingData): void {
       throw new Error("Invalid feed name");
     }
   }
+  // Validate recipient email if email delivery
+  if (data.recipientEmail && typeof data.recipientEmail === "string" && data.recipientEmail.length > 0) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.recipientEmail)) {
+      throw new Error("Invalid recipient email");
+    }
+  }
   if (!data.deliveryTime || typeof data.deliveryTime !== "string") {
     throw new Error("Delivery time is required");
   }
@@ -97,8 +103,7 @@ export async function completeOnboarding(
         deliveryTime: data.deliveryTime,
         timezone: data.timezone,
         googleDriveFolder: data.googleDriveFolder,
-        kindleEmail: data.kindleEmail,
-        emailMethod: data.emailMethod,
+        recipientEmail: data.recipientEmail,
         onboardingComplete: true,
         updatedAt: new Date(),
       })

@@ -57,8 +57,7 @@ const ONBOARDING_DATA: OnboardingData = {
   deliveryTime: "07:00",
   timezone: "US/Eastern",
   googleDriveFolder: "Rakuten Kobo",
-  kindleEmail: "user@kindle.com",
-  emailMethod: "gmail",
+  recipientEmail: "user@kindle.com",
 };
 
 describe("completeOnboarding", () => {

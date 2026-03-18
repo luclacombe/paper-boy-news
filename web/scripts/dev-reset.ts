@@ -75,8 +75,7 @@ async function main() {
             delivery_time = '06:00',
             timezone = 'UTC',
             google_drive_folder = 'Rakuten Kobo',
-            kindle_email = '',
-            email_method = 'gmail',
+            recipient_email = '',
             google_tokens = null,
             updated_at = now()
         WHERE id = ANY(${profileIds})

@@ -119,7 +119,6 @@ interface SettingsAccordionProps {
   bundles: CatalogBundle[];
   feedStats: Record<string, FeedStat>;
   hasDrive: boolean;
-  hasGmail: boolean;
   initialOpen: SettingsSection | null;
   userEmail: string;
   authProvider: AuthProvider;
@@ -134,7 +133,6 @@ export function SettingsAccordion({
   bundles,
   feedStats,
   hasDrive,
-  hasGmail,
   initialOpen,
   userEmail,
   authProvider,
@@ -152,13 +150,8 @@ export function SettingsAccordion({
   const initDelivery: DeliveryValues = {
     device: config.device,
     deliveryMethod: config.deliveryMethod,
-    kindleEmail: config.kindleEmail,
+    recipientEmail: config.recipientEmail,
     googleDriveFolder: config.googleDriveFolder,
-    emailMethod: config.emailMethod,
-    emailSmtpHost: config.emailSmtpHost,
-    emailSmtpPort: String(config.emailSmtpPort),
-    emailSender: config.emailSender,
-    emailPassword: config.emailPassword,
   };
 
   // OPDS URL tracked separately (immediate actions, not batch-saved)
@@ -243,13 +236,8 @@ export function SettingsAccordion({
         return {
           device: deliveryValues.device,
           deliveryMethod: deliveryValues.deliveryMethod,
-          kindleEmail: deliveryValues.kindleEmail,
+          recipientEmail: deliveryValues.recipientEmail,
           googleDriveFolder: deliveryValues.googleDriveFolder,
-          emailMethod: deliveryValues.emailMethod,
-          emailSmtpHost: deliveryValues.emailSmtpHost,
-          emailSmtpPort: Number(deliveryValues.emailSmtpPort) || 465,
-          emailSender: deliveryValues.emailSender,
-          emailPassword: deliveryValues.emailPassword,
         };
       case "schedule":
         return {
@@ -341,13 +329,8 @@ export function SettingsAccordion({
             await updateUserConfig({
               device: prevDelivery.device,
               deliveryMethod: prevDelivery.deliveryMethod,
-              kindleEmail: prevDelivery.kindleEmail,
+              recipientEmail: prevDelivery.recipientEmail,
               googleDriveFolder: prevDelivery.googleDriveFolder,
-              emailMethod: prevDelivery.emailMethod,
-              emailSmtpHost: prevDelivery.emailSmtpHost,
-              emailSmtpPort: Number(prevDelivery.emailSmtpPort) || 465,
-              emailSender: prevDelivery.emailSender,
-              emailPassword: prevDelivery.emailPassword,
             });
             break;
           case "schedule":
@@ -462,7 +445,6 @@ export function SettingsAccordion({
           values={deliveryValues}
           onChange={setDeliveryValues}
           hasDrive={hasDrive}
-          hasGmail={hasGmail}
           opdsUrl={currentOpdsUrl}
           onOpdsUrlChange={setCurrentOpdsUrl}
         />,

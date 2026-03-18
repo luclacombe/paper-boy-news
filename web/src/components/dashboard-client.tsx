@@ -457,31 +457,9 @@ export function DashboardClient({
           Connect Google Drive
         </Button>
       );
-    } else if (setupStatus.needsGmailAuth) {
-      description = `Connect Gmail so your paper can be emailed to your ${deviceLabel} each morning.`;
-      cta = (
-        <Button
-          onClick={handleGoogleConnect}
-          className="letterpress bg-ink text-sm text-newsprint hover:bg-ink/90"
-          size="sm"
-        >
-          Connect Gmail
-        </Button>
-      );
-    } else if (setupStatus.needsSmtpConfig) {
+    } else if (setupStatus.needsRecipientEmail) {
       description =
-        "Configure your email server so your paper can be delivered each morning.";
-      cta = (
-        <Link
-          href="/settings?open=delivery"
-          className="letterpress inline-block rounded-md bg-ink px-3 py-1.5 text-sm text-newsprint hover:bg-ink/90"
-        >
-          Open delivery settings
-        </Link>
-      );
-    } else if (setupStatus.needsKindleEmail) {
-      description =
-        "Add your Kindle email address so your paper can be delivered each morning.";
+        "Add your delivery email address so your paper can be sent each morning.";
       cta = (
         <Link
           href="/settings?open=delivery"

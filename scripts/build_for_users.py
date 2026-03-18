@@ -55,33 +55,6 @@ EDITION_ROLLOVER_HOUR = 5
 _READING_WPM = 238
 
 
-def _decrypt_smtp_password(value: str) -> str:
-    """Decrypt AES-256-GCM encrypted SMTP password.
-
-    Falls back to returning the value as-is if no key or decryption fails
-    (supports pre-existing plaintext passwords during migration).
-    """
-    key_hex = os.environ.get("SMTP_ENCRYPTION_KEY", "")
-    if not key_hex or not value:
-        return value
-
-    try:
-        import base64
-        data = base64.b64decode(value)
-        if len(data) < 29:  # 12 IV + 1 min ciphertext + 16 tag
-            return value
-
-        iv = data[:12]
-        ciphertext_with_tag = data[12:]
-
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-        key = bytes.fromhex(key_hex)
-        aesgcm = AESGCM(key)
-        plaintext = aesgcm.decrypt(iv, ciphertext_with_tag, None)
-        return plaintext.decode("utf-8")
-    except Exception:
-        return value  # Decryption failed — assume plaintext
-
 
 def upsert_feed_stats(sb, observations: list[FeedObservation]) -> None:
     """Upsert feed observations into the feed_stats table.
@@ -252,28 +225,14 @@ def build_config_from_profile(
         include_images=profile.get("include_images", True),
     )
 
-    delivery_method = profile.get("delivery_method", "local")
-    google_tokens = profile.get("google_tokens")
-
-    # Detect Gmail API routing
-    effective_method = delivery_method
-    if effective_method == "email" and google_tokens:
-        scopes = google_tokens.get("scopes", [])
-        if "https://www.googleapis.com/auth/gmail.send" in scopes:
-            effective_method = "gmail_api"
-
     delivery = DeliveryConfig(
-        method=effective_method,
+        method=profile.get("delivery_method", "local"),
         device=profile.get("device", "kobo"),
         google_drive=GoogleDriveConfig(
             folder_name=profile.get("google_drive_folder", "Rakuten Kobo"),
         ),
         email=EmailConfig(
-            smtp_host=profile.get("email_smtp_host", "smtp.gmail.com"),
-            smtp_port=profile.get("email_smtp_port", 465),
-            sender=profile.get("email_sender", ""),
-            password=_decrypt_smtp_password(profile.get("email_password", "")),
-            recipient=profile.get("kindle_email", ""),
+            recipient=profile.get("recipient_email", ""),
         ),
         keep_days=30,
     )
@@ -315,8 +274,6 @@ def _generate_delivery_message(config: Config) -> str:
     method = config.delivery.method
     if method == "google_drive":
         return f"Uploaded to Google Drive ({config.delivery.google_drive.folder_name})"
-    elif method == "gmail_api":
-        return f"Sent to {config.delivery.email.recipient} via Gmail"
     elif method == "email":
         return f"Emailed to {config.delivery.email.recipient}"
     elif method == "koreader":

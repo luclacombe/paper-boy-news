@@ -2,7 +2,6 @@
 
 export type Device = "kobo" | "kindle" | "remarkable" | "other";
 export type DeliveryMethod = "local" | "google_drive" | "email" | "koreader";
-export type EmailMethod = "gmail" | "smtp";
 
 // === User Config (mirrors user_profiles table) ===
 
@@ -21,12 +20,7 @@ export interface UserConfig {
   device: Device;
   deliveryMethod: DeliveryMethod;
   googleDriveFolder: string;
-  kindleEmail: string;
-  emailMethod: EmailMethod;
-  emailSmtpHost: string;
-  emailSmtpPort: number;
-  emailSender: string;
-  emailPassword: string;
+  recipientEmail: string;
 
   // Schedule
   deliveryTime: string;
@@ -131,9 +125,7 @@ export interface CatalogBundle {
 export interface SetupStatus {
   isFirstVisit: boolean;
   needsDriveAuth: boolean;
-  needsGmailAuth: boolean;
-  needsSmtpConfig: boolean;
-  needsKindleEmail: boolean;
+  needsRecipientEmail: boolean;
   isFullyConfigured: boolean;
 }
 
@@ -150,8 +142,7 @@ export interface OnboardingData {
   deliveryTime: string;
   timezone: string;
   googleDriveFolder: string;
-  kindleEmail: string;
-  emailMethod: EmailMethod;
+  recipientEmail: string;
 }
 
 // === Feed Stats ===
@@ -175,11 +166,6 @@ export interface FeedStat {
 }
 
 // === API Types (Next.js API route responses) ===
-
-export interface ApiSmtpTestResponse {
-  success: boolean;
-  message: string;
-}
 
 export interface ApiFeedValidateResponse {
   valid: boolean;

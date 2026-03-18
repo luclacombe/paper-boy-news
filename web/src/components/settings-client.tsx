@@ -18,7 +18,7 @@ interface SettingsClientProps {
   bundles: CatalogBundle[];
   feedStats: Record<string, FeedStat>;
   hasDrive: boolean;
-  hasGmail: boolean;
+
   initialOpen: SettingsSection | null;
   userEmail: string;
   authProvider: AuthProvider;
@@ -33,7 +33,7 @@ export function SettingsClient({
   bundles,
   feedStats,
   hasDrive,
-  hasGmail,
+
   initialOpen,
   userEmail,
   authProvider,
@@ -74,7 +74,6 @@ export function SettingsClient({
         bundles={bundles}
         feedStats={feedStats}
         hasDrive={hasDrive}
-        hasGmail={hasGmail}
         initialOpen={initialOpen}
         userEmail={userEmail}
         authProvider={authProvider}

@@ -131,8 +131,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
       deliveryTime: "06:00",
       timezone: "UTC",
       googleDriveFolder: "Rakuten Kobo",
-      kindleEmail: "",
-      emailMethod: "gmail",
+      recipientEmail: "",
     });
 
     // Verify onboarding set the flag
@@ -148,11 +147,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
       includeImages: true,
       deliveryMethod: "local",
       googleDriveFolder: "Rakuten Kobo",
-      kindleEmail: "",
-      emailSmtpHost: "smtp.gmail.com",
-      emailSmtpPort: 465,
-      emailSender: "",
-      emailPassword: "",
+      recipientEmail: "",
       googleTokens: null,
       timezone: "UTC",
     });
@@ -180,11 +175,7 @@ describe("E2E: signup → onboarding → build → deliver", () => {
       device: "kobo",
       deliveryMethod: "local",
       googleDriveFolder: "Rakuten Kobo",
-      kindleEmail: "",
-      emailSmtpHost: "smtp.gmail.com",
-      emailSmtpPort: 465,
-      emailSender: "",
-      emailPassword: "",
+      recipientEmail: "",
       googleTokens: null,
       timezone: "UTC",
     });

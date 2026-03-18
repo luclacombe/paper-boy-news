@@ -2,7 +2,7 @@ import { getUserConfig } from "@/actions/user-config";
 import { getFeeds, cleanOrphanedFeeds } from "@/actions/feeds";
 import { getCatalogData } from "@/actions/feed-catalog";
 import { getAllFeedStats } from "@/actions/feed-stats";
-import { hasDriveScope, hasGmailScope } from "@/actions/google-oauth";
+import { hasDriveScope } from "@/actions/google-oauth";
 import { hasActiveBuild } from "@/actions/delivery-history";
 import { getAuthUser } from "@/lib/auth";
 import { getEditionDate } from "@/lib/edition-date";
@@ -24,14 +24,13 @@ export default async function SettingsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [config, feeds, catalogData, feedStats, hasDrive, hasGmail, authUser, params] =
+  const [config, feeds, catalogData, feedStats, hasDrive, authUser, params] =
     await Promise.all([
       getUserConfig(),
       getFeeds(),
       getCatalogData(),
       getAllFeedStats(),
       hasDriveScope(),
-      hasGmailScope(),
       getAuthUser(),
       searchParams,
     ]);
@@ -67,7 +66,6 @@ export default async function SettingsPage({
         bundles={catalogData.bundles}
         feedStats={feedStats}
         hasDrive={hasDrive}
-        hasGmail={hasGmail}
         initialOpen={initialOpen}
         userEmail={userEmail}
         authProvider={authProvider}

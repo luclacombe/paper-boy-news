@@ -14,9 +14,7 @@ import type { SetupStatus, DeliveryRecord } from "@/types";
 const CONFIGURED: SetupStatus = {
   isFirstVisit: false,
   needsDriveAuth: false,
-  needsGmailAuth: false,
-  needsSmtpConfig: false,
-  needsKindleEmail: false,
+  needsRecipientEmail: false,
   isFullyConfigured: true,
 };
 
@@ -26,21 +24,9 @@ const NEEDS_DRIVE: SetupStatus = {
   isFullyConfigured: false,
 };
 
-const NEEDS_GMAIL: SetupStatus = {
+const NEEDS_EMAIL: SetupStatus = {
   ...CONFIGURED,
-  needsGmailAuth: true,
-  isFullyConfigured: false,
-};
-
-const NEEDS_SMTP: SetupStatus = {
-  ...CONFIGURED,
-  needsSmtpConfig: true,
-  isFullyConfigured: false,
-};
-
-const NEEDS_KINDLE_EMAIL: SetupStatus = {
-  ...CONFIGURED,
-  needsKindleEmail: true,
+  needsRecipientEmail: true,
   isFullyConfigured: false,
 };
 
@@ -92,18 +78,8 @@ describe("getDashboardState — mid-build settings changes", () => {
         .toBe("build-in-progress");
     });
 
-    it("shows build-in-progress when user switches to Gmail (no auth) while fetching", () => {
-      expect(getDashboardState(NEEDS_GMAIL, "fetching", false, false, null, 1))
-        .toBe("build-in-progress");
-    });
-
-    it("shows build-in-progress when user switches to SMTP (unconfigured) while fetching", () => {
-      expect(getDashboardState(NEEDS_SMTP, "fetching", false, false, null, 1))
-        .toBe("build-in-progress");
-    });
-
-    it("shows build-in-progress when user switches to Kindle (no email) while fetching", () => {
-      expect(getDashboardState(NEEDS_KINDLE_EMAIL, "fetching", false, false, null, 1))
+    it("shows build-in-progress when user switches to email (no recipient) while fetching", () => {
+      expect(getDashboardState(NEEDS_EMAIL, "fetching", false, false, null, 1))
         .toBe("build-in-progress");
     });
   });
@@ -114,18 +90,8 @@ describe("getDashboardState — mid-build settings changes", () => {
         .toBe("build-in-progress");
     });
 
-    it("shows build-in-progress when DB says building, even if setup is incomplete (Gmail)", () => {
-      expect(getDashboardState(NEEDS_GMAIL, "idle", false, false, BUILDING_EDITION, 1))
-        .toBe("build-in-progress");
-    });
-
-    it("shows build-in-progress when DB says building, even if setup is incomplete (SMTP)", () => {
-      expect(getDashboardState(NEEDS_SMTP, "idle", false, false, BUILDING_EDITION, 1))
-        .toBe("build-in-progress");
-    });
-
-    it("shows build-in-progress when DB says building, even if setup is incomplete (Kindle email)", () => {
-      expect(getDashboardState(NEEDS_KINDLE_EMAIL, "idle", false, false, BUILDING_EDITION, 1))
+    it("shows build-in-progress when DB says building, even if setup is incomplete (email)", () => {
+      expect(getDashboardState(NEEDS_EMAIL, "idle", false, false, BUILDING_EDITION, 1))
         .toBe("build-in-progress");
     });
   });
@@ -154,7 +120,7 @@ describe("getDashboardState — mid-build settings changes", () => {
     });
 
     it("shows setup-incomplete when idle with no edition (has history but no today)", () => {
-      expect(getDashboardState(NEEDS_GMAIL, "idle", false, false, null, 5))
+      expect(getDashboardState(NEEDS_EMAIL, "idle", false, false, null, 5))
         .toBe("setup-incomplete");
     });
 
@@ -269,9 +235,7 @@ describe("getDashboardState — edge cases", () => {
     const ALL_INCOMPLETE: SetupStatus = {
       isFirstVisit: true,
       needsDriveAuth: true,
-      needsGmailAuth: true,
-      needsSmtpConfig: true,
-      needsKindleEmail: true,
+      needsRecipientEmail: true,
       isFullyConfigured: false,
     };
     // With building edition, should still show build-in-progress
@@ -292,8 +256,8 @@ describe("getDashboardState — edge cases", () => {
       .toBe("build-in-progress");
   });
 
-  it("all four setup-incomplete variants fall through when no edition exists", () => {
-    for (const status of [NEEDS_DRIVE, NEEDS_GMAIL, NEEDS_SMTP, NEEDS_KINDLE_EMAIL]) {
+  it("all setup-incomplete variants fall through when no edition exists", () => {
+    for (const status of [NEEDS_DRIVE, NEEDS_EMAIL]) {
       expect(getDashboardState(status, "idle", false, false, null, 0))
         .toBe("setup-incomplete");
     }

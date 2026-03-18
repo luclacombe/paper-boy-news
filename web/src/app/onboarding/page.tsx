@@ -739,42 +739,55 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Kindle email (conditional) */}
-        {state.deliveryMethod === "email" && state.device === "kindle" && (
+        {/* Recipient email (conditional) */}
+        {state.deliveryMethod === "email" && (
           <div className="space-y-3">
             <div className="space-y-2">
               <Label className="font-headline text-sm text-ink">
-                Kindle Email Address
+                {state.device === "kindle"
+                  ? "Kindle Email Address"
+                  : "Email Address"}
               </Label>
               <Input
                 type="email"
-                value={state.kindleEmail}
-                onChange={(e) => update({ kindleEmail: e.target.value })}
-                placeholder="your-kindle@kindle.com"
+                value={state.recipientEmail}
+                onChange={(e) => update({ recipientEmail: e.target.value })}
+                placeholder={
+                  state.device === "kindle"
+                    ? "your-kindle@kindle.com"
+                    : "you@example.com"
+                }
               />
-            </div>
-            <div className="border-l-2 border-rule-gray/50 pl-3">
-              <p className="font-headline text-xs font-bold text-ink">
-                Kindle setup
-              </p>
-              <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
-                <li>
-                  Find your Kindle email: on your Kindle, go to{" "}
-                  <strong>Settings &rarr; Your Account</strong>.
-                  It ends in <strong>@kindle.com</strong>
-                </li>
-                <li>
-                  You&apos;ll also need to approve the sender email in{" "}
-                  <strong>
-                    amazon.com &rarr; Manage Your Content and Devices &rarr;
-                    Preferences &rarr; Personal Document Settings
-                  </strong>
-                </li>
-              </ol>
-              <p className="mt-1.5 font-body text-xs text-caption">
-                Works with all Kindle devices and the Kindle app.
+              <p className="font-body text-xs text-caption">
+                Your newspaper will be sent from{" "}
+                <strong>delivery@paper-boy-news.com</strong>
               </p>
             </div>
+            {state.device === "kindle" && (
+              <div className="border-l-2 border-rule-gray/50 pl-3">
+                <p className="font-headline text-xs font-bold text-ink">
+                  Kindle setup
+                </p>
+                <ol className="mt-1 list-decimal space-y-0.5 pl-4 font-body text-xs text-caption">
+                  <li>
+                    Find your Kindle email: on your Kindle, go to{" "}
+                    <strong>Settings &rarr; Your Account</strong>.
+                    It ends in <strong>@kindle.com</strong>
+                  </li>
+                  <li>
+                    Add <strong>delivery@paper-boy-news.com</strong> to your{" "}
+                    <strong>Approved Personal Document E-mail List</strong> in{" "}
+                    <strong>
+                      amazon.com &rarr; Manage Your Content and Devices &rarr;
+                      Preferences &rarr; Personal Document Settings
+                    </strong>
+                  </li>
+                </ol>
+                <p className="mt-1.5 font-body text-xs text-caption">
+                  Works with all Kindle devices and the Kindle app.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

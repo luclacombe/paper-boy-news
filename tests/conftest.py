@@ -50,10 +50,6 @@ def make_config():
         folder_name="Rakuten Kobo",
         credentials_file="credentials.json",
         keep_days=30,
-        smtp_host="smtp.gmail.com",
-        smtp_port=465,
-        sender="",
-        password="",
         recipient="",
         feeds=None,
     ) -> Config:
@@ -81,10 +77,6 @@ def make_config():
                     credentials_file=credentials_file,
                 ),
                 email=EmailConfig(
-                    smtp_host=smtp_host,
-                    smtp_port=smtp_port,
-                    sender=sender,
-                    password=password,
                     recipient=recipient,
                 ),
                 keep_days=keep_days,
@@ -102,11 +94,9 @@ def local_config(make_config):
 
 @pytest.fixture
 def email_config(make_config):
-    """Pre-built Config with email delivery and credentials."""
+    """Pre-built Config with email delivery via Resend."""
     return make_config(
         method="email",
-        sender="me@gmail.com",
-        password="app-secret",
         recipient="kindle@kindle.com",
     )
 
@@ -194,11 +184,7 @@ def sample_user_config():
         "device": "kobo",
         "delivery_method": "local",
         "google_drive_folder": "Rakuten Kobo",
-        "kindle_email": "",
-        "email_smtp_host": "smtp.gmail.com",
-        "email_smtp_port": 465,
-        "email_sender": "",
-        "email_password": "",
+        "recipient_email": "",
         "total_article_budget": 10,
         "include_images": True,
         "delivery_time": "06:00",
