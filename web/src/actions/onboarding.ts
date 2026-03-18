@@ -77,6 +77,12 @@ export async function completeOnboarding(
   const user = await getAuthUser();
   if (!user) throw new Error("Not authenticated");
 
+  // Auto-fill delivery email from auth email when delivery method is email
+  // but no recipient was provided (e.g. Google OAuth signup)
+  if (data.deliveryMethod === "email" && !data.recipientEmail && user.email) {
+    data.recipientEmail = user.email;
+  }
+
   validateOnboardingData(data);
 
   // Get the user's profile ID

@@ -447,6 +447,7 @@ export function SettingsAccordion({
           hasDrive={hasDrive}
           opdsUrl={currentOpdsUrl}
           onOpdsUrlChange={setCurrentOpdsUrl}
+          userEmail={userEmail}
         />,
         true
       )}
