@@ -13,20 +13,29 @@ from paper_boy.config import Config
 logger = logging.getLogger(__name__)
 
 
-def deliver(epub_path: Path, config: Config, *, token_data: dict | None = None) -> None:
+def deliver(
+    epub_path: Path,
+    config: Config,
+    *,
+    token_data: dict | None = None,
+    article_count: int = 0,
+    source_count: int = 0,
+) -> None:
     """Deliver the generated EPUB using the configured method.
 
     Args:
         epub_path: Path to the EPUB file.
         config: Paper Boy configuration.
         token_data: Optional Google OAuth2 token data (from web app).
+        article_count: Number of articles in the edition (for email template).
+        source_count: Number of sources in the edition (for email template).
     """
     method = config.delivery.method
 
     if method == "google_drive":
         deliver_google_drive(epub_path, config, token_data=token_data)
     elif method == "email":
-        deliver_resend(epub_path, config)
+        deliver_resend(epub_path, config, article_count=article_count, source_count=source_count)
     elif method == "local":
         logger.info("Local delivery: file at %s", epub_path)
     else:
@@ -82,7 +91,9 @@ def deliver_google_drive(
     _cleanup_old_issues(service, folder_id, config.delivery.keep_days)
 
 
-def deliver_resend(epub_path: Path, config: Config) -> None:
+def deliver_resend(
+    epub_path: Path, config: Config, *, article_count: int = 0, source_count: int = 0
+) -> None:
     """Send EPUB via Resend email API."""
     import re
 
@@ -121,8 +132,8 @@ def deliver_resend(epub_path: Path, config: Config) -> None:
     html = render_delivery_email(
         title=title,
         edition_date=edition_date,
-        article_count=0,  # not available at delivery time
-        source_count=0,
+        article_count=article_count,
+        source_count=source_count,
     )
 
     with open(epub_path, "rb") as f:
