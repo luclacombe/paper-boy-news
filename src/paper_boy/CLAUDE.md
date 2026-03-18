@@ -10,6 +10,7 @@ The core library that fetches RSS feeds, extracts articles, generates EPUBs, and
 - **ebooklib** — EPUB3 creation
 - **Pillow** — Cover image generation (600x900px)
 - **google-api-python-client** — Google Drive upload
+- **resend** — Email delivery (Resend API)
 - **click** — CLI framework
 - **pyyaml** — Config file parsing
 - **playwright** (optional) — Headless Chromium for Cloudflare-protected sites (FT)
@@ -42,7 +43,8 @@ src/paper_boy/
 ├── filters.py        # Post-extraction content filters (junk stripping, paywall detection, quality gate)
 ├── epub.py           # EPUB generation with category grouping, dividers, EPUB3 landmarks nav
 ├── cover.py          # Cover image generation (600x900px, category-aware labels)
-├── delivery.py       # Delivery backends: Google Drive, email (SMTP/Send-to-Kindle), local
+├── delivery.py       # Delivery backends: Google Drive, Resend email, local
+├── email_template.py # Branded HTML email template for Resend delivery
 └── main.py           # Orchestration: fetch → build → deliver (returns BuildResult)
 ```
 
@@ -55,7 +57,7 @@ src/paper_boy/
 - `cache.ContentCache` — In-memory cache for feed entries, article HTML, and image bytes
 - `epub.build_epub(sections, config) → path` — Generate EPUB file
 - `cover.generate_cover(title, sections, issue_date) → bytes` — Generate newspaper-style cover image (600x900 JPEG)
-- `delivery.deliver(path, config)` — Deliver via configured method (Google Drive, email, local)
+- `delivery.deliver(path, config)` — Deliver via configured method (Google Drive, Resend email, local)
 
 ## Config Format
 
@@ -77,6 +79,7 @@ delivery:
   method: google_drive           # google_drive | email | local
   google_drive_folder: "Rakuten Kobo"
   keep_days: 7
+  recipient: "user@kindle.com"   # For email method (Resend delivery)
 ```
 
 ## Article Budget
