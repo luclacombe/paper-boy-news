@@ -80,7 +80,7 @@ p {
 .article-source {
     font-size: 0.75em;
     color: #555;
-    margin-top: 2em;
+    margin-top: 1.5em;
     padding-top: 0.5em;
     border-top: 1px solid #555;
 }
@@ -99,10 +99,9 @@ p {
     text-align: center;
     margin: 2em 0 1em 0;
     padding: 0.5em 0;
-    border-top: 1px solid #555;
+    border-top: 2px solid #555;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    page-break-before: always;
 }
 .toc-category {
     margin: 2em 0 0.3em 0;
@@ -130,7 +129,7 @@ p {
     color: #1a1a1a;
 }
 .category-divider {
-    margin-top: 35%;
+    margin-top: 18%;
     text-align: center;
     page-break-before: always;
 }
@@ -333,7 +332,7 @@ def build_epub(
     book.add_item(cover_page)
 
     # --- Build chapters ---
-    spine_items: list[str | epub.EpubHtml] = [cover_page]
+    spine_items: list[str | tuple[epub.EpubHtml, str] | epub.EpubHtml] = [(cover_page, "no")]
     toc_entries = []
     article_index = 0
     category_divider_idx = 0
@@ -414,6 +413,12 @@ def build_epub(
             )
         else:
             toc_entries.extend(cat_toc_children)
+
+    # --- End page ---
+    end_page = _build_end_page(config)
+    end_page.add_item(css)
+    book.add_item(end_page)
+    spine_items.append(end_page)
 
     # --- Table of Contents ---
     book.toc = toc_entries
@@ -577,5 +582,29 @@ def _build_article_chapter(article, article_index: int, section_name: str) -> ep
     )
     chapter.content = html.encode("utf-8")
     return chapter
+
+
+def _build_end_page(config: Config) -> epub.EpubHtml:
+    """Build an end-of-edition page."""
+    html = (
+        '<div style="margin-top:20%; text-align:center;">'
+        '<div style="border-top:1px solid #555; width:40%; margin:0 auto 1.5em;"></div>'
+        '<p style="font-size:1.1em; font-style:italic; color:#444;">'
+        'Your news is done for the day.'
+        '</p>'
+        '<p style="font-size:0.85em; color:#555; margin-top:1.5em;">'
+        'Tap the table of contents to jump between sections.'
+        '</p>'
+        '<div style="border-top:1px solid #555; width:40%; margin:1.5em auto 0;"></div>'
+        '</div>'
+    )
+
+    page = epub.EpubHtml(
+        title="End",
+        file_name="end_page.xhtml",
+        lang=config.newspaper.language,
+    )
+    page.content = html.encode("utf-8")
+    return page
 
 
