@@ -4,6 +4,8 @@ import { getAuthUser, getUserProfile } from "@/lib/auth";
 import { db } from "@/db";
 import { userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { randomBytes } from "crypto";
 import type { GoogleTokens } from "@/types";
 
 export async function getGoogleAuthUrl(): Promise<string> {
@@ -13,7 +15,17 @@ export async function getGoogleAuthUrl(): Promise<string> {
     "https://www.googleapis.com/auth/drive.file",
   ].join(" ");
 
-  return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent`;
+  const state = randomBytes(32).toString("hex");
+  const cookieStore = await cookies();
+  cookieStore.set("google_oauth_state", state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 300, // 5 minutes
+    path: "/",
+  });
+
+  return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scopes)}&access_type=offline&prompt=consent&state=${state}`;
 }
 
 export async function disconnectGoogle(): Promise<void> {
