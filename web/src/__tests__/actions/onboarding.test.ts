@@ -133,4 +133,24 @@ describe("completeOnboarding", () => {
       completeOnboarding({ ...ONBOARDING_DATA, device: "invalid" as OnboardingData["device"] })
     ).rejects.toThrow("Invalid device");
   });
+
+  it("still accepts google_drive delivery method (existing users)", async () => {
+    mockGetAuthUser.mockResolvedValue({ id: "auth-1" });
+    mockSelectResult.push({ id: "profile-1" });
+
+    const { completeOnboarding } = await import("@/actions/onboarding");
+    // google_drive is disabled in the UI but the schema must still accept it
+    // for existing users who already have it configured
+    await completeOnboarding({
+      ...ONBOARDING_DATA,
+      device: "kobo",
+      deliveryMethod: "google_drive",
+    });
+
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryMethod: "google_drive",
+      })
+    );
+  });
 });

@@ -24,7 +24,8 @@ import {
 } from "@/lib/next-delivery";
 import { BuildProgress } from "@/components/build-progress";
 import { Button } from "@/components/ui/button";
-import { DEVICES, DELIVERY_TIMES } from "@/lib/constants";
+import { LoadingDots } from "@/components/ui/loading-dots";
+import { DEVICES, DELIVERY_TIMES, GOOGLE_DRIVE_DISABLED } from "@/lib/constants";
 import type {
   UserConfig,
   Feed,
@@ -446,7 +447,7 @@ export function DashboardClient({
     let description = "";
     let cta: React.ReactNode = null;
 
-    if (setupStatus.needsDriveAuth) {
+    if (setupStatus.needsDriveAuth && !GOOGLE_DRIVE_DISABLED) {
       description = `Connect Google Drive so your paper can be delivered to your ${deviceLabel} each morning.`;
       cta = (
         <Button
@@ -456,6 +457,17 @@ export function DashboardClient({
         >
           Connect Google Drive
         </Button>
+      );
+    } else if (setupStatus.needsDriveAuth && GOOGLE_DRIVE_DISABLED) {
+      description =
+        "Google Drive delivery is temporarily unavailable. Please switch to another delivery method.";
+      cta = (
+        <Link
+          href="/settings?open=delivery"
+          className="letterpress inline-block rounded-md bg-ink px-3 py-1.5 text-sm text-newsprint hover:bg-ink/90"
+        >
+          Open delivery settings
+        </Link>
       );
     } else if (setupStatus.needsRecipientEmail) {
       description =
@@ -501,7 +513,7 @@ export function DashboardClient({
       <div className="newsprint-card overflow-hidden border border-rule-gray border-l-4 border-l-building bg-card">
         <div className="px-5 pt-5 pb-2">
           <p className="font-headline text-lg font-bold text-ink">
-            Getting your paper&hellip;
+            Getting your paper<LoadingDots />
           </p>
           <p className="mt-1 font-body text-sm text-caption">
             Fetching the latest articles from your sources.
@@ -650,6 +662,20 @@ export function DashboardClient({
             .
           </p>
         </div>
+        {isFirst && (
+          <div className="border-t border-rule-gray px-5 py-4">
+            <Button
+              onClick={handleGetItNow}
+              disabled={feeds.length === 0}
+              className="letterpress w-full bg-edition-red text-sm font-bold text-newsprint hover:bg-edition-red/90"
+            >
+              Get your first edition
+            </Button>
+            <p className="mt-2 text-center font-body text-xs text-caption">
+              Your paper will be ready in a few minutes.
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -686,29 +712,37 @@ export function DashboardClient({
             </p>
           )}
         </div>
-        <div className="border-t border-rule-gray bg-warm-gray/30 px-5 py-3">
-          <p className="font-body text-sm text-caption">
-            {isFirst ? "Can\u2019t wait? " : ""}
-            <button
+        {isFirst ? (
+          <div className="border-t border-rule-gray px-5 py-4">
+            <Button
               onClick={handleGetItNow}
               disabled={feeds.length === 0}
-              className="font-semibold text-ink underline hover:text-caption disabled:opacity-50"
+              className="letterpress w-full bg-edition-red text-sm font-bold text-newsprint hover:bg-edition-red/90"
             >
-              {isFirst ? "Get today\u2019s edition now" : "Get it now"}
-            </button>
-            {!isFirst && (
-              <>
-                {" "}
-                &mdash; {earlyDesc.toLowerCase()}.
-              </>
-            )}
-          </p>
-          {!isFirst && (
+              Get your first edition
+            </Button>
+            <p className="mt-2 text-center font-body text-xs text-caption">
+              Your paper will be ready in a few minutes.
+            </p>
+          </div>
+        ) : (
+          <div className="border-t border-rule-gray bg-warm-gray/30 px-5 py-3">
+            <p className="font-body text-sm text-caption">
+              <button
+                onClick={handleGetItNow}
+                disabled={feeds.length === 0}
+                className="font-semibold text-ink underline hover:text-caption disabled:opacity-50"
+              >
+                Get it now
+              </button>
+              {" "}
+              &mdash; {earlyDesc.toLowerCase()}.
+            </p>
             <p className="mt-1 font-body text-xs text-caption">
               {readySentence}
             </p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   }

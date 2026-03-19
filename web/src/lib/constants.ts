@@ -1,5 +1,8 @@
 import type { Device } from "@/types";
 
+/** Flip to `false` to re-enable Google Drive delivery across the app. */
+export const GOOGLE_DRIVE_DISABLED = true;
+
 export const DEVICES: { value: Device; label: string; description: string }[] =
   [
     {
