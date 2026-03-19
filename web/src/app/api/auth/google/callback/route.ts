@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { cookies } from "next/headers";
 import { db } from "@/db";
 import { userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -8,11 +9,23 @@ import type { GoogleTokens } from "@/types";
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
+  const state = searchParams.get("state");
   const errorParam = searchParams.get("error");
 
   if (errorParam || !code) {
     return NextResponse.redirect(
-      new URL(`/delivery?error=${errorParam || "no_code"}`, request.url)
+      new URL(`/settings?open=delivery&error=${errorParam || "no_code"}`, request.url)
+    );
+  }
+
+  // Validate CSRF state parameter
+  const cookieStore = await cookies();
+  const savedState = cookieStore.get("google_oauth_state")?.value;
+  cookieStore.delete("google_oauth_state");
+
+  if (!state || !savedState || state !== savedState) {
+    return NextResponse.redirect(
+      new URL("/settings?open=delivery&error=invalid_state", request.url)
     );
   }
 
@@ -55,7 +68,7 @@ export async function GET(request: NextRequest) {
 
   if (!tokenResponse.ok) {
     return NextResponse.redirect(
-      new URL("/delivery?error=token_exchange_failed", request.url)
+      new URL("/settings?open=delivery&error=token_exchange_failed", request.url)
     );
   }
 
@@ -78,8 +91,8 @@ export async function GET(request: NextRequest) {
     .set({ googleTokens, updatedAt: new Date() })
     .where(eq(userProfiles.authId, user.id));
 
-  // 5. Redirect to delivery page
+  // 5. Redirect to settings (delivery section)
   return NextResponse.redirect(
-    new URL("/delivery?connected=true", request.url)
+    new URL("/settings?open=delivery&connected=true", request.url)
   );
 }
