@@ -14,9 +14,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingDots } from "@/components/ui/loading-dots";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
-import { DEVICES, defaultDriveFolderForDevice } from "@/lib/constants";
+import { DEVICES, GOOGLE_DRIVE_DISABLED, defaultDriveFolderForDevice } from "@/lib/constants";
 import type { Device, DeliveryMethod } from "@/types";
 
 export interface DeliveryValues {
@@ -398,23 +399,41 @@ export function DeliverySection({
           onValueChange={(v) => update({ deliveryMethod: v as DeliveryMethod })}
           className="space-y-2"
         >
-          {methods.map((m) => (
-            <label
-              key={m.value}
-              className="flex items-start gap-3 border border-rule-gray bg-card px-4 py-3 hover:border-caption"
-            >
-              <RadioGroupItem value={m.value} className="mt-0.5" />
-              <div>
-                <span className="font-headline text-sm font-bold text-ink">
-                  {m.label}
-                </span>
-                <p className="font-body text-xs text-caption">
-                  {m.description}
-                </p>
-              </div>
-            </label>
-          ))}
+          {methods.map((m) => {
+            const disabled = GOOGLE_DRIVE_DISABLED && m.value === "google_drive";
+            return (
+              <label
+                key={m.value}
+                className={cn(
+                  "flex items-start gap-3 border border-rule-gray bg-card px-4 py-3",
+                  disabled ? "cursor-not-allowed opacity-50" : "hover:border-caption"
+                )}
+              >
+                <RadioGroupItem value={m.value} className="mt-0.5" disabled={disabled} />
+                <div>
+                  <span className="font-headline text-sm font-bold text-ink">
+                    {m.label}
+                    {disabled && (
+                      <span className="ml-2 rounded bg-warm-gray px-1.5 py-0.5 font-mono text-[10px] font-normal text-caption">
+                        Coming soon
+                      </span>
+                    )}
+                  </span>
+                  <p className="font-body text-xs text-caption">
+                    {m.description}
+                  </p>
+                </div>
+              </label>
+            );
+          })}
         </RadioGroup>
+        {GOOGLE_DRIVE_DISABLED && values.deliveryMethod === "google_drive" && (
+          <div className="border-l-4 border-l-building bg-building/10 px-4 py-3">
+            <p className="font-body text-sm text-ink">
+              Google Drive delivery is temporarily unavailable. Please switch to another delivery method.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* KOReader / Wireless sync config */}
@@ -479,7 +498,7 @@ export function DeliverySection({
             </>
           ) : (
             <p className="font-body text-xs text-caption">
-              {opdsBusy ? "Setting up wireless sync..." : "Generating your feed URL..."}
+              {opdsBusy ? <>Setting up wireless sync<LoadingDots /></> : <>Generating your feed URL<LoadingDots /></>}
             </p>
           )}
 
