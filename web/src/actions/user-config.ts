@@ -86,7 +86,3 @@ export async function updateUserConfig(
     .where(eq(userProfiles.authId, user.id));
 }
 
-export async function isOnboardingComplete(): Promise<boolean> {
-  const profile = await getUserProfile();
-  return profile?.onboardingComplete ?? false;
-}

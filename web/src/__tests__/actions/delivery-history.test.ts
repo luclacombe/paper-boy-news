@@ -80,58 +80,6 @@ describe("getDeliveryHistory", () => {
   });
 });
 
-describe("addDeliveryRecord", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("throws when not authenticated", async () => {
-    mockGetUserProfile.mockResolvedValue(null);
-    const { addDeliveryRecord } = await import("@/actions/delivery-history");
-    await expect(
-      addDeliveryRecord({
-        status: "delivered",
-        editionNumber: 1,
-        editionDate: "2025-01-15",
-        articleCount: 5,
-        sourceCount: 2,
-        fileSize: "20 KB",
-        fileSizeBytes: 20000,
-        deliveryMethod: "local",
-        deliveryMessage: "Done",
-        errorMessage: null,
-        epubStoragePath: null,
-        sections: null,
-      })
-    ).rejects.toThrow("Not authenticated");
-  });
-
-  it("inserts record with all fields", async () => {
-    mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
-    const { addDeliveryRecord } = await import("@/actions/delivery-history");
-    await addDeliveryRecord({
-      status: "delivered",
-      editionNumber: 1,
-      editionDate: "2025-01-15",
-      articleCount: 5,
-      sourceCount: 2,
-      fileSize: "20 KB",
-      fileSizeBytes: 20000,
-      deliveryMethod: "local",
-      deliveryMessage: "Done",
-      errorMessage: null,
-      epubStoragePath: null,
-      sections: null,
-    });
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: "profile-1",
-        status: "delivered",
-      })
-    );
-  });
-});
-
 describe("getEditionCount", () => {
   beforeEach(() => {
     vi.clearAllMocks();

@@ -1,17 +1,18 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { userProfiles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
-export async function getAuthUser() {
+export const getAuthUser = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
 
-export async function getUserProfile() {
+export const getUserProfile = cache(async () => {
   const user = await getAuthUser();
   if (!user) return null;
 
@@ -22,4 +23,4 @@ export async function getUserProfile() {
     .limit(1);
 
   return profile ?? null;
-}
+});

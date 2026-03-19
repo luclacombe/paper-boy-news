@@ -38,29 +38,6 @@ export async function getDeliveryHistory(
   }));
 }
 
-export async function addDeliveryRecord(
-  record: Omit<DeliveryRecord, "id" | "userId" | "createdAt">
-): Promise<void> {
-  const profile = await getUserProfile();
-  if (!profile) throw new Error("Not authenticated");
-
-  await db.insert(deliveryHistory).values({
-    userId: profile.id,
-    status: record.status,
-    editionNumber: record.editionNumber,
-    editionDate: record.editionDate,
-    articleCount: record.articleCount,
-    sourceCount: record.sourceCount,
-    fileSize: record.fileSize,
-    fileSizeBytes: record.fileSizeBytes,
-    deliveryMethod: record.deliveryMethod,
-    deliveryMessage: record.deliveryMessage,
-    errorMessage: record.errorMessage,
-    epubStoragePath: record.epubStoragePath,
-    sections: record.sections,
-  });
-}
-
 /** Get the latest non-failed edition for a specific date. */
 export async function getEditionForDate(
   editionDate: string

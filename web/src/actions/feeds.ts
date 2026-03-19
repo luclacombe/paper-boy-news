@@ -39,44 +39,6 @@ function validateFeedUrl(url: string): void {
   }
 }
 
-export async function addFeed(
-  name: string,
-  url: string,
-  category: string
-): Promise<void> {
-  const profile = await getUserProfile();
-  if (!profile) throw new Error("Not authenticated");
-
-  validateFeedUrl(url);
-
-  // Get the next position
-  const existing = await db
-    .select({ position: userFeeds.position })
-    .from(userFeeds)
-    .where(eq(userFeeds.userId, profile.id))
-    .orderBy(asc(userFeeds.position));
-
-  const nextPosition =
-    existing.length > 0 ? existing[existing.length - 1].position + 1 : 0;
-
-  await db.insert(userFeeds).values({
-    userId: profile.id,
-    name,
-    url,
-    category,
-    position: nextPosition,
-  });
-}
-
-export async function removeFeed(feedId: string): Promise<void> {
-  const profile = await getUserProfile();
-  if (!profile) throw new Error("Not authenticated");
-
-  await db
-    .delete(userFeeds)
-    .where(and(eq(userFeeds.id, feedId), eq(userFeeds.userId, profile.id)));
-}
-
 export async function setFeeds(
   feeds: { name: string; url: string; category: string }[]
 ): Promise<void> {
