@@ -33,10 +33,8 @@ export default async function SettingsPage({
       hasDriveScope(),
       getAuthUser(),
       searchParams,
+      cleanOrphanedFeeds(),
     ]);
-
-  // Clean up feeds from sources removed from the catalog
-  await cleanOrphanedFeeds();
 
   if (!config) redirect("/login");
 

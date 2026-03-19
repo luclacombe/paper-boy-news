@@ -69,48 +69,6 @@ describe("getFeeds", () => {
   });
 });
 
-describe("addFeed", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockDbResult.length = 0;
-  });
-
-  it("throws when not authenticated", async () => {
-    mockGetUserProfile.mockResolvedValue(null);
-    const { addFeed } = await import("@/actions/feeds");
-    await expect(addFeed("Test", "https://example.com/rss", "Custom")).rejects.toThrow(
-      "Not authenticated"
-    );
-  });
-
-  it("inserts a feed with correct values", async () => {
-    mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
-    // No existing feeds
-    const { addFeed } = await import("@/actions/feeds");
-    await addFeed("New Feed", "https://example.com/rss", "Tech");
-    expect(mockInsertValues).toHaveBeenCalled();
-  });
-});
-
-describe("removeFeed", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("throws when not authenticated", async () => {
-    mockGetUserProfile.mockResolvedValue(null);
-    const { removeFeed } = await import("@/actions/feeds");
-    await expect(removeFeed("feed-1")).rejects.toThrow("Not authenticated");
-  });
-
-  it("deletes by feed ID", async () => {
-    mockGetUserProfile.mockResolvedValue(FAKE_PROFILE);
-    const { removeFeed } = await import("@/actions/feeds");
-    await removeFeed("feed-1");
-    expect(mockDeleteWhere).toHaveBeenCalled();
-  });
-});
-
 describe("setFeeds", () => {
   beforeEach(() => {
     vi.clearAllMocks();

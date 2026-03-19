@@ -11,7 +11,6 @@ import logging
 import random
 import re
 import signal
-import ssl
 import time
 import http.cookiejar
 import urllib.request

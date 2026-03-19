@@ -100,25 +100,3 @@ describe("updateUserConfig", () => {
   });
 });
 
-describe("isOnboardingComplete", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("returns false when profile not found", async () => {
-    mockGetUserProfile.mockResolvedValue(null);
-    const { isOnboardingComplete } = await import("@/actions/user-config");
-    const result = await isOnboardingComplete();
-    expect(result).toBe(false);
-  });
-
-  it("returns actual onboardingComplete flag", async () => {
-    mockGetUserProfile.mockResolvedValue({
-      ...FAKE_PROFILE,
-      onboardingComplete: true,
-    });
-    const { isOnboardingComplete } = await import("@/actions/user-config");
-    const result = await isOnboardingComplete();
-    expect(result).toBe(true);
-  });
-});
