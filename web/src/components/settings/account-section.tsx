@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingDots } from "@/components/ui/loading-dots";
 import type { AuthProvider } from "@/actions/account";
 
 interface AccountSectionProps {
@@ -67,16 +68,14 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Email + auth provider */}
-      <div>
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span className="small-caps font-headline text-xs tracking-widest text-caption">
-            Email
-          </span>
-          <span className="font-mono text-sm text-ink">{email}</span>
-        </div>
-        <p className="mt-0.5 font-body text-xs italic text-caption">
+      <div className="space-y-1">
+        <span className="small-caps font-headline text-xs tracking-widest text-caption">
+          Email
+        </span>
+        <p className="font-body text-sm text-ink">{email}</p>
+        <p className="font-body text-xs text-caption">
           {authProvider === "google"
             ? "Signed in with Google"
             : "Signed in with email"}
@@ -89,7 +88,7 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
           <span className="small-caps font-headline text-xs tracking-widest text-caption">
             Change password
           </span>
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="space-y-1">
               <Label
                 htmlFor="current-password"
@@ -130,10 +129,10 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
             variant="outline"
             className="letterpress font-body text-sm"
           >
-            {isPending ? "Updating..." : "Change password"}
+            {isPending ? <>Updating<LoadingDots /></> : "Change password"}
           </Button>
           {resetSent ? (
-            <p className="font-body text-xs text-delivered-green">
+            <p className="font-body text-xs text-delivered">
               Reset link sent — check your email.
             </p>
           ) : (
@@ -158,7 +157,7 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
               className="font-body text-xs text-caption hover:text-ink hover:underline disabled:opacity-50"
             >
               {resetLoading
-                ? "Sending..."
+                ? <>Sending<LoadingDots /></>
                 : "Forgot your current password?"}
             </button>
           )}
@@ -171,8 +170,11 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
       )}
 
       {/* Delete account */}
-      <div className="border-t border-rule-gray/30 pt-4">
-        <p className="font-body text-xs text-caption">
+      <div className="border-t border-rule-gray/50 pt-6">
+        <span className="small-caps font-headline text-xs tracking-widest text-caption">
+          Delete account
+        </span>
+        <p className="mt-1 font-body text-xs text-caption">
           Permanently delete your account and all associated data.
         </p>
 
@@ -193,7 +195,7 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
             <div className="space-y-1">
               <Label
                 htmlFor="delete-confirm"
-                className="font-mono text-xs text-caption"
+                className="font-body text-xs text-caption"
               >
                 Type DELETE to confirm
               </Label>
@@ -211,7 +213,7 @@ export function AccountSection({ email, authProvider }: AccountSectionProps) {
                 disabled={deleteConfirmText !== "DELETE" || isDeleting}
                 className="bg-edition-red font-body text-sm text-newsprint hover:bg-edition-red/90"
               >
-                {isDeleting ? "Deleting..." : "Delete my account"}
+                {isDeleting ? <>Deleting<LoadingDots /></> : "Delete my account"}
               </Button>
               <Button
                 onClick={() => {

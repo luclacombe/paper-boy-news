@@ -120,22 +120,16 @@ describe("getScheduleSummary", () => {
 });
 
 describe("getPaperSummary", () => {
-  it("formats title, reading time, and images on", () => {
+  it("formats title and reading time", () => {
     expect(
-      getPaperSummary({ title: "The Morning Paper", readingTime: 15, includeImages: true })
-    ).toBe('"The Morning Paper" · ~15 min · Images on');
-  });
-
-  it("shows Images off when disabled", () => {
-    expect(
-      getPaperSummary({ title: "Daily", readingTime: 5, includeImages: false })
-    ).toBe('"Daily" · ~5 min · Images off');
+      getPaperSummary({ title: "The Morning Paper", readingTime: 15 })
+    ).toBe('"The Morning Paper" · ~15 min');
   });
 
   it("shows Untitled for empty title", () => {
     expect(
-      getPaperSummary({ title: "", readingTime: 10, includeImages: true })
-    ).toBe('"Untitled" · ~10 min · Images on');
+      getPaperSummary({ title: "", readingTime: 10 })
+    ).toBe('"Untitled" · ~10 min');
   });
 });
 

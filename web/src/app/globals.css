@@ -262,6 +262,26 @@
   }
 }
 
+/* === Loading dots === */
+@keyframes loading-dot {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+
+.animate-loading-dot {
+  animation: loading-dot 1.2s ease-in-out infinite;
+}
+
+/* === Shimmer (progress bar) === */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
 /* === Step-in transition (onboarding wizard) === */
 @keyframes step-in {
   from { opacity: 0; transform: translateY(8px); }

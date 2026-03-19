@@ -22,6 +22,7 @@ import {
 } from "@/components/settings/paper-section";
 import { AccountSection } from "@/components/settings/account-section";
 import { Button } from "@/components/ui/button";
+import { LoadingDots } from "@/components/ui/loading-dots";
 import { readingTimeToArticleBudget } from "@/lib/reading-time";
 import { DEVICES, DELIVERY_TIMES, TIMEZONES, normalizeTimezone } from "@/lib/constants";
 import type { AuthProvider } from "@/actions/account";
@@ -98,8 +99,7 @@ export function getScheduleSummary(time: string, timezone: string): string {
 
 export function getPaperSummary(values: PaperValues): string {
   const title = values.title || "Untitled";
-  const images = values.includeImages ? "Images on" : "Images off";
-  return `"${title}" · ~${values.readingTime} min · ${images}`;
+  return `"${title}" · ~${values.readingTime} min`;
 }
 
 export function getAccountSummary(
@@ -165,7 +165,6 @@ export function SettingsAccordion({
   const initPaper: PaperValues = {
     title: config.title,
     readingTime: Number(config.readingTime) || 15,
-    includeImages: config.includeImages,
   };
 
   const [deliveryValues, setDeliveryValues] =
@@ -251,7 +250,6 @@ export function SettingsAccordion({
           totalArticleBudget: readingTimeToArticleBudget(
             paperValues.readingTime
           ),
-          includeImages: paperValues.includeImages,
         };
       default:
         return {};
@@ -348,7 +346,6 @@ export function SettingsAccordion({
               title: prevPaper.title,
               readingTime: String(prevPaper.readingTime),
               totalArticleBudget: readingTimeToArticleBudget(prevPaper.readingTime),
-              includeImages: prevPaper.includeImages,
             });
             break;
         }
@@ -531,7 +528,7 @@ export function SettingsAccordion({
                 disabled={isSaving}
                 className="letterpress mt-5 w-full bg-ink text-sm text-newsprint hover:bg-ink/90"
               >
-                {isSaving ? "Saving..." : "Save changes"}
+                {isSaving ? <>Saving<LoadingDots /></> : "Save changes"}
               </Button>
             )}
           </div>

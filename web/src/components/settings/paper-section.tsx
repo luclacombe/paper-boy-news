@@ -2,14 +2,12 @@
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { READING_TIME_OPTIONS, readingTimeToArticleBudget } from "@/lib/reading-time";
 
 export interface PaperValues {
   title: string;
   readingTime: number;
-  includeImages: boolean;
 }
 
 interface PaperSectionProps {
@@ -68,19 +66,6 @@ export function PaperSection({ values, onChange }: PaperSectionProps) {
           ~{readingTimeToArticleBudget(values.readingTime)} articles total
         </p>
       </div>
-
-      {/* Include images */}
-      <label className="flex items-center gap-3">
-        <Checkbox
-          checked={values.includeImages}
-          onCheckedChange={(checked) =>
-            update({ includeImages: checked === true })
-          }
-        />
-        <span className="font-body text-sm text-ink">
-          Include images in articles
-        </span>
-      </label>
     </div>
   );
 }

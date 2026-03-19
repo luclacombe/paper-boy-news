@@ -234,7 +234,7 @@ export default function LandingPage() {
                     step: "1",
                     title: "Choose Sources",
                     description:
-                      "Pick from curated RSS feeds or add your own.",
+                      "Pick from curated sources or add your own.",
                   },
                   {
                     step: "2",
@@ -272,7 +272,7 @@ export default function LandingPage() {
               </p>
               <Link
                 href="/onboarding"
-                className="letterpress inline-flex items-center bg-ink px-8 py-3 font-body text-sm uppercase tracking-wider text-newsprint transition-colors hover:bg-ink/90"
+                className="letterpress inline-flex items-center bg-edition-red px-8 py-3 font-body text-sm uppercase tracking-wider text-newsprint transition-colors hover:bg-edition-red/90"
               >
                 Get Started
               </Link>

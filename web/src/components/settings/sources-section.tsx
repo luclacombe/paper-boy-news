@@ -10,6 +10,7 @@ import { FeedChipGrid, type GroupMode } from "@/components/feed-chip-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingDots } from "@/components/ui/loading-dots";
 import {
   readingTimeToArticleBudget,
   recommendedSourceRange,
@@ -383,7 +384,7 @@ export function SourcesSection({
             disabled={validating}
             className="letterpress shrink-0 font-body text-sm"
           >
-            {validating ? "Checking..." : "Add"}
+            {validating ? <>Checking<LoadingDots /></> : "Add"}
           </Button>
         </div>
         {customUrlError && (

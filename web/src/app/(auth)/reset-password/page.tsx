@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingDots } from "@/components/ui/loading-dots";
 
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -93,7 +94,7 @@ export default function ResetPasswordPage() {
           variant="outline"
           className="w-full font-body text-sm font-semibold uppercase tracking-wider"
         >
-          {loading ? "Updating..." : "Set New Password"}
+          {loading ? <>Updating<LoadingDots /></> : "Set New Password"}
         </Button>
       </form>
     </div>

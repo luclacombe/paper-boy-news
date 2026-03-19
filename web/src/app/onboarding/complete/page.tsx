@@ -11,6 +11,7 @@ import {
   getOnboardingStorage,
   clearOnboardingStorage,
 } from "@/hooks/use-onboarding-state";
+import { LoadingDots } from "@/components/ui/loading-dots";
 import type { OnboardingData } from "@/types";
 
 export default function OnboardingCompletePage() {
@@ -48,7 +49,7 @@ export default function OnboardingCompletePage() {
         title: stored.title || "The Morning Paper",
         readingTime: stored.readingTime,
         totalArticleBudget: stored.totalArticleBudget,
-        includeImages: stored.includeImages,
+        includeImages: true,
         deliveryTime: stored.deliveryTime,
         timezone: stored.timezone,
         googleDriveFolder: stored.googleDriveFolder,
@@ -127,7 +128,7 @@ export default function OnboardingCompletePage() {
     <div className="flex min-h-screen items-center justify-center bg-newsprint px-6">
       <div className="space-y-4 text-center">
         <h1 className="font-display text-xl font-bold text-ink">
-          Saving your settings...
+          Saving your settings<LoadingDots />
         </h1>
         <p className="font-body text-sm text-caption">
           Setting up your newspaper. Just a moment.
