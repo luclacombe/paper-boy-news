@@ -66,7 +66,7 @@ src/
 │       ├── opds/[token]/feed.xml/     # OPDS catalog feed (token-based auth)
 │       └── opds/[token]/download/[editionId]/ # EPUB download proxy
 ├── components/
-│   ├── ui/            # shadcn/ui primitives (button, card, input, etc.)
+│   ├── ui/            # shadcn/ui primitives (button, card, input, etc.) + loading-dots.tsx
 │   ├── settings/      # Settings section panels (sources, delivery, schedule, paper, account)
 │   ├── app-masthead.tsx      # Newspaper masthead (rendered by dashboard page, not layout)
 │   ├── dashboard-client.tsx  # Dashboard interactive UI (deep links to settings via ?open=)
@@ -79,7 +79,7 @@ src/
 │   ├── feed-chip-grid.tsx    # Chip grid with category/frequency filter bar, groupMode controlled by parent
 │   └── *.tsx          # Shared components (device-card, edition-card, etc.)
 ├── data/
-│   └── feed-catalog.yaml  # Curated feed catalog (~35 feeds, 7 categories)
+│   └── feed-catalog.yaml  # Curated feed catalog (~55 feeds, 18 categories, 3 bundles)
 ├── db/
 │   ├── index.ts       # Drizzle client (postgres-js driver)
 │   ├── schema.ts      # 4 tables: user_profiles, user_feeds, delivery_history, feed_stats
@@ -91,7 +91,7 @@ src/
 │   ├── auth.ts        # getAuthUser(), getUserProfile()
 │   ├── setup-status.ts # Compute delivery setup completeness
 │   ├── download-epub.ts # EPUB download + File System Access API (send to device via USB)
-│   ├── constants.ts   # DEVICES, TIMEZONES, DELIVERY_TIMES, EDITION_ROLLOVER_HOUR, BUILD_MESSAGES
+│   ├── constants.ts   # DEVICES, TIMEZONES, DELIVERY_TIMES, EDITION_ROLLOVER_HOUR, BUILD_MESSAGES, GOOGLE_DRIVE_DISABLED
 │   ├── edition-date.ts # Timezone-aware edition date (5 AM rollover), cutoff checks
 │   ├── feed-catalog.ts # Catalog loading + getAllCatalogFeedUrls() for orphan cleanup
 │   ├── opds.ts        # buildOpdsFeed() — pure OPDS Atom XML builder
@@ -141,7 +141,7 @@ Partial unique index: `idx_delivery_unique_edition` on `(user_id, edition_date) 
 - **Feed validation** runs as a Next.js API route (`/api/feeds/validate`)
 - **Edition model**: edition date = today's calendar date in the user's timezone (no rollover). One per day, enforced by partial unique DB index. `isBeforeEditionCutoff()` checks if before 5 AM local for UI messaging. See `src/lib/edition-date.ts`
 - **Build pipeline**: Two-phase: 6 build windows every 4 hours build users in midnight–5 AM local (`BUILD_MODE=build`), deliver at each user's time (`BUILD_MODE=deliver`). Pre-check skips Python setup if no users need building. `getItNow()` action → checks dedup → if `"built"` exists dispatches delivery-only, else creates "building" record → fires `repository_dispatch` → returns immediately. Dashboard polls Supabase every 5s. Status lifecycle: `building → built → delivered` (or `→ failed`)
-- **Dashboard state machine**: 9 states computed from edition status, time of day, and setup completeness. Includes `"awaiting-delivery"` for `status="built"` (paper ready, delivery pending). Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability. **Priority**: active build states (client fetching, DB "building") take precedence over `setup-incomplete`, so mid-build settings changes don't hide the progress bar
+- **Dashboard state machine**: 11 states computed from edition status, time of day, and setup completeness. Includes `"awaiting-delivery"` for `status="built"` (paper ready, delivery pending). Pure function `getDashboardState()` exported from `dashboard-client.tsx` for testability. **Priority**: active build states (client fetching, DB "building") take precedence over `setup-incomplete`, so mid-build settings changes don't hide the progress bar
 - **Settings accordion**: 5 collapsible cards with colored left borders (red/ink/amber/green/caption). One open at a time. Deep linking via `?open=sources|delivery|schedule|paper|account`. First 4 sections use batch save — "Save changes" when dirty, auto-save on collapse. Account section has its own action buttons (password change, delete). Custom save toast (`save-toast.tsx`) with halftone texture, 3s countdown progress bar, and undo. Sources undo uses `setFeeds()` bulk replace; config undo restores previous snapshot. Summary generators exported from `settings-accordion.tsx` for testing. Sources section reports effective (pending-aware) counts to accordion for accurate summary display. **Reading time**: canonical picker lives in Your Paper section; Sources section has a compact stepper ([-] 20m [+]) integrated into the budget bar for quick adjustment. **Build locking**: Sources, Delivery, and Schedule sections are locked (dimmed, non-expandable) when `hasActiveBuild()` detects a "building" record for today — prevents settings changes from corrupting in-flight builds
 - **Feed stats threading**: `settings/page.tsx` calls `getAllFeedStats()` and threads the result down through `settings-client.tsx` → `settings-accordion.tsx` → `sources-section.tsx`. The same `feedStats` prop flows into onboarding Step 2. Components use `FeedBadges`, `BundleReadTime`, and `BudgetBar` to display per-feed badges, per-bundle totals, and the budget bar with pipeline messaging (`~25 articles → best 7 picked → 20m paper`).
 - **Orphaned feed cleanup**: `cleanOrphanedFeeds()` runs on settings page load — removes feeds whose URL is no longer in the catalog (unless category is "Custom"). Handles sources removed from `feed-catalog.yaml` (e.g. Bloomberg, FT)
