@@ -234,7 +234,7 @@ Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only
 - Core Python library uses `paper_boy` package namespace
 - Config is YAML-based for CLI (`config.yaml`), Supabase DB for web app
 - EPUB metadata: `calibre:series` for Kobo, standard EPUB3 for all devices
-- EPUB structure: category-grouped when feeds have categories (web app), flat when no categories (CLI). Cover page first in spine with EPUB3 landmarks nav + EPUB2 guide for proper opening behavior
+- EPUB structure: category-grouped when feeds have categories (web app), flat when no categories (CLI). Cover page in spine as non-linear (e-readers skip to TOC). End-of-edition page after last article. EPUB3 landmarks nav + EPUB2 guide for proper opening behavior
 - Post-extraction content filtering pipeline: junk stripping → lede dedup → ScienceDaily metadata → BBC related → section junk → trailing junk → paywall detection → quality gate → (image processing) → figcaption paragraph dedup (see `filters.py`)
 - Cover images: 600x900px, generated with Pillow, category-aware labels
 - Secrets: never commit `.env.local`, use env vars in CI/deployment
@@ -254,7 +254,7 @@ Edition date = **today's calendar date** in the user's configured timezone (no r
 - Edition date is always today's date — `getEditionDate()` returns the current calendar date
 - One edition per calendar day per user (enforced by partial unique index on `delivery_history`)
 - Build time = midnight–5 AM user-local (6 build windows every 4 hours cover all timezones)
-- Delivery time (5–8 AM user-local) = when the paper gets pushed to the user's device
+- Delivery time (user-local, typically 5–8 AM) = when the paper gets pushed to the user's device
 - "Get it now" = async build (or delivery-only if already built) via GitHub Actions
 - `isBeforeEditionCutoff()` checks if before 5 AM local — used for UI messaging (paper may still be building)
 
@@ -292,7 +292,7 @@ Observed per-feed metrics stored in the `feed_stats` table (global, not per-user
 
 - Core library, auth, and server actions are complete
 - Dashboard (`/dashboard`) — 11-state status card (including `awaiting-delivery`, `fetched-early`), async build with polling, past editions, schedule nudges, "Send to device" via File System Access API (Chrome/Edge). Build-in-progress state takes priority over setup-incomplete (safe when settings change mid-build)
-- Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), chip grid source selection with category/frequency filters, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Account section: email display, password change (email users), account deletion with confirmation
+- Settings (`/settings`) — accordion with 5 colored-border cards (Sources, Delivery, Schedule, Paper, Account), batch save with undo toast (3s countdown + halftone texture), chip grid source selection with category/frequency filters, per-page header with sign out. Deep linking from dashboard via `?open=`. Sources/Delivery/Schedule locked during active builds. Google Drive delivery temporarily disabled via `GOOGLE_DRIVE_DISABLED` flag in `constants.ts` (grayed out with "Coming soon" badge). Account section: email display, password change (email users), account deletion with confirmation
 - Wireless sync (KOReader) — first-class delivery method (`"koreader"`). Per-user OPDS feed (`/api/opds/[token]/feed.xml`) + EPUB download proxy. Pull-based — build treats like `"local"` (skip deliver phase). Token auto-generated on method selection; device-specific setup instructions with external guide links
 - Feed validation runs as a Next.js API route (no external backend needed)
 - Old routes (`/sources`, `/delivery`, `/editions`) redirect to `/settings` or `/dashboard`
