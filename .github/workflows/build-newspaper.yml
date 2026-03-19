@@ -98,11 +98,14 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
         run: python scripts/build_for_users.py > /dev/null 2>&1
 
-      - name: Delete workflow logs
+      - name: Clean up old workflow runs
         if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          curl -s -X DELETE \
-            -H "Authorization: token ${{ secrets.GH_PAT }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/logs" \
-            > /dev/null 2>&1 || true
+          # Delete runs older than 24 hours (keeps Actions page clean)
+          cutoff=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
+          gh api "repos/${{ github.repository }}/actions/workflows/build-newspaper.yml/runs?per_page=100&created=<${cutoff}" \
+            --jq '.workflow_runs[].id' 2>/dev/null | while read id; do
+            [ "$id" != "${{ github.run_id }}" ] && gh api "repos/${{ github.repository }}/actions/runs/$id" -X DELETE 2>/dev/null || true
+          done
