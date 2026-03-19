@@ -165,7 +165,7 @@ class TestBuildAndDeliver:
 
         build_and_deliver(local_config)
 
-        mock_deliver.assert_called_once_with(epub_path, local_config)
+        mock_deliver.assert_called_once_with(epub_path, local_config, article_count=4, source_count=2)
 
     @patch("paper_boy.main.deliver")
     @patch("paper_boy.main.build_epub")

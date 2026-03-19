@@ -97,7 +97,7 @@ p {
 .section-title {
     font-size: 1.3em;
     text-align: center;
-    margin: 2em 0 1em 0;
+    margin: 0 0 1em 0;
     padding: 0.5em 0;
     border-top: 2px solid #555;
     text-transform: uppercase;
@@ -358,17 +358,14 @@ def build_epub(
             if not section.articles:
                 continue
 
-            # Per-feed section divider
-            divider = _build_section_divider(section, article_index)
-            divider.add_item(css)
-            book.add_item(divider)
-            spine_items.append(divider)
-
             section_chapters = []
 
-            for article in section.articles:
+            for article_idx, article in enumerate(section.articles):
                 article_index += 1
-                chapter = _build_article_chapter(article, article_index, section.name)
+                chapter = _build_article_chapter(
+                    article, article_index, section.name,
+                    section_heading=section.name if article_idx == 0 else None,
+                )
                 chapter.add_item(css)
 
                 # Embed article images into the EPUB
@@ -397,7 +394,7 @@ def build_epub(
             # Build TOC entry for this feed section
             if section_chapters:
                 section_link = epub.Link(
-                    divider.file_name, section.name, divider.id
+                    section_chapters[0].file_name, section.name, section_chapters[0].id
                 )
                 cat_toc_children.append(
                     (section_link, section_chapters)
@@ -518,17 +515,6 @@ def _build_category_divider(
     return divider
 
 
-def _build_section_divider(section: Section, section_idx: int) -> epub.EpubHtml:
-    """Build a section divider page."""
-    html = f'<div class="section-title">{section.name}</div>'
-
-    divider = epub.EpubHtml(
-        title=section.name,
-        file_name=f"section_{section_idx:02d}.xhtml",
-    )
-    divider.content = html.encode("utf-8")
-    return divider
-
 
 def _format_article_date(date_str: str) -> str:
     """Normalize article date to human-readable format (e.g. 'March 7, 2026').
@@ -554,8 +540,16 @@ def _format_article_date(date_str: str) -> str:
     return date_str
 
 
-def _build_article_chapter(article, article_index: int, section_name: str) -> epub.EpubHtml:
-    """Build an article page."""
+def _build_article_chapter(
+    article, article_index: int, section_name: str,
+    section_heading: str | None = None,
+) -> epub.EpubHtml:
+    """Build an article page.
+
+    When ``section_heading`` is provided (first article of a source), the
+    source name is rendered as a heading above the article title so the reader
+    sees the source context without a standalone divider page.
+    """
     meta_parts = []
     if article.author:
         meta_parts.append(f'<span class="author">{article.author}</span>')
@@ -569,7 +563,11 @@ def _build_article_chapter(article, article_index: int, section_name: str) -> ep
     # Sanitize article body HTML to strip <script>, event handlers, etc.
     safe_content = sanitize_html(article.html_content) if article.html_content else ""
 
-    html = f"""<h1>{article.title}</h1>
+    section_header = ""
+    if section_heading:
+        section_header = f'<div class="section-title">{section_heading}</div>\n'
+
+    html = f"""{section_header}<h1>{article.title}</h1>
 <p class="article-meta">{meta_line}</p>
 <div class="article-body">
 {safe_content}

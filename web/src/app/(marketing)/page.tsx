@@ -246,7 +246,7 @@ export default function LandingPage() {
                     step: "3",
                     title: "Read on E-Reader",
                     description:
-                      "Delivered to your Kindle, Kobo, or reMarkable before you wake up.",
+                      "Delivered to your Kindle, Kobo, reMarkable, phone, or tablet before you wake up.",
                   },
                 ].map((item) => (
                   <div key={item.step} className="text-center">

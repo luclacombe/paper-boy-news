@@ -107,8 +107,13 @@ export function DashboardClient({
   todaysEdition,
 }: DashboardClientProps) {
   const router = useRouter();
-  const [earlyState, setEarlyState] = useState<EarlyFetchState>("idle");
-  const [earlyStep, setEarlyStep] = useState(0);
+  // Resume progress if returning to a building state (e.g. navigated to settings and back)
+  const [earlyState, setEarlyState] = useState<EarlyFetchState>(
+    todaysEdition?.status === "building" ? "fetching" : "idle"
+  );
+  const [earlyStep, setEarlyStep] = useState(
+    todaysEdition?.status === "building" ? 3 : 0
+  );
   const [earlyResult, setEarlyResult] = useState<BuildResult | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
   const [deviceFolderName, setDeviceFolderName] = useState<string | null>(null);

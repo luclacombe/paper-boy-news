@@ -298,6 +298,7 @@ export function OnboardingWizard({
 
   async function handleEmailSignUp(e: React.FormEvent) {
     e.preventDefault();
+    if (emailAuthLoading) return;
     setAuthError(null);
 
     if (password !== confirmPassword) {
@@ -314,7 +315,9 @@ export function OnboardingWizard({
     const { data, error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
-      if (error.message.includes("already registered")) {
+      if (error.message.includes("security purposes") || error.message.includes("rate limit")) {
+        setAuthError("Please wait a moment before trying again.");
+      } else if (error.message.includes("already registered")) {
         setAuthError("already_registered");
       } else {
         setAuthError(error.message);

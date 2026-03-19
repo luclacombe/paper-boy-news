@@ -62,6 +62,7 @@ def render_delivery_email(
     edition_date: str,
     article_count: int,
     source_count: int,
+    device: str = "other",
 ) -> str:
     """Render a newspaper-style HTML email for EPUB delivery.
 
@@ -70,6 +71,7 @@ def render_delivery_email(
         edition_date: Human-readable date (e.g. "March 18, 2026").
         article_count: Number of articles in the edition.
         source_count: Number of sources in the edition.
+        device: Target device type (kindle, kobo, remarkable, or other).
     """
     # Stats line (only if we have data)
     if article_count > 0:
@@ -79,6 +81,21 @@ def render_delivery_email(
         )
     else:
         stats = "Fresh off the press"
+
+    # Device-specific tip (compact, one line)
+    if device == "kindle":
+        tip = "Your paper will appear in your Kindle library automatically."
+    elif device == "kobo":
+        tip = "Open the attached file with your Kobo, or transfer via USB."
+    elif device == "remarkable":
+        tip = "Forward this email to your reMarkable, or transfer via USB."
+    else:
+        # "other" — covers phones, tablets, computers
+        tip = (
+            "Open the attachment to start reading. "
+            "On iPhone/iPad, tap and choose Books. "
+            "On Mac/Windows, use Calibre or any EPUB reader."
+        )
 
     return f"""\
 {_WRAPPER_START}
@@ -105,16 +122,10 @@ def render_delivery_email(
     </p>
   </td></tr>
 
-  <!-- Device tips -->
+  <!-- Tip -->
   <tr><td style="padding:0 0 16px;text-align:center;">
-    <div style="border-top:1px solid {_WARM_GRAY};margin:0 40px 12px;"></div>
-    <p style="margin:0 0 4px;font-size:12px;color:{_CAPTION};line-height:1.6;">
-      <strong style="color:{_INK};">Tap the attachment</strong> to start reading.
-    </p>
-    <p style="margin:0;font-size:11px;color:{_RULE_GRAY};line-height:1.6;">
-      iPhone/iPad: save to Files, open in Books &nbsp;&middot;&nbsp;
-      Kindle: appears in library if Send-to-Kindle is set up<br/>
-      Android: open with Play Books or your preferred reader
+    <p style="margin:0;font-size:12px;color:{_CAPTION};line-height:1.6;">
+      {tip}
     </p>
   </td></tr>
 

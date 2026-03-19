@@ -262,14 +262,20 @@
   }
 }
 
-/* === Loading dots === */
-@keyframes loading-dot {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 1; }
+/* === Loading dots (sequential reveal) === */
+@keyframes ellipsis {
+  0% { width: 0; }
+  25% { width: 0.3em; }
+  50% { width: 0.6em; }
+  75% { width: 1em; }
+  100% { width: 0; }
 }
 
-.animate-loading-dot {
-  animation: loading-dot 1.2s ease-in-out infinite;
+.animate-ellipsis {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  animation: ellipsis 1.5s steps(1, end) infinite;
 }
 
 /* === Shimmer (progress bar) === */
