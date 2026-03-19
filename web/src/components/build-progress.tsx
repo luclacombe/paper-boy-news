@@ -11,15 +11,26 @@ export function BuildProgress({ step, async: isAsync }: BuildProgressProps) {
   const messages = isAsync ? BUILD_MESSAGES_ASYNC : BUILD_MESSAGES;
   const totalSteps = messages.length;
   const clampedStep = Math.min(step, totalSteps - 1);
-  const progress = ((clampedStep + 1) / totalSteps) * 100;
+  // Logarithmic ease: fills fast early, slows down, caps at ~95%
+  const linearProgress = (clampedStep + 1) / totalSteps;
+  const progress = Math.min(95, Math.log(1 + linearProgress * 9) / Math.log(10) * 100);
   const message = messages[clampedStep] ?? messages[0];
 
   return (
     <div className="space-y-3 py-4">
       <div className="relative h-4 w-full overflow-hidden rounded-full bg-ink/10">
         <div
-          className="h-full bg-ink transition-all duration-500 ease-out"
+          className="h-full bg-ink transition-all duration-700 ease-out"
           style={{ width: `${progress}%` }}
+        />
+        {/* Shimmer overlay */}
+        <div
+          className="pointer-events-none absolute inset-0 animate-shimmer"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%)",
+            backgroundSize: "200% 100%",
+          }}
         />
         {/* Halftone dot overlay */}
         <div

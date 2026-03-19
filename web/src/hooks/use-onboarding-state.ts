@@ -66,7 +66,6 @@ export interface OnboardingState {
   title: string;
   readingTime: string;
   totalArticleBudget: number;
-  includeImages: boolean;
   deliveryTime: string;
   timezone: string;
   googleDriveFolder: string;
@@ -82,7 +81,6 @@ const DEFAULTS: OnboardingState = {
   title: "The Morning Paper",
   readingTime: "15",
   totalArticleBudget: 5,
-  includeImages: true,
   deliveryTime: "06:00",
   timezone: typeof window !== "undefined" ? detectTimezone() : "America/New_York",
   googleDriveFolder: "Paper Boy News",
