@@ -105,6 +105,19 @@ def render_delivery_email(
     </p>
   </td></tr>
 
+  <!-- Device tips -->
+  <tr><td style="padding:0 0 16px;text-align:center;">
+    <div style="border-top:1px solid {_WARM_GRAY};margin:0 40px 12px;"></div>
+    <p style="margin:0 0 4px;font-size:12px;color:{_CAPTION};line-height:1.6;">
+      <strong style="color:{_INK};">Tap the attachment</strong> to start reading.
+    </p>
+    <p style="margin:0;font-size:11px;color:{_RULE_GRAY};line-height:1.6;">
+      iPhone/iPad: save to Files, open in Books &nbsp;&middot;&nbsp;
+      Kindle: appears in library if Send-to-Kindle is set up<br/>
+      Android: open with Play Books or your preferred reader
+    </p>
+  </td></tr>
+
   <!-- Settings link -->
   <tr><td style="padding:0 0 20px;text-align:center;">
     <p style="margin:0;font-size:13px;line-height:1.6;color:{_CAPTION};">
