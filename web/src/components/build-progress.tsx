@@ -20,18 +20,19 @@ export function BuildProgress({ step, async: isAsync }: BuildProgressProps) {
     <div className="space-y-3 py-4">
       <div className="relative h-4 w-full overflow-hidden rounded-full bg-ink/10">
         <div
-          className="h-full bg-ink transition-all duration-700 ease-out"
+          className="relative h-full bg-ink transition-all duration-700 ease-out"
           style={{ width: `${progress}%` }}
-        />
-        {/* Shimmer overlay */}
-        <div
-          className="pointer-events-none absolute inset-0 animate-shimmer"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.15) 50%, transparent 100%)",
-            backgroundSize: "200% 100%",
-          }}
-        />
+        >
+          {/* Shimmer overlay (inside fill — only covers filled portion) */}
+          <div
+            className="pointer-events-none absolute inset-0 animate-shimmer"
+            style={{
+              background:
+                "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%)",
+              backgroundSize: "200% 100%",
+            }}
+          />
+        </div>
         {/* Halftone dot overlay */}
         <div
           className="pointer-events-none absolute inset-0 mix-blend-multiply opacity-50"

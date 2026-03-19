@@ -134,6 +134,7 @@ def deliver_resend(
         edition_date=edition_date,
         article_count=article_count,
         source_count=source_count,
+        device=config.delivery.device,
     )
 
     with open(epub_path, "rb") as f:
