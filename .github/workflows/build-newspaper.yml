@@ -103,9 +103,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          # Delete runs older than 24 hours (keeps Actions page clean)
-          cutoff=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-24H +%Y-%m-%dT%H:%M:%SZ)
-          gh api "repos/${{ github.repository }}/actions/workflows/build-newspaper.yml/runs?per_page=100&created=<${cutoff}" \
+          # Delete runs older than 48 hours (keeps Actions page clean)
+          cutoff=$(date -u -d '48 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-48H +%Y-%m-%dT%H:%M:%SZ)
+          gh api "repos/${{ github.repository }}/actions/workflows/build-newspaper.yml/runs?per_page=100&status=completed&created=<${cutoff}" \
             --jq '.workflow_runs[].id' 2>/dev/null | while read id; do
             [ "$id" != "${{ github.run_id }}" ] && gh api "repos/${{ github.repository }}/actions/runs/$id" -X DELETE 2>/dev/null || true
           done
