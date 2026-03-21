@@ -713,7 +713,7 @@ export function OnboardingWizard({
                       "grid transition-[grid-template-rows] duration-300 ease-in-out",
                       state.deliveryMethod === "email" ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
                     )}>
-                      <div className="overflow-hidden">
+                      <div className="overflow-hidden px-0.5 pb-0.5">
                         <div className="space-y-3 pt-3">
                           <div className="space-y-2">
                             <Label className="font-headline text-sm text-ink">
@@ -913,7 +913,7 @@ export function OnboardingWizard({
         <Button
           onClick={handleGoogleSignIn}
           disabled={googleAuthLoading || emailAuthLoading}
-          className="letterpress flex w-full items-center justify-center gap-2 bg-ink font-body text-sm text-newsprint hover:bg-ink/90"
+          className="letterpress flex w-full items-center justify-center gap-2 bg-ink font-body text-sm text-newsprint hover:bg-ink/90 disabled:opacity-80"
         >
           <svg className="h-4 w-4" viewBox="0 0 24 24">
             <path
@@ -1004,7 +1004,7 @@ export function OnboardingWizard({
             <Button
               type="submit"
               disabled={emailAuthLoading || googleAuthLoading}
-              className="letterpress w-full bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90"
+              className="letterpress w-full bg-ink font-body text-sm uppercase tracking-wider text-newsprint hover:bg-ink/90 disabled:opacity-80"
             >
               {emailAuthLoading ? <>Creating account<LoadingDots /></> : "Create Account"}
             </Button>

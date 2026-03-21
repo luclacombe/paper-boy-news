@@ -190,6 +190,11 @@
   text-shadow:
     -1px -1px 0 rgba(255, 255, 255, 0.6),
     1px 1px 1px rgba(0, 0, 0, 0.35);
+  transition: transform 0.1s ease;
+}
+
+.letterpress:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 /* === Newsprint input texture === */
@@ -285,7 +290,7 @@
 }
 
 .animate-shimmer {
-  animation: shimmer 2s ease-in-out infinite;
+  animation: shimmer 3s ease-in-out infinite;
 }
 
 /* === Step-in transition (onboarding wizard) === */
