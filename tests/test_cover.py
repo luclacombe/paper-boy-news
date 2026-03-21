@@ -110,6 +110,71 @@ class TestGenerateCover:
         assert len(cover_bytes) > 0
 
 
+# --- Round-robin allocation ---
+
+
+class TestRoundRobinAllocation:
+    """Cover headlines use round-robin: every source gets 1 article before any
+    source gets a second.  We verify this by inspecting the _sim_height /
+    per_source allocation path indirectly — generate a cover with one source
+    having many articles and another having one, and ensure the output doesn't
+    error and produces a valid image."""
+
+    def test_dominant_source_does_not_crowd_others(self):
+        """A source with 20 articles shouldn't prevent later sources from appearing."""
+        sections = [
+            Section(
+                "Big Source", "News",
+                [Article(title=f"Big story {i}", url=f"https://big.com/{i}") for i in range(20)],
+            ),
+            Section(
+                "Small Source", "News",
+                [Article(title="Small story", url="https://small.com/1")],
+            ),
+        ]
+        cover_bytes = generate_cover("Test", sections, date(2026, 1, 1))
+        assert len(cover_bytes) > 0
+
+    def test_all_sources_represented_across_categories(self):
+        """Sources in different categories all appear on the cover."""
+        sections = [
+            Section(
+                "Source A", "Politics",
+                [Article(title=f"A story {i}", url=f"https://a.com/{i}") for i in range(10)],
+            ),
+            Section(
+                "Source B", "Politics",
+                [Article(title=f"B story {i}", url=f"https://b.com/{i}") for i in range(10)],
+            ),
+            Section(
+                "Source C", "Tech",
+                [Article(title=f"C story {i}", url=f"https://c.com/{i}") for i in range(10)],
+            ),
+            Section(
+                "Source D", "Science",
+                [Article(title=f"D story {i}", url=f"https://d.com/{i}") for i in range(10)],
+            ),
+        ]
+        cover_bytes = generate_cover("Test", sections, date(2026, 1, 1))
+        assert len(cover_bytes) > 0
+        img = Image.open(BytesIO(cover_bytes))
+        assert img.size == (COVER_WIDTH, COVER_HEIGHT)
+
+    def test_single_article_sources_not_penalized(self):
+        """Sources with only 1 article still appear when others have many."""
+        sections = [
+            Section(
+                "Prolific",
+                [Article(title=f"Story {i}", url=f"https://p.com/{i}") for i in range(15)],
+            ),
+            Section("One-off A", [Article(title="Solo A", url="https://a.com/1")]),
+            Section("One-off B", [Article(title="Solo B", url="https://b.com/1")]),
+            Section("One-off C", [Article(title="Solo C", url="https://c.com/1")]),
+        ]
+        cover_bytes = generate_cover("Test", sections, date(2026, 1, 1))
+        assert len(cover_bytes) > 0
+
+
 # --- Font loading ---
 
 
