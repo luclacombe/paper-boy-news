@@ -129,6 +129,26 @@ def _wrap_and_draw(
     return y
 
 
+def _measure_text_height(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    max_width: int,
+    max_lines: int = 3,
+    line_spacing: int = 4,
+) -> int:
+    """Measure the height of word-wrapped text without drawing."""
+    avg_char_width = draw.textlength("x", font=font)
+    wrap_width = max(10, int(max_width / avg_char_width))
+    wrapped = textwrap.fill(text, width=wrap_width)
+    lines = wrapped.split("\n")[:max_lines]
+    total = 0
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        total += (bbox[3] - bbox[1]) + line_spacing
+    return total
+
+
 def generate_cover(
     title: str,
     sections: list[Section],
@@ -192,75 +212,138 @@ def generate_cover(
     y = _draw_double_rule(draw, y, MARGIN, COVER_WIDTH - MARGIN)
     y += 20
 
-    # === Lead headline (first article from first section) ===
-    # Use category name as label when available; deduplicate by category
+    # === Headlines ===
+    # Every source appears with at least one article.  Remaining space is
+    # filled round-robin so no single source dominates the cover.
     has_categories = any(
         s.category and s.category != "Custom" for s in sections if s.articles
     )
-    all_articles = []
-    seen_categories: set[str] = set()
+
+    # Build source groups preserving section/source order
+    source_groups: list[tuple[str, str, list]] = []
     for section in sections:
         if not section.articles:
             continue
-        label = section.category if has_categories and section.category else section.name
-        if has_categories and label in seen_categories:
-            continue
-        if has_categories:
-            seen_categories.add(label)
-        all_articles.append((label, section.articles[0]))
+        cat = section.category if has_categories and section.category else ""
+        source_groups.append((cat, section.name, list(section.articles)))
 
-    if all_articles:
-        lead_section, lead_article = all_articles[0]
+    usable_width = COVER_WIDTH - 2 * INNER_MARGIN
+    y_max = COVER_HEIGHT - 100
 
-        # Section label for lead
-        label = lead_section.upper()
-        draw.text((INNER_MARGIN, y), label, fill=LEAD_RULE_COLOR, font=section_font)
+    if source_groups:
+        lead_cat = source_groups[0][0]
+        lead_src = source_groups[0][1]
+        lead_article = source_groups[0][2][0]
+
+        # --- Measure lead height to compute remaining budget ---
+        lead_h = 16  # category/source label
+        lead_h += _measure_text_height(
+            draw, lead_article.title, lead_font, usable_width,
+            max_lines=3, line_spacing=6,
+        )
+        lead_h += 8 + 16  # red rule + spacing
+        y_after_lead = y + lead_h
+
+        # Simulate secondary headline layout height for a given allocation
+        def _sim_height(counts: list[int]) -> int:
+            sy = y_after_lead
+            pc, ps = lead_cat, lead_src
+            for i, (ct, sr, arts) in enumerate(source_groups):
+                start = 1 if i == 0 else 0
+                for j in range(start, min(counts[i], len(arts))):
+                    if ct and ct != pc:
+                        sy += 22  # thin rule + category label
+                    if sr != ps:
+                        sy += 14  # source label
+                    sy += _measure_text_height(
+                        draw, arts[j].title, headline_font, usable_width,
+                        max_lines=2, line_spacing=3,
+                    )
+                    sy += 6
+                    pc, ps = ct, sr
+            return sy
+
+        # Phase 1: one article per source (all sources represented)
+        per_source = [1] * len(source_groups)
+
+        # Phase 2: round-robin extras while space permits
+        if _sim_height(per_source) <= y_max:
+            expanding = True
+            while expanding:
+                expanding = False
+                for i in range(len(source_groups)):
+                    if per_source[i] >= len(source_groups[i][2]):
+                        continue
+                    per_source[i] += 1
+                    if _sim_height(per_source) > y_max:
+                        per_source[i] -= 1
+                    else:
+                        expanding = True
+
+        # Build flat article list in original section/source order
+        all_articles: list[tuple[str, str, object]] = []
+        for i, (cat, src, arts) in enumerate(source_groups):
+            for art in arts[: per_source[i]]:
+                all_articles.append((cat, src, art))
+
+        # --- Render lead headline ---
+        lead_label = (lead_cat or lead_src).upper()
+        draw.text(
+            (INNER_MARGIN, y), lead_label,
+            fill=LEAD_RULE_COLOR, font=section_font,
+        )
         y += 16
 
-        # Lead headline in large text
-        usable_width = COVER_WIDTH - 2 * INNER_MARGIN
         y = _wrap_and_draw(
             draw, y, lead_article.title, lead_font, TEXT_COLOR,
             max_width=usable_width, max_lines=3, line_spacing=6,
         )
         y += 8
 
-        # Red accent rule below lead
         draw.line(
             [(INNER_MARGIN, y), (INNER_MARGIN + 80, y)],
             fill=LEAD_RULE_COLOR, width=2,
         )
-        y += 20
+        y += 16
 
-        # === Secondary headlines ===
-        remaining = all_articles[1:]
-        max_secondary = 6
-        drawn = 0
+        # --- Render secondary headlines ---
+        prev_cat = lead_cat
+        prev_src = lead_src
 
-        for section_name, article in remaining:
-            if drawn >= max_secondary or y > COVER_HEIGHT - 100:
+        for cat, src, article in all_articles[1:]:
+            if y > y_max:
                 break
 
-            # Thin separator
-            if drawn > 0:
+            # Category label when category changes
+            if cat and cat != prev_cat:
                 draw.line(
                     [(INNER_MARGIN, y), (COVER_WIDTH - INNER_MARGIN, y)],
                     fill="#DDDDDD", width=1,
                 )
-                y += 10
+                y += 8
+                draw.text(
+                    (INNER_MARGIN, y), cat.upper(),
+                    fill=LEAD_RULE_COLOR, font=section_font,
+                )
+                y += 14
 
-            # Section label
-            label = section_name.upper()
-            draw.text((INNER_MARGIN, y), label, fill=SECTION_COLOR, font=section_font)
-            y += 14
+            # Source label when source changes
+            if src != prev_src:
+                draw.text(
+                    (INNER_MARGIN, y), src.upper(),
+                    fill=SECTION_COLOR, font=section_font,
+                )
+                y += 14
 
             # Headline
             y = _wrap_and_draw(
                 draw, y, article.title, headline_font, TEXT_COLOR,
                 max_width=usable_width, max_lines=2, line_spacing=3,
             )
-            y += 8
-            drawn += 1
+            y += 6
+
+            prev_cat = cat
+            prev_src = src
 
     # === Footer ===
 
@@ -274,6 +357,21 @@ def generate_cover(
         [(MARGIN, footer_y), (COVER_WIDTH - MARGIN, footer_y)],
         fill=ACCENT_COLOR, width=3,
     )
+
+    # Small logo centered in the space below the bottom rule
+    logo_path = Path(__file__).parent / "assets" / "pb_logo.png"
+    if logo_path.exists():
+        try:
+            logo = Image.open(logo_path).convert("RGBA")
+            logo_size = 24
+            logo.thumbnail((logo_size, logo_size), Image.LANCZOS)
+            # Center horizontally and vertically in remaining space below rule
+            logo_x = (COVER_WIDTH - logo.width) // 2
+            space_below_rule = COVER_HEIGHT - (footer_y + 3)  # 3 = thick rule height
+            logo_y = footer_y + 3 + (space_below_rule - logo.height) // 2
+            img.paste(logo, (logo_x, logo_y), logo)
+        except Exception:
+            pass  # Skip logo if anything goes wrong
 
     # Output as JPEG
     output = BytesIO()

@@ -40,7 +40,7 @@ paper-boy = "paper_boy.cli:cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-paper_boy = ["fonts/*.ttf", "fonts/OFL.txt"]
+paper_boy = ["fonts/*.ttf", "fonts/OFL.txt", "assets/*.png"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
