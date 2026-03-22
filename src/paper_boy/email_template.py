@@ -1,7 +1,8 @@
-"""Branded HTML email template for ebook delivery."""
+"""Branded HTML email templates for delivery and failure notifications."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from html import escape as _escape
 
 # Paper Boy News color palette
@@ -135,6 +136,111 @@ def render_delivery_email(
       Manage your sources, schedule, and reading time from your
       <a href="https://www.paper-boy-news.com/settings" style="color:{_EDITION_RED};text-decoration:underline;">dashboard</a>.
     </p>
+  </td></tr>
+
+{_WRAPPER_END}"""
+
+
+def render_failure_email(title: str, edition_date: str) -> str:
+    """Render a branded email notifying the user their edition could not be delivered.
+
+    Args:
+        title: Newspaper title (e.g. "Morning Digest").
+        edition_date: Human-readable date (e.g. "March 18, 2026").
+    """
+    return f"""\
+{_WRAPPER_START}
+  <!-- Content -->
+  <tr><td style="padding:28px 0 8px;text-align:center;">
+    <p style="margin:0;font-size:24px;font-weight:700;color:{_INK};font-family:'Palatino Linotype',Palatino,Georgia,serif;">
+      {_escape(title)}
+    </p>
+    <p style="margin:6px 0 0;font-size:13px;color:{_CAPTION};font-style:italic;">
+      {_escape(edition_date)}
+    </p>
+  </td></tr>
+
+  <!-- Thin rule -->
+  <tr><td style="padding:12px 40px;"><div style="border-top:1px solid {_WARM_GRAY};"></div></td></tr>
+
+  <!-- Body -->
+  <tr><td style="padding:4px 0 20px;text-align:center;">
+    <p style="margin:0 0 8px;font-size:16px;line-height:1.7;color:{_INK};">
+      We weren't able to deliver your edition today.
+    </p>
+    <p style="margin:0;font-size:16px;line-height:1.7;color:{_INK};">
+      We've been notified and are looking into it. Your next edition will arrive on schedule.
+    </p>
+  </td></tr>
+
+  <!-- Dashboard link -->
+  <tr><td style="padding:0 0 20px;text-align:center;">
+    <p style="margin:0;font-size:13px;line-height:1.6;color:{_CAPTION};">
+      You can also try again from your
+      <a href="https://www.paper-boy-news.com/dashboard" style="color:{_EDITION_RED};text-decoration:underline;">dashboard</a>.
+    </p>
+  </td></tr>
+
+{_WRAPPER_END}"""
+
+
+def render_admin_alert_email(
+    record_id: str,
+    user_id: str,
+    delivery_method: str,
+    edition_date: str,
+    error_message: str,
+) -> str:
+    """Render a debug email for the admin when a build or delivery fails.
+
+    Args:
+        record_id: delivery_history row ID.
+        user_id: user_profiles row ID.
+        delivery_method: The delivery method (email, google_drive, local, koreader).
+        edition_date: Edition date string (ISO format).
+        error_message: The error message (up to 500 chars).
+    """
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    return f"""\
+{_WRAPPER_START}
+  <!-- Content -->
+  <tr><td style="padding:28px 0 8px;text-align:center;">
+    <p style="margin:0;font-size:20px;font-weight:700;color:{_EDITION_RED};font-family:'Palatino Linotype',Palatino,Georgia,serif;">
+      Build / Delivery Failure
+    </p>
+    <p style="margin:6px 0 0;font-size:13px;color:{_CAPTION};font-style:italic;">
+      {_escape(timestamp)}
+    </p>
+  </td></tr>
+
+  <!-- Thin rule -->
+  <tr><td style="padding:12px 40px;"><div style="border-top:1px solid {_WARM_GRAY};"></div></td></tr>
+
+  <!-- Debug details -->
+  <tr><td style="padding:4px 20px 20px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:{_INK};line-height:1.8;">
+      <tr>
+        <td style="font-weight:700;padding-right:12px;white-space:nowrap;vertical-align:top;">Record</td>
+        <td style="font-family:monospace;font-size:12px;">{_escape(record_id)}</td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;padding-right:12px;white-space:nowrap;vertical-align:top;">User</td>
+        <td style="font-family:monospace;font-size:12px;">{_escape(user_id)}</td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;padding-right:12px;white-space:nowrap;vertical-align:top;">Method</td>
+        <td>{_escape(delivery_method)}</td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;padding-right:12px;white-space:nowrap;vertical-align:top;">Edition</td>
+        <td>{_escape(edition_date)}</td>
+      </tr>
+      <tr>
+        <td style="font-weight:700;padding-right:12px;white-space:nowrap;vertical-align:top;">Error</td>
+        <td style="color:{_EDITION_RED};">{_escape(error_message)}</td>
+      </tr>
+    </table>
   </td></tr>
 
 {_WRAPPER_END}"""

@@ -23,10 +23,11 @@ pytest -k "test_build"           # By name pattern
 - `test_images.py` — Image optimization
 - `test_main.py` — Build pipeline orchestration + cache threading
 - `test_delivery.py` — Delivery backends
+- `test_email_template.py` — Email template rendering (delivery, failure notification, admin alert)
 - `test_cli.py` — CLI commands
 
 ### Build Pipeline Tests
-- `test_build_for_users.py` — Build script delivery method snapshotting, mid-build safety, on-demand flow, config construction, helper functions
+- `test_build_for_users.py` — Build script delivery method snapshotting, mid-build safety, on-demand flow, config construction, helper functions, failure notifications
 
 ## Test Patterns
 
