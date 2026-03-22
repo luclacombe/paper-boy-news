@@ -143,7 +143,7 @@ def deliver_resend(
     params: resend.Emails.SendParams = {
         "from": "Paper Boy News <delivery@paper-boy-news.com>",
         "to": [email_cfg.recipient],
-        "subject": f"{title} — {edition_date}",
+        "subject": f"{title} | {edition_date}",
         "html": html,
         "attachments": [
             {

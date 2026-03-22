@@ -341,7 +341,7 @@ def _send_failure_notifications(
             resend.Emails.send({
                 "from": "Paper Boy News <delivery@paper-boy-news.com>",
                 "to": [account_email],
-                "subject": f"{title} — delivery issue",
+                "subject": f"{title} | delivery issue",
                 "html": html,
             })
             logger.info("Sent failure notification to %s", account_email)
@@ -359,7 +359,7 @@ def _send_failure_notifications(
             resend.Emails.send({
                 "from": "Paper Boy News <delivery@paper-boy-news.com>",
                 "to": [admin_email],
-                "subject": f"[Paper Boy] Failure — {edition_date_str}",
+                "subject": f"[Paper Boy] Failure | {edition_date_str}",
                 "html": admin_html,
             })
             logger.info("Sent admin alert to %s", admin_email)

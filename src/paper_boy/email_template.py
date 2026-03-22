@@ -93,9 +93,9 @@ def render_delivery_email(
     else:
         # "other" — covers phones, tablets, computers
         tip = (
-            "Open the attachment to start reading. "
-            "On iPhone/iPad, tap and choose Books. "
-            "On Mac/Windows, use Calibre or any EPUB reader."
+            "On iPhone/iPad, tap the attachment, then tap the share icon and select Books."
+            "<br>"
+            "On Mac/Windows, open the attachment with Calibre or any EPUB reader."
         )
 
     return f"""\
