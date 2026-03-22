@@ -64,6 +64,12 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 5. Dashboard detects `status: "delivered"`, `"built"`, or `"failed"` and transitions state
 6. Settings locks Sources/Delivery/Schedule sections during active builds to prevent mid-build changes
 
+**Failure notifications:**
+- On any build or delivery failure, `_send_failure_notifications()` sends two emails via Resend:
+  1. **User email** — branded notification to user's account email (skipped for local/koreader). No error details exposed.
+  2. **Admin alert** — debug email to `ADMIN_ALERT_EMAIL` with record ID, user ID, delivery method, error message.
+- Wrapped in try/except — notification failures never disrupt the main flow.
+
 **Status lifecycle:** `building → built → delivered` (or `→ failed` at any step)
 
 ## Project Structure
@@ -71,13 +77,13 @@ Two-phase scheduled pipeline (6 build windows + delivery checks):
 ```
 src/paper_boy/           # Core Python library + CLI (see src/paper_boy/CLAUDE.md)
   cache.py               # In-memory content cache (feeds, articles, images)
-  email_template.py      # Branded HTML email template for Resend delivery
+  email_template.py      # Branded HTML email templates (delivery + failure notification)
   feeds.py               # RSS fetching, article text extraction, image optimization, domain-specific handlers (FT/BoF/Bloomberg/Reuters/WaPo/SciAm)
   filters.py             # Post-extraction content filters (paywall, junk, quality)
 web/                     # Next.js web app (see web/CLAUDE.md)
   src/app/api/opds/      # OPDS feed + EPUB download proxy (token-based auth)
 scripts/                 # Build + utility scripts for GitHub Actions
-  build_for_users.py     # Build runner (3 modes: build, deliver, on-demand) + feed stats upsert
+  build_for_users.py     # Build runner (3 modes: build, deliver, on-demand) + feed stats upsert + failure notifications
   seed_feed_stats.py     # Seed/update feed_stats table (RSS scan or --from-build for full stats)
 legacy/streamlit/        # Archived Streamlit prototype
 legacy/api/              # Archived FastAPI backend (replaced by GitHub Actions)
@@ -213,6 +219,7 @@ Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only
 ## Security
 
 - **Email delivery**: Resend API from `delivery@paper-boy-news.com` — `RESEND_API_KEY` env var in GitHub Actions
+- **Admin alerts**: `ADMIN_ALERT_EMAIL` env var (GitHub Actions secret) — receives failure notification emails with debug context
 - **Google OAuth**: `client_id`/`client_secret` NOT stored in DB — build runner uses env vars exclusively. OAuth requests `drive.file` scope only
 - **OPDS tokens**: 90-day expiry (`opds_token_expires_at`), auto-regenerate on expire. `Referrer-Policy: no-referrer` on all OPDS responses
 - **Input validation**: Zod schema on `updateUserConfig()`, URL scheme validation on `addFeed()`/`setFeeds()`/`completeOnboarding()`

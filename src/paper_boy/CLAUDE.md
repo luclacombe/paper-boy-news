@@ -45,7 +45,7 @@ src/paper_boy/
 ├── epub.py           # EPUB generation with category grouping, dividers, EPUB3 landmarks nav
 ├── cover.py          # Cover image generation (600x900px, category-aware labels)
 ├── delivery.py       # Delivery backends: Google Drive, Resend email, local
-├── email_template.py # Branded HTML email template for Resend delivery
+├── email_template.py # Branded HTML email templates (delivery, failure notification, admin alert)
 └── main.py           # Orchestration: fetch → build → deliver (returns BuildResult)
 ```
 
