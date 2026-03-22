@@ -2,12 +2,12 @@
 
 <img src="docs/banner.webp" alt="Your news, compiled overnight. On your e-reader by morning." width="720" />
 
-Paper Boy News: Fetches news from RSS feeds, compiles a beautifully formatted EPUB, and delivers it to your Kobo, Kindle, or reMarkable before you wake up.
+Your personalized newspaper, compiled from 50+ news sources and delivered to your Kobo, Kindle, or reMarkable before you wake up.
 
 [![CI](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml/badge.svg)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](web/tsconfig.json)
 [![Deploy: Vercel](https://img.shields.io/badge/Web_App-Vercel-black?logo=vercel)](https://www.paper-boy-news.com)
-[![Tests](https://img.shields.io/badge/Tests-845_passing-brightgreen)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/Tests-856_passing-brightgreen)](https://github.com/luclacombe/paper-boy/actions/workflows/ci.yml)
 
 [Live Demo](https://www.paper-boy-news.com) &middot; [Report Bug](https://github.com/luclacombe/paper-boy/issues) &middot; [Request Feature](https://github.com/luclacombe/paper-boy/issues)
 
@@ -15,16 +15,16 @@ Paper Boy News: Fetches news from RSS feeds, compiles a beautifully formatted EP
 
 ## Why I Built This
 
-I wanted to read the news on my Kobo without doomscrolling on my phone. No existing solution let me pick my own sources *and* get a properly formatted newspaper delivered automatically.
+I was following the news mostly through social media and wanted to switch to reading actual articles. I already loved my Kobo for books, so when my dad shared his FT subscription, it sparked an idea: could I get the news on my e-reader every morning?
 
-Paper Boy started as a Python CLI, grew into a Streamlit prototype, and evolved into a full-stack Next.js + GitHub Actions pipeline — each iteration solving real pain points I hit as a daily user.
+Paper Boy started as a Python CLI, grew into a Streamlit prototype, and evolved into a full-stack Next.js + GitHub Actions pipeline. Each iteration solved real pain points I hit as a daily user.
 
 ## How It Works
 
-1. **Pick your sources** from 40+ curated feeds or add your own RSS URLs
-2. **Choose your device** — Kobo, Kindle, reMarkable, or any EPUB reader
-3. **Get your newspaper** — articles are extracted, cleaned, and optimized for e-ink
-4. **Delivered automatically** via Google Drive (Kobo), email (Kindle), wireless sync (KOReader), or direct download
+1. **Pick your sources** from 50+ curated feeds or add your own RSS URLs
+2. **Choose your device:** Kobo, Kindle, reMarkable, or any EPUB reader
+3. **Get your newspaper:** articles are extracted, cleaned, and optimized for e-ink
+4. **Delivered automatically** via email, wireless sync (KOReader), direct download, or Google Drive
 
 ## Architecture
 
@@ -60,34 +60,7 @@ graph LR
     style E fill:#2d2d2d,stroke:#333,color:#fff
 ```
 
-**Next.js** handles auth, onboarding, and the dashboard via Supabase. When you hit "Get it now," it fires a `repository_dispatch` event to **GitHub Actions**, which runs the **Python core library** to fetch RSS feeds, extract full article text with trafilatura, generate an e-ink-optimized EPUB with ebooklib, and deliver it to your device. Scheduled builds run via cron across 6 timezone-aware windows to deliver papers by morning worldwide.
-
-## Features
-
-**Web App**
-- **Onboarding wizard** — 4-step setup: device, sources, delivery, first build
-- **Dashboard** — 11-state status machine with async build polling, edition history, and early fetch
-- **Source catalog** — 40+ curated feeds across 7 categories, starter bundles, custom RSS URLs
-- **Multi-device delivery** — Google Drive (Kobo), Send-to-Kindle email, reMarkable, KOReader (OPDS wireless sync), download
-- **Edition model** — timezone-aware daily editions, one per day, dedup guards
-- **Settings** — batch save with undo, source management with category/frequency filters, delivery config, schedule, account
-
-**Core Library**
-- **Multi-strategy extraction** — trafilatura, readability, raw HTML fallback with domain-specific handlers
-- **Content filtering** — paywall detection, junk stripping, lede dedup, quality gates
-- **Smart budgeting** — frequency-aware freshness windows, time-based reading budgets, per-feed allocation
-- **Image optimization** — e-ink optimized, grayscale conversion, smart cropping for covers
-- **Content caching** — three-layer dedup (feeds, articles, images) across concurrent user builds
-
-**CLI**
-- **One-command builds** — `paper-boy build` generates an EPUB from your config
-- **Automated delivery** — `paper-boy deliver` builds and pushes to Google Drive or email
-- **YAML config** — full control over feeds, article count, delivery method, device type
-
-**Automation**
-- **Scheduled delivery** — 6 build windows (every 4 hours) + delivery checks every 30 minutes
-- **On-demand builds** — trigger from the dashboard, delivered in ~2 minutes
-- **Feed stats** — rolling per-feed metrics (freshness, word counts, extraction rates) for budget optimization
+**Next.js** handles auth, onboarding, and the dashboard via Supabase. When you hit "Get it now," it fires a `repository_dispatch` event to **GitHub Actions**, which runs the **Python core library** to extract full article text, generate an e-ink optimized EPUB, and deliver it to your device. Scheduled builds run via cron across 6 timezone-aware windows to deliver papers by morning worldwide.
 
 ## Tech Stack
 
@@ -97,14 +70,44 @@ graph LR
 | Auth & DB | Supabase (PostgreSQL + Auth + Storage), Drizzle ORM |
 | Build pipeline | GitHub Actions (cron + `repository_dispatch`), Python scripts |
 | Core library | Python 3.9+, feedparser, trafilatura, ebooklib, Pillow, Playwright |
-| Testing | Vitest (225 tests) + pytest (620 tests) |
+| Testing | Vitest (218 tests) + pytest (638 tests) |
 | CI/CD | GitHub Actions, Vercel (web) |
+
+<details>
+<summary><h2>Features</h2></summary>
+
+**Web App**
+- **Onboarding wizard:** 4-step setup for device, sources, delivery, first build
+- **Dashboard:** 11-state status machine with async build polling, edition history, and early fetch
+- **Source catalog:** 50+ curated feeds across 7 categories, starter bundles, custom RSS URLs
+- **Multi-device delivery:** email (Kindle), wireless sync (KOReader/OPDS), direct download, Google Drive (Kobo)
+- **Edition model:** timezone-aware daily editions, one per day, dedup guards
+- **Settings:** batch save with undo, source management with category/frequency filters, delivery config, schedule, account
+
+**Core Library**
+- **Multi-strategy extraction:** trafilatura, readability, raw HTML fallback with domain-specific handlers
+- **Content filtering:** paywall detection, junk stripping, lede dedup, quality gates
+- **Smart budgeting:** frequency-aware freshness windows, time-based reading budgets, per-feed allocation
+- **Image optimization:** e-ink optimized, grayscale conversion, smart cropping for covers
+- **Content caching:** three-layer dedup (feeds, articles, images) across concurrent user builds
+
+**CLI**
+- **One-command builds:** `paper-boy build` generates an EPUB from your config
+- **Automated delivery:** `paper-boy deliver` builds and pushes to Google Drive or email
+- **YAML config:** full control over feeds, article count, delivery method, device type
+
+**Automation**
+- **Scheduled delivery:** 6 build windows (every 4 hours) + delivery checks every 30 minutes
+- **On-demand builds:** trigger from the dashboard, delivered in ~2 minutes
+- **Feed stats:** rolling per-feed metrics (freshness, word counts, extraction rates) for budget optimization
+
+</details>
 
 ## Getting Started
 
 ### Web App (Recommended)
 
-**[www.paper-boy-news.com](https://www.paper-boy-news.com)** — sign up and build your first edition in minutes.
+**[www.paper-boy-news.com](https://www.paper-boy-news.com)**. Sign up and build your first edition in minutes.
 
 #### Local development
 
@@ -220,12 +223,12 @@ delivery:
 ```bash
 # Python core library
 pip install -e ".[dev]"
-pytest                       # 620 tests
+pytest                       # 638 tests
 
 # Next.js web app
 cd web
 pnpm dev                     # dev server
-pnpm test                    # 225 tests (Vitest)
+pnpm test                    # 218 tests (Vitest)
 pnpm build                   # production build
 pnpm lint                    # ESLint
 ```
@@ -234,4 +237,4 @@ See [web/CLAUDE.md](web/CLAUDE.md) for detailed web app architecture.
 
 ## License
 
-[PolyForm Noncommercial 1.0.0](LICENSE) — free to use, modify, and distribute for noncommercial purposes.
+[PolyForm Noncommercial 1.0.0](LICENSE). Free to use, modify, and distribute for noncommercial purposes.
