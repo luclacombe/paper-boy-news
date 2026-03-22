@@ -53,7 +53,7 @@ jobs:
 
       - name: Checkout repository
         if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Python
         if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
@@ -93,6 +93,7 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ADMIN_ALERT_EMAIL: ${{ secrets.ADMIN_ALERT_EMAIL }}
           BUILD_RECORD_ID: ${{ github.event.client_payload.record_id }}
           BUILD_MODE: ${{ env.BUILD_MODE }}
           PYTHONPATH: ${{ github.workspace }}/src:${{ github.workspace }}
