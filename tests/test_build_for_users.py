@@ -30,6 +30,7 @@ from scripts.build_for_users import (
     get_token_data,
     _build_for_user,
     _deliver_record,
+    _send_failure_notifications,
     build_and_deliver_for_record,
     _epub_filename,
     _format_file_size,
@@ -781,3 +782,228 @@ class TestHelperFunctions:
     def test_get_token_data_without_refresh_token(self):
         prof = _make_profile(google_tokens={"token": "t"})
         assert get_token_data(prof) is None
+
+
+# ─── Failure notification tests ──────────────────────────────────────
+
+
+class TestSendFailureNotifications:
+    """Verify failure notification emails are sent correctly."""
+
+    @patch("scripts.build_for_users.resend")
+    def test_sends_user_and_admin_emails(self, mock_resend):
+        """Both user and admin emails should be sent on delivery failure."""
+        sb = MagicMock()
+        auth_user = MagicMock()
+        auth_user.user.email = "user@example.com"
+        sb.auth.admin.get_user_by_id.return_value = auth_user
+
+        prof = _make_profile(delivery_method="email")
+
+        with patch.dict(os.environ, {
+            "RESEND_API_KEY": "test-key",
+            "ADMIN_ALERT_EMAIL": "admin@example.com",
+        }):
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="'str' has no attribute 'stem'",
+                edition_date_str="2026-03-22",
+                delivery_method="email",
+            )
+
+        assert mock_resend.Emails.send.call_count == 2
+        # First call = user email
+        user_call = mock_resend.Emails.send.call_args_list[0][0][0]
+        assert user_call["to"] == ["user@example.com"]
+        assert "delivery issue" in user_call["subject"]
+        # Second call = admin email
+        admin_call = mock_resend.Emails.send.call_args_list[1][0][0]
+        assert admin_call["to"] == ["admin@example.com"]
+        assert "[Paper Boy]" in admin_call["subject"]
+
+    @patch("scripts.build_for_users.resend")
+    def test_skips_user_email_for_local_delivery(self, mock_resend):
+        """Local/koreader users see failures on dashboard — no email needed."""
+        sb = MagicMock()
+        auth_user = MagicMock()
+        auth_user.user.email = "user@example.com"
+        sb.auth.admin.get_user_by_id.return_value = auth_user
+
+        prof = _make_profile(delivery_method="local")
+
+        with patch.dict(os.environ, {
+            "RESEND_API_KEY": "test-key",
+            "ADMIN_ALERT_EMAIL": "admin@example.com",
+        }):
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="Build failed",
+                edition_date_str="2026-03-22",
+                delivery_method="local",
+            )
+
+        # Only admin email, no user email
+        assert mock_resend.Emails.send.call_count == 1
+        admin_call = mock_resend.Emails.send.call_args_list[0][0][0]
+        assert admin_call["to"] == ["admin@example.com"]
+
+    @patch("scripts.build_for_users.resend")
+    def test_skips_user_email_for_koreader_delivery(self, mock_resend):
+        """KOReader users see failures on dashboard — no email needed."""
+        sb = MagicMock()
+        auth_user = MagicMock()
+        auth_user.user.email = "user@example.com"
+        sb.auth.admin.get_user_by_id.return_value = auth_user
+
+        prof = _make_profile(delivery_method="koreader")
+
+        with patch.dict(os.environ, {
+            "RESEND_API_KEY": "test-key",
+            "ADMIN_ALERT_EMAIL": "admin@example.com",
+        }):
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="Build failed",
+                edition_date_str="2026-03-22",
+                delivery_method="koreader",
+            )
+
+        # Only admin email
+        assert mock_resend.Emails.send.call_count == 1
+
+    @patch("scripts.build_for_users.resend")
+    def test_no_admin_email_when_env_var_unset(self, mock_resend):
+        """Without ADMIN_ALERT_EMAIL, only user email is sent."""
+        sb = MagicMock()
+        auth_user = MagicMock()
+        auth_user.user.email = "user@example.com"
+        sb.auth.admin.get_user_by_id.return_value = auth_user
+
+        prof = _make_profile(delivery_method="email")
+
+        env = {"RESEND_API_KEY": "test-key"}
+        with patch.dict(os.environ, env, clear=False):
+            os.environ.pop("ADMIN_ALERT_EMAIL", None)
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="Some error",
+                edition_date_str="2026-03-22",
+                delivery_method="email",
+            )
+
+        # Only user email
+        assert mock_resend.Emails.send.call_count == 1
+        user_call = mock_resend.Emails.send.call_args_list[0][0][0]
+        assert user_call["to"] == ["user@example.com"]
+
+    @patch("scripts.build_for_users.resend")
+    def test_notification_failure_does_not_propagate(self, mock_resend):
+        """Notification errors must be swallowed — never disrupt the main flow."""
+        mock_resend.Emails.send.side_effect = Exception("Resend API down")
+
+        sb = MagicMock()
+        auth_user = MagicMock()
+        auth_user.user.email = "user@example.com"
+        sb.auth.admin.get_user_by_id.return_value = auth_user
+
+        prof = _make_profile(delivery_method="email")
+
+        with patch.dict(os.environ, {
+            "RESEND_API_KEY": "test-key",
+            "ADMIN_ALERT_EMAIL": "admin@example.com",
+        }):
+            # Should not raise
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="Original error",
+                edition_date_str="2026-03-22",
+                delivery_method="email",
+            )
+
+    @patch("scripts.build_for_users.resend")
+    def test_auth_lookup_failure_still_sends_admin_email(self, mock_resend):
+        """If auth email lookup fails, admin alert should still be sent."""
+        sb = MagicMock()
+        sb.auth.admin.get_user_by_id.side_effect = Exception("Auth service down")
+
+        prof = _make_profile(delivery_method="email")
+
+        with patch.dict(os.environ, {
+            "RESEND_API_KEY": "test-key",
+            "ADMIN_ALERT_EMAIL": "admin@example.com",
+        }):
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="Some error",
+                edition_date_str="2026-03-22",
+                delivery_method="email",
+            )
+
+        # User email skipped (no account_email), but admin email should still send
+        assert mock_resend.Emails.send.call_count == 1
+        admin_call = mock_resend.Emails.send.call_args_list[0][0][0]
+        assert admin_call["to"] == ["admin@example.com"]
+
+    @patch("scripts.build_for_users.resend")
+    def test_no_resend_api_key_skips_everything(self, mock_resend):
+        """Without RESEND_API_KEY, no emails are sent at all."""
+        sb = MagicMock()
+        prof = _make_profile()
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("RESEND_API_KEY", None)
+            os.environ.pop("ADMIN_ALERT_EMAIL", None)
+            _send_failure_notifications(
+                sb,
+                record_id="rec-1",
+                prof=prof,
+                error_message="Error",
+                edition_date_str="2026-03-22",
+                delivery_method="email",
+            )
+
+        mock_resend.Emails.send.assert_not_called()
+
+    @patch("scripts.build_for_users.resend")
+    def test_admin_email_contains_debug_context(self, mock_resend):
+        """Admin alert email should contain all debug fields."""
+        sb = MagicMock()
+        auth_user = MagicMock()
+        auth_user.user.email = "user@example.com"
+        sb.auth.admin.get_user_by_id.return_value = auth_user
+
+        prof = _make_profile(delivery_method="email")
+
+        with patch.dict(os.environ, {
+            "RESEND_API_KEY": "test-key",
+            "ADMIN_ALERT_EMAIL": "admin@example.com",
+        }):
+            _send_failure_notifications(
+                sb,
+                record_id="rec-123",
+                prof=prof,
+                error_message="'str' has no attribute 'stem'",
+                edition_date_str="2026-03-22",
+                delivery_method="email",
+            )
+
+        # Admin email is the second call
+        admin_call = mock_resend.Emails.send.call_args_list[1][0][0]
+        html = admin_call["html"]
+        assert "rec-123" in html
+        assert "user-1" in html
+        assert "email" in html
+        assert "2026-03-22" in html
+        assert "&#x27;str&#x27; has no attribute &#x27;stem&#x27;" in html

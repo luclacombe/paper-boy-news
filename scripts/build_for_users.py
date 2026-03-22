@@ -41,8 +41,11 @@ from paper_boy.config import (
     GoogleDriveConfig,
     NewspaperConfig,
 )
+import resend
+
 from paper_boy.cache import ContentCache
 from paper_boy.delivery import deliver
+from paper_boy.email_template import render_admin_alert_email, render_failure_email
 from paper_boy.feeds import FeedObservation
 from paper_boy.main import build_newspaper
 
@@ -296,6 +299,75 @@ def _write_back_tokens(sb, prof: dict, user_id: str, token_data: dict | None) ->
         ).eq("id", user_id).execute()
 
 
+def _send_failure_notifications(
+    sb,
+    *,
+    record_id: str,
+    prof: dict,
+    error_message: str,
+    edition_date_str: str,
+    delivery_method: str,
+) -> None:
+    """Send failure notification emails to the user and admin.
+
+    Never raises — all errors are logged and swallowed so that the main
+    failure-handling flow is never disrupted.
+    """
+    try:
+        api_key = os.environ.get("RESEND_API_KEY")
+        if not api_key:
+            return
+        resend.api_key = api_key
+
+        # Look up user's account email from Supabase auth
+        account_email = None
+        try:
+            auth_user = sb.auth.admin.get_user_by_id(prof["auth_id"])
+            account_email = auth_user.user.email
+        except Exception:
+            logger.warning("Could not look up account email for user %s", prof.get("id"))
+
+        # Send user notification (skip for local/koreader — they see it on dashboard)
+        if delivery_method not in ("local", "koreader") and account_email:
+            title = prof.get("title", "Morning Digest")
+            # Convert ISO date to human-readable
+            try:
+                from datetime import datetime as dt
+                readable_date = dt.strptime(edition_date_str, "%Y-%m-%d").strftime("%B %-d, %Y")
+            except (ValueError, IndexError):
+                readable_date = edition_date_str
+
+            html = render_failure_email(title=title, edition_date=readable_date)
+            resend.Emails.send({
+                "from": "Paper Boy News <delivery@paper-boy-news.com>",
+                "to": [account_email],
+                "subject": f"{title} — delivery issue",
+                "html": html,
+            })
+            logger.info("Sent failure notification to %s", account_email)
+
+        # Send admin alert
+        admin_email = os.environ.get("ADMIN_ALERT_EMAIL")
+        if admin_email:
+            admin_html = render_admin_alert_email(
+                record_id=record_id,
+                user_id=prof.get("id", "unknown"),
+                delivery_method=delivery_method,
+                edition_date=edition_date_str,
+                error_message=error_message,
+            )
+            resend.Emails.send({
+                "from": "Paper Boy News <delivery@paper-boy-news.com>",
+                "to": [admin_email],
+                "subject": f"[Paper Boy] Failure — {edition_date_str}",
+                "html": admin_html,
+            })
+            logger.info("Sent admin alert to %s", admin_email)
+
+    except Exception as e:
+        logger.warning("Failed to send failure notifications: %s", e)
+
+
 def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
                     edition_date: date, cache: ContentCache | None = None,
                     record_delivery_method: str | None = None,
@@ -389,6 +461,14 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
             "status": "failed",
             "error_message": str(e)[:500],
         }).eq("id", record_id).execute()
+        _send_failure_notifications(
+            sb,
+            record_id=record_id,
+            prof=prof,
+            error_message=str(e)[:500],
+            edition_date_str=edition_date_str,
+            delivery_method=delivery_method,
+        )
 
 
 def _deliver_record(sb, rec: dict, prof: dict) -> None:
@@ -402,6 +482,14 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             "status": "failed",
             "error_message": "No EPUB file in storage",
         }).eq("id", record_id).execute()
+        _send_failure_notifications(
+            sb,
+            record_id=record_id,
+            prof=prof,
+            error_message="No EPUB file in storage",
+            edition_date_str=rec.get("edition_date", "unknown"),
+            delivery_method=rec.get("delivery_method") or prof.get("delivery_method", "unknown"),
+        )
         return
 
     try:
@@ -424,7 +512,7 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             Path(epub_path).write_bytes(epub_bytes)
 
             deliver(
-                epub_path, config, token_data=token_data,
+                Path(epub_path), config, token_data=token_data,
                 article_count=rec.get("article_count", 0) or 0,
                 source_count=rec.get("source_count", 0) or 0,
             )
@@ -445,6 +533,14 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             "status": "failed",
             "error_message": f"Delivery failed: {str(e)[:480]}",
         }).eq("id", record_id).execute()
+        _send_failure_notifications(
+            sb,
+            record_id=record_id,
+            prof=prof,
+            error_message=f"Delivery failed: {str(e)[:480]}",
+            edition_date_str=rec.get("edition_date", "unknown"),
+            delivery_method=rec.get("delivery_method") or prof.get("delivery_method", "unknown"),
+        )
 
 
 def build_and_deliver_for_record(
@@ -582,6 +678,16 @@ def build_and_deliver_for_record(
 
             sb.table("delivery_history").update(update_data).eq("id", record_id).execute()
 
+            if delivery_failed:
+                _send_failure_notifications(
+                    sb,
+                    record_id=record_id,
+                    prof=prof,
+                    error_message=delivery_message[:500],
+                    edition_date_str=edition_date_str,
+                    delivery_method=record_delivery_method,
+                )
+
             logger.info(
                 "Built and delivered edition %s: %d articles, %s",
                 edition_date_str,
@@ -601,6 +707,14 @@ def build_and_deliver_for_record(
             "status": "failed",
             "error_message": str(e)[:500],
         }).eq("id", record_id).execute()
+        _send_failure_notifications(
+            sb,
+            record_id=record_id,
+            prof=prof,
+            error_message=str(e)[:500],
+            edition_date_str=edition_date_str,
+            delivery_method=record_delivery_method,
+        )
 
 
 # ─── Build mode: build users in midnight–5 AM window ─────────────────────
