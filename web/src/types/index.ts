@@ -67,6 +67,7 @@ export interface DeliveryRecord {
   deliveryMessage: string;
   errorMessage: string | null;
   epubStoragePath: string | null;
+  resendMessageId: string | null;
   sections: SectionSummary[] | null;
   createdAt: string;
 }

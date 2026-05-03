@@ -472,10 +472,29 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
 
 
 def _deliver_record(sb, rec: dict, prof: dict) -> None:
-    """Deliver a pre-built EPUB from Supabase Storage and update the record."""
+    """Deliver a pre-built EPUB from Supabase Storage and update the record.
+
+    Idempotent: if `resend_message_id` is already populated, the email was
+    already sent in a previous run — we just mark the record as delivered
+    and return without resending. The Resend SDK's idempotency_key (the
+    record UUID) provides 24h server-side dedupe as defense-in-depth.
+    """
     record_id = rec["id"]
     user_id = rec["user_id"]
     epub_storage_path = rec.get("epub_storage_path")
+
+    # Idempotency guard: if we already have a Resend message id, the email
+    # was sent in a previous run. Don't send a second one.
+    if rec.get("resend_message_id"):
+        logger.info(
+            "Record %s already has resend_message_id %s — marking delivered without resending",
+            record_id, rec["resend_message_id"],
+        )
+        sb.table("delivery_history").update({
+            "status": "delivered",
+            "delivery_message": "Already delivered",
+        }).eq("id", record_id).execute()
+        return
 
     if not epub_storage_path:
         sb.table("delivery_history").update({
@@ -511,19 +530,24 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             epub_path = os.path.join(tmp_dir, deliver_filename)
             Path(epub_path).write_bytes(epub_bytes)
 
-            deliver(
+            message_id = deliver(
                 Path(epub_path), config, token_data=token_data,
                 article_count=rec.get("article_count", 0) or 0,
                 source_count=rec.get("source_count", 0) or 0,
+                idempotency_key=record_id,
             )
 
             delivery_message = _generate_delivery_message(config)
             _write_back_tokens(sb, prof, user_id, token_data)
 
-            sb.table("delivery_history").update({
+            update_payload: dict = {
                 "status": "delivered",
                 "delivery_message": delivery_message,
-            }).eq("id", record_id).execute()
+            }
+            if message_id:
+                update_payload["resend_message_id"] = message_id
+
+            sb.table("delivery_history").update(update_payload).eq("id", record_id).execute()
 
             logger.info("Delivered record %s: %s", record_id, delivery_message)
 
@@ -644,13 +668,15 @@ def build_and_deliver_for_record(
             # Deliver if not local — use the record's delivery method, not live profile
             delivery_message = "Available for download"
             token_data = get_token_data(prof)
+            message_id: str | None = None
 
             if record_delivery_method not in ("local", "koreader"):
                 try:
-                    deliver(
+                    message_id = deliver(
                         result.epub_path, config, token_data=token_data,
                         article_count=result.total_articles,
                         source_count=len(feed_list),
+                        idempotency_key=record_id,
                     )
                     delivery_message = _generate_delivery_message(config)
                     _write_back_tokens(sb, prof, user_id, token_data)
@@ -675,6 +701,8 @@ def build_and_deliver_for_record(
                 update_data["error_message"] = delivery_message[:500]
             else:
                 update_data["delivery_message"] = delivery_message
+                if message_id:
+                    update_data["resend_message_id"] = message_id
 
             sb.table("delivery_history").update(update_data).eq("id", record_id).execute()
 

@@ -55,7 +55,8 @@ class TestDeliver:
         epub = _make_epub_file(tmp_path)
         deliver(epub, email_config)
         mock_resend.assert_called_once_with(
-            epub, email_config, article_count=0, source_count=0
+            epub, email_config,
+            article_count=0, source_count=0, idempotency_key=None,
         )
 
     @patch("paper_boy.delivery.deliver_google_drive")
@@ -141,6 +142,78 @@ class TestDeliverResend:
         epub = _make_epub_file(tmp_path)
         with pytest.raises(RuntimeError, match="RESEND_API_KEY"):
             deliver_resend(epub, config)
+
+    def test_returns_message_id_from_resend(self, email_config, tmp_path, monkeypatch):
+        """deliver_resend returns the message id from Resend's response."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+        epub = _make_epub_file(tmp_path)
+
+        self.mock_resend.Emails.send.return_value = {"id": "msg_abc123"}
+
+        result = deliver_resend(epub, email_config)
+        assert result == "msg_abc123"
+
+    def test_passes_idempotency_key_when_provided(
+        self, email_config, tmp_path, monkeypatch
+    ):
+        """When idempotency_key is provided, it is passed to Resend's options dict."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+        epub = _make_epub_file(tmp_path)
+
+        deliver_resend(epub, email_config, idempotency_key="record-uuid-1")
+
+        # Resend SDK signature: Emails.send(params, options)
+        call_args = self.mock_resend.Emails.send.call_args
+        assert len(call_args[0]) == 2, (
+            "Expected Emails.send(params, options) with two positional args"
+        )
+        options = call_args[0][1]
+        assert options == {"idempotency_key": "record-uuid-1"}
+
+    def test_no_options_when_idempotency_key_absent(
+        self, email_config, tmp_path, monkeypatch
+    ):
+        """No options dict when idempotency_key is None — preserves single-arg call."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+        epub = _make_epub_file(tmp_path)
+
+        deliver_resend(epub, email_config)
+
+        call_args = self.mock_resend.Emails.send.call_args
+        # Must remain a single-arg call when no idempotency key — keeps the
+        # call profile identical to historical behavior for callers that
+        # don't opt in.
+        assert len(call_args[0]) == 1
+
+
+class TestDeliverReturnsMessageId:
+    """deliver() must propagate the Resend message_id back to the caller.
+
+    The caller (scripts/build_for_users._deliver_record) stores it on
+    delivery_history.resend_message_id as durable proof-of-send so the
+    next retry knows not to send a second email.
+    """
+
+    @patch("paper_boy.delivery.deliver_resend")
+    def test_email_method_returns_message_id(self, mock_resend, email_config, tmp_path):
+        """For method='email', deliver returns whatever deliver_resend returns."""
+        mock_resend.return_value = "msg_xyz"
+        epub = _make_epub_file(tmp_path)
+
+        result = deliver(epub, email_config, idempotency_key="rec-1")
+
+        mock_resend.assert_called_once_with(
+            epub, email_config, article_count=0, source_count=0,
+            idempotency_key="rec-1",
+        )
+        assert result == "msg_xyz"
+
+    @patch("paper_boy.delivery.deliver_google_drive")
+    def test_non_email_methods_return_none(self, mock_gdrive, gdrive_config, tmp_path):
+        """For non-email methods, deliver returns None (no message id to track)."""
+        epub = _make_epub_file(tmp_path)
+        result = deliver(epub, gdrive_config)
+        assert result is None
 
 
 # --- TestGetGoogleCredentials ---

@@ -1116,3 +1116,137 @@ class TestRunDeliverRecencyCap:
         assert "rec-24h" in delivered_ids
         assert "rec-48h" not in delivered_ids
         assert len(delivered_ids) == 2
+
+
+# ─── _deliver_record — Resend idempotency (Outcome 3) ───────────────
+
+
+class TestDeliverRecordIdempotency:
+    """A record can never produce more than one email to the recipient.
+
+    Defense-in-depth against future retry paths (PR 3 catch-up sweep,
+    manual re-runs, etc.). The DB column `resend_message_id` is the
+    durable proof-of-send; passing the record UUID as Resend's
+    idempotency_key gives 24h server-side dedupe on top.
+    """
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_skips_send_if_message_id_already_present(
+        self, mock_tokens, mock_deliver
+    ):
+        """When resend_message_id is set, deliver() must not be called."""
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id="msg_already_sent",
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        # Email must NOT be sent again
+        mock_deliver.assert_not_called()
+
+        # Status must still flip to delivered (the email was already sent
+        # in a previous run; we just need to mark this record done)
+        update_call = sb.table("delivery_history").update.call_args
+        assert update_call is not None
+        update_data = update_call[0][0]
+        assert update_data["status"] == "delivered"
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_captures_message_id_after_email_send(
+        self, mock_tokens, mock_deliver
+    ):
+        """Successful email delivery must store the Resend message id."""
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_xyz"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        # The update payload must include the captured message id
+        update_call = sb.table("delivery_history").update.call_args
+        update_data = update_call[0][0]
+        assert update_data.get("resend_message_id") == "msg_xyz"
+        assert update_data["status"] == "delivered"
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_passes_record_id_as_idempotency_key(
+        self, mock_tokens, mock_deliver
+    ):
+        """deliver() is called with idempotency_key=record_id."""
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_abc"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            id="rec-uuid-1",
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        kwargs = mock_deliver.call_args.kwargs
+        assert kwargs.get("idempotency_key") == "rec-uuid-1"
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_calling_twice_only_sends_once(self, mock_tokens, mock_deliver):
+        """End-to-end: two _deliver_record calls on the same record = one send.
+
+        Simulates a crash + retry: first call sends and writes message id;
+        second call sees the message id and short-circuits.
+        """
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_first"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            id="rec-uuid-2",
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        # First call — sends
+        _deliver_record(sb, rec, prof)
+        assert mock_deliver.call_count == 1
+
+        # Mutate the record to reflect the first call's writeback
+        rec_after = dict(rec)
+        rec_after["resend_message_id"] = "msg_first"
+        rec_after["status"] = "delivered"
+
+        # Second call — short-circuits
+        _deliver_record(sb, rec_after, prof)
+        assert mock_deliver.call_count == 1, (
+            "deliver() was called twice — idempotency guard failed"
+        )
