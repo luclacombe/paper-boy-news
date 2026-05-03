@@ -2,11 +2,18 @@ name: Build Newspaper
 
 on:
   repository_dispatch:
-    types: [build-newspaper]
+    # build-newspaper: on-demand "Get it now" path (web/src/actions/build.ts).
+    # build / deliver:  fired by the Cloudflare Worker (cron-worker/) on a
+    #                   reliable schedule. See docs/superpowers/plans/
+    #                   2026-05-03-cf-worker-cron.md for context.
+    types: [build-newspaper, build, deliver]
   schedule:
-    # 6 build windows every 4 hours — each covers timezones where it's midnight–5 AM
+    # SAFETY NET during CF Worker migration. Removed in a follow-up PR after
+    # 7 days of clean CF cron operation. Until then double-firing is harmless:
+    # run_build_all() skips records whose status != 'failed', and
+    # run_deliver()'s recency cap (PR 1) + resend_message_id idempotency
+    # (PR 1) make a duplicate dispatch a no-op.
     - cron: "45 3,7,11,15,19,23 * * *"
-    # Delivery checks every 30 min — delivers pre-built papers at each user's time
     - cron: "0,30 * * * *"
   workflow_dispatch: # Manual debug trigger
 
@@ -17,9 +24,38 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      BUILD_MODE: ${{ github.event.schedule == '45 3,7,11,15,19,23 * * *' && 'build' || (github.event_name == 'schedule' && 'deliver' || '') }}
     steps:
+      - name: Set BUILD_MODE
+        # Resolves BUILD_MODE for every event source. MUST be the first step
+        # so subsequent `if: env.BUILD_MODE == ...` conditions can read it.
+        # Mapping:
+        #   repository_dispatch + build           → build
+        #   repository_dispatch + deliver         → deliver
+        #   repository_dispatch + build-newspaper → ""  (record_id-driven)
+        #   schedule + build cron (safety net)    → build
+        #   schedule + deliver cron (safety net)  → deliver
+        #   workflow_dispatch / anything else     → ""  (legacy run_scheduled)
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          MODE=""
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            case "$EVENT_ACTION" in
+              build)            MODE="build" ;;
+              deliver)          MODE="deliver" ;;
+              build-newspaper)  MODE="" ;;
+            esac
+          elif [ "$EVENT_NAME" = "schedule" ]; then
+            case "$EVENT_SCHEDULE" in
+              "45 3,7,11,15,19,23 * * *") MODE="build" ;;
+              "0,30 * * * *")             MODE="deliver" ;;
+            esac
+          fi
+          echo "Resolved BUILD_MODE='${MODE}' (event=$EVENT_NAME action=$EVENT_ACTION schedule=$EVENT_SCHEDULE)"
+          echo "BUILD_MODE=$MODE" >> "$GITHUB_ENV"
+
       - name: Check if any users need building
         id: precheck
         if: env.BUILD_MODE == 'build'
@@ -43,7 +79,9 @@ jobs:
           echo "needed=$NEED_BUILD" >> $GITHUB_OUTPUT
 
       - name: Validate record_id format (on-demand only)
-        if: github.event_name == 'repository_dispatch'
+        # The build/deliver dispatch types carry no client_payload, so the
+        # validation only applies to the on-demand build-newspaper path.
+        if: github.event_name == 'repository_dispatch' && github.event.action == 'build-newspaper'
         run: |
           RECORD_ID="${{ github.event.client_payload.record_id }}"
           if [[ ! "$RECORD_ID" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
