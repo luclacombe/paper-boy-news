@@ -59,7 +59,7 @@ no-op.
 3. **Fine-grained GitHub PAT** — generated at
    https://github.com/settings/personal-access-tokens.
    - Resource owner: `luclacombe`
-   - Repository access: only `paper-boy`
+   - Repository access: only `paper-boy-news`
    - Repository permissions:
      - **Contents: Read and write** ← required for `repository_dispatch`
      - Metadata: Read (auto-selected)

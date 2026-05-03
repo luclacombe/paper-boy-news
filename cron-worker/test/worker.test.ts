@@ -80,7 +80,7 @@ describe("scheduled handler", () => {
 
     expect(captured).toHaveLength(1);
     const req = captured[0];
-    expect(req.url).toBe("https://api.github.com/repos/luclacombe/paper-boy/dispatches");
+    expect(req.url).toBe("https://api.github.com/repos/luclacombe/paper-boy-news/dispatches");
     expect(req.method).toBe("POST");
     expect(req.headers["authorization"]).toBe(`Bearer ${env.GITHUB_PAT}`);
     expect(req.headers["user-agent"]).toBe("paper-boy-cron-worker");

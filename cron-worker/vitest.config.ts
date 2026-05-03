@@ -8,7 +8,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           GITHUB_PAT: "test-pat-not-real-do-not-use",
-          GITHUB_REPO: "luclacombe/paper-boy",
+          GITHUB_REPO: "luclacombe/paper-boy-news",
         },
       },
     }),

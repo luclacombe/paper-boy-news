@@ -16,7 +16,7 @@
   // Public, non-secret configuration. Repo identifier is visible in
   // every commit URL anyway, so it lives here rather than as a secret.
   "vars": {
-    "GITHUB_REPO": "luclacombe/paper-boy"
+    "GITHUB_REPO": "luclacombe/paper-boy-news"
   },
 
   // GITHUB_PAT is a Wrangler secret — set with:
