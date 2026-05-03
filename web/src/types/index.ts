@@ -56,7 +56,7 @@ export interface Feed {
 export interface DeliveryRecord {
   id: string;
   userId: string;
-  status: "delivered" | "failed" | "building" | "built";
+  status: "delivered" | "failed" | "building" | "built" | "empty";
   editionNumber: number;
   editionDate: string;
   articleCount: number;
@@ -67,6 +67,7 @@ export interface DeliveryRecord {
   deliveryMessage: string;
   errorMessage: string | null;
   epubStoragePath: string | null;
+  resendMessageId: string | null;
   sections: SectionSummary[] | null;
   createdAt: string;
 }

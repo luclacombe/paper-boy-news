@@ -20,7 +20,8 @@ def deliver(
     token_data: dict | None = None,
     article_count: int = 0,
     source_count: int = 0,
-) -> None:
+    idempotency_key: str | None = None,
+) -> str | None:
     """Deliver the generated EPUB using the configured method.
 
     Args:
@@ -29,15 +30,27 @@ def deliver(
         token_data: Optional Google OAuth2 token data (from web app).
         article_count: Number of articles in the edition (for email template).
         source_count: Number of sources in the edition (for email template).
+        idempotency_key: Stable per-record key (e.g. delivery_history UUID)
+            forwarded to Resend so retries within 24h are deduped server-side.
+
+    Returns:
+        The Resend message id when method='email' and the send succeeded;
+        None for all other delivery methods.
     """
     method = config.delivery.method
 
     if method == "google_drive":
         deliver_google_drive(epub_path, config, token_data=token_data)
+        return None
     elif method == "email":
-        deliver_resend(epub_path, config, article_count=article_count, source_count=source_count)
+        return deliver_resend(
+            epub_path, config,
+            article_count=article_count, source_count=source_count,
+            idempotency_key=idempotency_key,
+        )
     elif method == "local":
         logger.info("Local delivery: file at %s", epub_path)
+        return None
     else:
         raise ValueError(f"Unknown delivery method: {method}")
 
@@ -92,9 +105,24 @@ def deliver_google_drive(
 
 
 def deliver_resend(
-    epub_path: Path, config: Config, *, article_count: int = 0, source_count: int = 0
-) -> None:
-    """Send EPUB via Resend email API."""
+    epub_path: Path,
+    config: Config,
+    *,
+    article_count: int = 0,
+    source_count: int = 0,
+    idempotency_key: str | None = None,
+) -> str | None:
+    """Send EPUB via Resend email API.
+
+    Args:
+        idempotency_key: Optional stable key forwarded to Resend so retries
+            within Resend's 24h window are deduped server-side. Pair with
+            the per-record DB column for durable proof-of-send.
+
+    Returns:
+        The Resend message id (`response["id"]`) on success, or None when
+        the SDK does not return one (older versions / mocked tests).
+    """
     import re
 
     import resend
@@ -153,13 +181,20 @@ def deliver_resend(
         ],
     }
 
-    resend.Emails.send(params)
+    if idempotency_key:
+        response = resend.Emails.send(params, {"idempotency_key": idempotency_key})
+    else:
+        response = resend.Emails.send(params)
 
     logger.info(
         "Sent %s to %s via Resend",
         epub_path.name,
         email_cfg.recipient,
     )
+
+    if isinstance(response, dict):
+        return response.get("id")
+    return None
 
 
 def _get_google_credentials(config: Config, *, token_data: dict | None = None):

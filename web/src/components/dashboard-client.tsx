@@ -47,6 +47,7 @@ export type DashboardState =
   | "ready"
   | "fetched-early"
   | "delivered"
+  | "empty"
   | "failed";
 
 type EarlyFetchState = "idle" | "fetching" | "done" | "error";
@@ -69,6 +70,7 @@ export function getDashboardState(
   // Current edition exists — show its status regardless of time of day
   if (todaysEdition?.status === "built") return "awaiting-delivery";
   if (todaysEdition?.status === "delivered") return "delivered";
+  if (todaysEdition?.status === "empty") return "empty";
   if (todaysEdition?.status === "failed") return "failed";
 
   // No active build — now check setup completeness
@@ -368,7 +370,9 @@ export function DashboardClient({
                         ? "text-delivered"
                         : record.status === "failed"
                           ? "text-edition-red"
-                          : "text-building"
+                          : record.status === "empty"
+                            ? "text-caption"
+                            : "text-building"
                     }`}
                   >
                     {record.status === "delivered"
@@ -377,7 +381,9 @@ export function DashboardClient({
                         ? "Failed"
                         : record.status === "built"
                           ? "Ready"
-                          : "Building"}
+                          : record.status === "empty"
+                            ? "Empty"
+                            : "Building"}
                   </span>
                   <span className="font-mono text-[10px] text-caption">
                     {record.articleCount} articles
@@ -438,6 +444,8 @@ export function DashboardClient({
         return renderFetchedEarly();
       case "delivered":
         return renderDelivered();
+      case "empty":
+        return renderEmpty();
       case "failed":
         return renderFailed();
     }
@@ -1024,6 +1032,33 @@ export function DashboardClient({
           >
             Try again
           </Button>
+        </div>
+        {renderScheduleFooter()}
+      </div>
+    );
+  }
+
+  // \u2500\u2500\u2500 State 11: Empty edition (sources were quiet today) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+  function renderEmpty() {
+    return (
+      <div className="newsprint-card overflow-hidden border border-rule-gray border-l-4 border-l-caption bg-card">
+        <div className="px-5 pt-5 pb-4">
+          <p className="font-headline text-lg font-bold text-ink">
+            Your sources were quiet today
+          </p>
+          <p className="mt-2 font-body text-sm text-caption">
+            Nothing fresh worth printing \u2014 your next edition will arrive on
+            schedule.
+          </p>
+        </div>
+        <div className="border-t border-rule-gray px-5 py-3">
+          <Link
+            href="/settings?open=sources"
+            className="letterpress inline-block rounded-md bg-ink px-3 py-1.5 text-sm text-newsprint hover:bg-ink/90"
+          >
+            Add more sources
+          </Link>
         </div>
         {renderScheduleFooter()}
       </div>

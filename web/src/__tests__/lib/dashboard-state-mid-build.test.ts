@@ -44,6 +44,7 @@ const BUILDING_EDITION: DeliveryRecord = {
   deliveryMessage: "",
   errorMessage: null,
   epubStoragePath: null,
+  resendMessageId: null,
   sections: null,
   createdAt: "2026-03-09T06:00:00Z",
 };

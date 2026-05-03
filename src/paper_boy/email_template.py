@@ -184,6 +184,81 @@ def render_failure_email(title: str, edition_date: str) -> str:
 {_WRAPPER_END}"""
 
 
+def render_empty_edition_email(
+    title: str,
+    edition_date: str,
+    feed_names: list[str],
+) -> str:
+    """Render the "your sources were quiet today" email.
+
+    Distinct from `render_failure_email` because empty editions are NOT an
+    outage — the user's configured feeds simply published nothing publishable
+    in the freshness window. This template explicitly calls that out and
+    invites the user to broaden their sources rather than implying we're
+    broken.
+
+    Args:
+        title: Newspaper title (e.g. "Morning Digest").
+        edition_date: Human-readable date (e.g. "May 3, 2026").
+        feed_names: Names of feeds we tried (for inline display so the user
+            can see at a glance which sources came up empty).
+    """
+    if feed_names:
+        feed_items = "".join(
+            f'<li style="margin:2px 0;color:{_CAPTION};font-size:12px;">{_escape(n)}</li>'
+            for n in feed_names
+        )
+        feeds_block = f"""\
+  <!-- Sources we tried -->
+  <tr><td style="padding:4px 40px 16px;">
+    <p style="margin:0 0 6px;font-size:11px;color:{_CAPTION};letter-spacing:1px;text-transform:uppercase;text-align:center;">
+      Sources we tried
+    </p>
+    <ul style="margin:0;padding:0;list-style:none;text-align:center;">
+      {feed_items}
+    </ul>
+  </td></tr>
+"""
+    else:
+        feeds_block = ""
+
+    return f"""\
+{_WRAPPER_START}
+  <!-- Content -->
+  <tr><td style="padding:28px 0 8px;text-align:center;">
+    <p style="margin:0;font-size:24px;font-weight:700;color:{_INK};font-family:'Palatino Linotype',Palatino,Georgia,serif;">
+      {_escape(title)}
+    </p>
+    <p style="margin:6px 0 0;font-size:13px;color:{_CAPTION};font-style:italic;">
+      {_escape(edition_date)}
+    </p>
+  </td></tr>
+
+  <!-- Thin rule -->
+  <tr><td style="padding:12px 40px;"><div style="border-top:1px solid {_WARM_GRAY};"></div></td></tr>
+
+  <!-- Body -->
+  <tr><td style="padding:4px 0 16px;text-align:center;">
+    <p style="margin:0 0 8px;font-size:16px;line-height:1.7;color:{_INK};">
+      Your sources were quiet today.
+    </p>
+    <p style="margin:0;font-size:14px;line-height:1.7;color:{_CAPTION};">
+      Nothing fresh worth printing — your next edition will arrive on schedule.
+    </p>
+  </td></tr>
+
+{feeds_block}
+  <!-- Settings CTA -->
+  <tr><td style="padding:0 0 20px;text-align:center;">
+    <p style="margin:0;font-size:13px;line-height:1.6;color:{_CAPTION};">
+      Want a fuller paper? Add more sources from your
+      <a href="https://www.paper-boy-news.com/settings?open=sources" style="color:{_EDITION_RED};text-decoration:underline;">settings</a>.
+    </p>
+  </td></tr>
+
+{_WRAPPER_END}"""
+
+
 def render_admin_alert_email(
     record_id: str,
     user_id: str,

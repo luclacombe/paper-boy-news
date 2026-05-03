@@ -70,6 +70,8 @@ jobs:
 
       - name: Install Playwright (if FT sources exist)
         if: env.BUILD_MODE != 'build' || steps.precheck.outputs.needed == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -80,9 +82,16 @@ jobs:
             "$SUPABASE_URL/rest/v1/user_feeds?url=like.*ft.com*&select=id&limit=1" \
             | python3 -c "import sys,json; print('true' if json.load(sys.stdin) else 'false')")
           if [ "$HAS_FT" = "true" ]; then
-            pip install playwright > /dev/null 2>&1
-            playwright install chromium --with-deps > /dev/null 2>&1
-            echo "Playwright installed for FT extraction"
+            # If install fails, emit a warning annotation but exit 0 so the
+            # build step still runs. _extract_ft_articles falls back to an
+            # empty Section when playwright is unimportable, so non-FT
+            # users build fine and FT users just miss FT for that run.
+            if pip install playwright > /dev/null 2>&1 \
+               && playwright install chromium --with-deps > /dev/null 2>&1; then
+              echo "Playwright installed for FT extraction"
+            else
+              echo "::warning::Playwright install failed; FT extraction will be skipped this run"
+            fi
           fi
 
       - name: Build newspaper

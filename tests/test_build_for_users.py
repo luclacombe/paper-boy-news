@@ -32,6 +32,7 @@ from scripts.build_for_users import (
     _deliver_record,
     _send_failure_notifications,
     build_and_deliver_for_record,
+    run_deliver,
     _epub_filename,
     _format_file_size,
     _generate_delivery_message,
@@ -1007,3 +1008,408 @@ class TestSendFailureNotifications:
         assert "email" in html
         assert "2026-03-22" in html
         assert "&#x27;str&#x27; has no attribute &#x27;stem&#x27;" in html
+
+
+# ─── run_deliver — recency cap (Outcome 1) ──────────────────────────
+
+
+class TestRunDeliverRecencyCap:
+    """Verify run_deliver() never picks up records older than ~36h.
+
+    Stops burst delivery: if the rare on-time deliver cron fires after
+    the build cron has been failing for days, only fresh records get sent.
+    """
+
+    @patch("scripts.build_for_users._deliver_record")
+    @patch("scripts.build_for_users.get_supabase")
+    def test_skips_records_older_than_36h(self, mock_get_sb, mock_deliver_record):
+        """Three records (2h, 24h, 48h old) — only the first two are eligible."""
+        from datetime import datetime, timedelta, timezone as _tz
+
+        now = datetime.now(_tz.utc)
+        rec_2h = _make_record(
+            id="rec-2h",
+            user_id="user-1",
+            status="built",
+            created_at=(now - timedelta(hours=2)).isoformat(),
+            edition_date=now.date().isoformat(),
+        )
+        rec_24h = _make_record(
+            id="rec-24h",
+            user_id="user-1",
+            status="built",
+            created_at=(now - timedelta(hours=24)).isoformat(),
+            edition_date=(now - timedelta(days=1)).date().isoformat(),
+        )
+        rec_48h = _make_record(
+            id="rec-48h",
+            user_id="user-1",
+            status="built",
+            created_at=(now - timedelta(hours=48)).isoformat(),
+            edition_date=(now - timedelta(days=2)).date().isoformat(),
+        )
+
+        # The Supabase Python client filters server-side, so to faithfully
+        # exercise the filter we capture the .gte() call AND only return
+        # records that satisfy it.
+        sb = MagicMock()
+        mock_get_sb.return_value = sb
+
+        captured = {}
+
+        def gte_side_effect(column, value):
+            captured["column"] = column
+            captured["value"] = value
+            chain = MagicMock()
+            cutoff = datetime.fromisoformat(value)
+            filtered = [
+                r for r in [rec_2h, rec_24h, rec_48h]
+                if datetime.fromisoformat(r["created_at"]) >= cutoff
+            ]
+            chain.execute.return_value = MagicMock(data=filtered)
+            return chain
+
+        # status=built chain → .gte("created_at", cutoff) → .execute()
+        built_chain = MagicMock()
+        built_chain.select.return_value.eq.return_value.gte.side_effect = (
+            gte_side_effect
+        )
+
+        # Profile chain — return a UTC user with delivery_time matching now
+        prof = _make_profile(
+            timezone="UTC",
+            delivery_time=now.strftime("%H:%M"),
+        )
+        profile_chain = MagicMock()
+        profile_chain.select.return_value.eq.return_value.single.return_value.execute.return_value = (
+            MagicMock(data=prof)
+        )
+
+        def table_router(name):
+            if name == "delivery_history":
+                return built_chain
+            if name == "user_profiles":
+                return profile_chain
+            return MagicMock()
+
+        sb.table.side_effect = table_router
+
+        run_deliver()
+
+        # The cutoff filter must be on created_at and ~36h ago
+        assert captured["column"] == "created_at", (
+            f"expected gte on 'created_at', got {captured.get('column')!r}"
+        )
+        cutoff = datetime.fromisoformat(captured["value"])
+        age = now - cutoff
+        # 36h ± a small fudge factor for execution time
+        assert timedelta(hours=35, minutes=55) <= age <= timedelta(hours=36, minutes=5), (
+            f"cutoff age was {age}, expected ~36h"
+        )
+
+        # Only records 2h and 24h old should be delivered; 48h must be skipped
+        delivered_ids = [
+            call_args[0][1]["id"]
+            for call_args in mock_deliver_record.call_args_list
+        ]
+        assert "rec-2h" in delivered_ids
+        assert "rec-24h" in delivered_ids
+        assert "rec-48h" not in delivered_ids
+        assert len(delivered_ids) == 2
+
+
+# ─── _deliver_record — Resend idempotency (Outcome 3) ───────────────
+
+
+class TestDeliverRecordIdempotency:
+    """A record can never produce more than one email to the recipient.
+
+    Defense-in-depth against future retry paths (PR 3 catch-up sweep,
+    manual re-runs, etc.). The DB column `resend_message_id` is the
+    durable proof-of-send; passing the record UUID as Resend's
+    idempotency_key gives 24h server-side dedupe on top.
+    """
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_skips_send_if_message_id_already_present(
+        self, mock_tokens, mock_deliver
+    ):
+        """When resend_message_id is set, deliver() must not be called."""
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id="msg_already_sent",
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        # Email must NOT be sent again
+        mock_deliver.assert_not_called()
+
+        # Status must still flip to delivered (the email was already sent
+        # in a previous run; we just need to mark this record done)
+        update_call = sb.table("delivery_history").update.call_args
+        assert update_call is not None
+        update_data = update_call[0][0]
+        assert update_data["status"] == "delivered"
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_captures_message_id_after_email_send(
+        self, mock_tokens, mock_deliver
+    ):
+        """Successful email delivery must store the Resend message id."""
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_xyz"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        # The update payload must include the captured message id
+        update_call = sb.table("delivery_history").update.call_args
+        update_data = update_call[0][0]
+        assert update_data.get("resend_message_id") == "msg_xyz"
+        assert update_data["status"] == "delivered"
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_passes_record_id_as_idempotency_key(
+        self, mock_tokens, mock_deliver
+    ):
+        """deliver() is called with idempotency_key=record_id."""
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_abc"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            id="rec-uuid-1",
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        kwargs = mock_deliver.call_args.kwargs
+        assert kwargs.get("idempotency_key") == "rec-uuid-1"
+
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_calling_twice_only_sends_once(self, mock_tokens, mock_deliver):
+        """End-to-end: two _deliver_record calls on the same record = one send.
+
+        Simulates a crash + retry: first call sends and writes message id;
+        second call sees the message id and short-circuits.
+        """
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_first"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            id="rec-uuid-2",
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-03.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        # First call — sends
+        _deliver_record(sb, rec, prof)
+        assert mock_deliver.call_count == 1
+
+        # Mutate the record to reflect the first call's writeback
+        rec_after = dict(rec)
+        rec_after["resend_message_id"] = "msg_first"
+        rec_after["status"] = "delivered"
+
+        # Second call — short-circuits
+        _deliver_record(sb, rec_after, prof)
+        assert mock_deliver.call_count == 1, (
+            "deliver() was called twice — idempotency guard failed"
+        )
+
+
+# ─── _build_for_user — empty edition path (Outcome 4) ───────────────
+
+
+class TestBuildForUserEmptyEdition:
+    """Empty edition has its own user-facing path.
+
+    When the user's feeds yielded zero articles we send an explanatory
+    "your sources were quiet today" email — NOT the generic failure email.
+    Different failure mode, different UX.
+    """
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_sets_status_empty(
+        self, mock_build, mock_failure, mock_resend, tmp_path, monkeypatch
+    ):
+        """All feeds quiet → status='empty' (not 'failed')."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(feed_names=["Feed 1", "Feed 2"])
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+        # auth admin lookup for account email
+        sb.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(email="x@x.com")
+        )
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="email",
+        )
+
+        update_call = sb.table("delivery_history").update.call_args
+        update_data = update_call[0][0]
+        assert update_data["status"] == "empty"
+        # Should NOT be marked failed
+        assert update_data["status"] != "failed"
+
+        # Generic failure path must NOT have run
+        mock_failure.assert_not_called()
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_sends_explanatory_email(
+        self, mock_build, mock_failure, mock_resend, tmp_path, monkeypatch
+    ):
+        """The empty-edition email — not the failure email — is sent to the user."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(
+            feed_names=["The Verge", "Hacker News"]
+        )
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="email", recipient_email="user@x.com")
+        sb.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(email="user@x.com")
+        )
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="email",
+        )
+
+        # Resend was called exactly once with the empty-edition copy
+        mock_resend.Emails.send.assert_called_once()
+        params = mock_resend.Emails.send.call_args[0][0]
+        html = params["html"]
+        assert "quiet" in html.lower()
+        assert "The Verge" in html
+        assert "Hacker News" in html
+        # Must NOT contain failure-email phrasing
+        assert "we weren't able to deliver" not in html.lower()
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_no_admin_alert(
+        self, mock_build, mock_failure, mock_resend, tmp_path, monkeypatch
+    ):
+        """Empty editions are user-side, not system bugs — no admin spam."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(feed_names=["Feed 1"])
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        monkeypatch.setenv("ADMIN_ALERT_EMAIL", "admin@x.com")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+        sb.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(email="x@x.com")
+        )
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="email",
+        )
+
+        # Only the user email — never the admin alert template
+        for call_args in mock_resend.Emails.send.call_args_list:
+            params = call_args[0][0]
+            assert "admin@x.com" not in params.get("to", []), (
+                "Admin alert must not fire for empty editions"
+            )
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_local_user_skips_email(
+        self, mock_build, mock_resend, tmp_path, monkeypatch
+    ):
+        """Local/koreader users see empty state on the dashboard — no email."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(feed_names=["Feed 1"])
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="local")
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="local",
+        )
+
+        # Status still flips to empty
+        update_call = sb.table("delivery_history").update.call_args
+        update_data = update_call[0][0]
+        assert update_data["status"] == "empty"
+
+        # No email goes out
+        mock_resend.Emails.send.assert_not_called()
+
+    def test_skip_already_built_check_uses_neq_failed(self):
+        """Sanity: an "empty" record blocks rebuild today (same as built/delivered).
+
+        The partial unique index on (user_id, edition_date) WHERE status != 'failed'
+        also includes 'empty' — so a quiet-feed morning won't trigger a rebuild
+        loop. Verify by source inspection rather than a runtime mock.
+        """
+        import inspect
+        import scripts.build_for_users as mod
+
+        source = inspect.getsource(mod.run_build_all)
+        # The dedup check must use .neq("status", "failed") so "empty" counts
+        # as terminal-for-today (no rebuild).
+        assert '.neq("status", "failed")' in source, (
+            "run_build_all skip-check must include 'empty' in the rebuild guard"
+        )

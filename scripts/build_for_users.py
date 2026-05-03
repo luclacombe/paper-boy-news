@@ -45,9 +45,13 @@ import resend
 
 from paper_boy.cache import ContentCache
 from paper_boy.delivery import deliver
-from paper_boy.email_template import render_admin_alert_email, render_failure_email
+from paper_boy.email_template import (
+    render_admin_alert_email,
+    render_empty_edition_email,
+    render_failure_email,
+)
 from paper_boy.feeds import FeedObservation
-from paper_boy.main import build_newspaper
+from paper_boy.main import EmptyEditionError, build_newspaper
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -368,6 +372,68 @@ def _send_failure_notifications(
         logger.warning("Failed to send failure notifications: %s", e)
 
 
+def _send_empty_edition_email(
+    sb,
+    *,
+    prof: dict,
+    edition_date_str: str,
+    feed_names: list[str],
+    delivery_method: str,
+) -> None:
+    """Send the "your sources were quiet today" email to the user.
+
+    Distinct from `_send_failure_notifications`: empty editions are user-side
+    (their feeds were quiet), not a system bug. Skip the admin alert and
+    skip sending entirely for local/koreader users (they see the empty
+    state on the dashboard).
+
+    Never raises — all errors are logged and swallowed so the empty-path
+    flow can never disrupt the build run.
+    """
+    if delivery_method in ("local", "koreader"):
+        return
+
+    try:
+        api_key = os.environ.get("RESEND_API_KEY")
+        if not api_key:
+            return
+        resend.api_key = api_key
+
+        account_email = None
+        try:
+            auth_user = sb.auth.admin.get_user_by_id(prof["auth_id"])
+            account_email = auth_user.user.email
+        except Exception:
+            logger.warning(
+                "Could not look up account email for user %s", prof.get("id")
+            )
+
+        if not account_email:
+            return
+
+        title = prof.get("title", "Morning Digest")
+        try:
+            from datetime import datetime as dt
+            readable_date = dt.strptime(edition_date_str, "%Y-%m-%d").strftime("%B %-d, %Y")
+        except (ValueError, IndexError):
+            readable_date = edition_date_str
+
+        html = render_empty_edition_email(
+            title=title,
+            edition_date=readable_date,
+            feed_names=feed_names,
+        )
+        resend.Emails.send({
+            "from": "Paper Boy News <delivery@paper-boy-news.com>",
+            "to": [account_email],
+            "subject": f"{title} | sources were quiet today",
+            "html": html,
+        })
+        logger.info("Sent empty-edition notification to %s", account_email)
+    except Exception as e:
+        logger.warning("Failed to send empty-edition email: %s", e)
+
+
 def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
                     edition_date: date, cache: ContentCache | None = None,
                     record_delivery_method: str | None = None,
@@ -455,6 +521,23 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
             except Exception as e:
                 logger.warning("Feed stats upsert failed (non-critical): %s", e)
 
+    except EmptyEditionError as e:
+        logger.info(
+            "Empty edition for record %s — feeds were quiet (%d configured)",
+            record_id, len(e.feed_names),
+        )
+        sb.table("delivery_history").update({
+            "status": "empty",
+            "source_count": len(feed_list),
+            "delivery_message": "Your sources were quiet today",
+        }).eq("id", record_id).execute()
+        _send_empty_edition_email(
+            sb,
+            prof=prof,
+            edition_date_str=edition_date_str,
+            feed_names=e.feed_names or [f.get("name", "") for f in feed_list],
+            delivery_method=delivery_method,
+        )
     except Exception as e:
         logger.exception("Build failed for record %s", record_id)
         sb.table("delivery_history").update({
@@ -472,10 +555,29 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
 
 
 def _deliver_record(sb, rec: dict, prof: dict) -> None:
-    """Deliver a pre-built EPUB from Supabase Storage and update the record."""
+    """Deliver a pre-built EPUB from Supabase Storage and update the record.
+
+    Idempotent: if `resend_message_id` is already populated, the email was
+    already sent in a previous run — we just mark the record as delivered
+    and return without resending. The Resend SDK's idempotency_key (the
+    record UUID) provides 24h server-side dedupe as defense-in-depth.
+    """
     record_id = rec["id"]
     user_id = rec["user_id"]
     epub_storage_path = rec.get("epub_storage_path")
+
+    # Idempotency guard: if we already have a Resend message id, the email
+    # was sent in a previous run. Don't send a second one.
+    if rec.get("resend_message_id"):
+        logger.info(
+            "Record %s already has resend_message_id %s — marking delivered without resending",
+            record_id, rec["resend_message_id"],
+        )
+        sb.table("delivery_history").update({
+            "status": "delivered",
+            "delivery_message": "Already delivered",
+        }).eq("id", record_id).execute()
+        return
 
     if not epub_storage_path:
         sb.table("delivery_history").update({
@@ -511,19 +613,24 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             epub_path = os.path.join(tmp_dir, deliver_filename)
             Path(epub_path).write_bytes(epub_bytes)
 
-            deliver(
+            message_id = deliver(
                 Path(epub_path), config, token_data=token_data,
                 article_count=rec.get("article_count", 0) or 0,
                 source_count=rec.get("source_count", 0) or 0,
+                idempotency_key=record_id,
             )
 
             delivery_message = _generate_delivery_message(config)
             _write_back_tokens(sb, prof, user_id, token_data)
 
-            sb.table("delivery_history").update({
+            update_payload: dict = {
                 "status": "delivered",
                 "delivery_message": delivery_message,
-            }).eq("id", record_id).execute()
+            }
+            if message_id:
+                update_payload["resend_message_id"] = message_id
+
+            sb.table("delivery_history").update(update_payload).eq("id", record_id).execute()
 
             logger.info("Delivered record %s: %s", record_id, delivery_message)
 
@@ -644,13 +751,15 @@ def build_and_deliver_for_record(
             # Deliver if not local — use the record's delivery method, not live profile
             delivery_message = "Available for download"
             token_data = get_token_data(prof)
+            message_id: str | None = None
 
             if record_delivery_method not in ("local", "koreader"):
                 try:
-                    deliver(
+                    message_id = deliver(
                         result.epub_path, config, token_data=token_data,
                         article_count=result.total_articles,
                         source_count=len(feed_list),
+                        idempotency_key=record_id,
                     )
                     delivery_message = _generate_delivery_message(config)
                     _write_back_tokens(sb, prof, user_id, token_data)
@@ -675,6 +784,8 @@ def build_and_deliver_for_record(
                 update_data["error_message"] = delivery_message[:500]
             else:
                 update_data["delivery_message"] = delivery_message
+                if message_id:
+                    update_data["resend_message_id"] = message_id
 
             sb.table("delivery_history").update(update_data).eq("id", record_id).execute()
 
@@ -701,6 +812,22 @@ def build_and_deliver_for_record(
             except Exception as e:
                 logger.warning("Feed stats upsert failed (non-critical): %s", e)
 
+    except EmptyEditionError as e:
+        logger.info(
+            "Empty edition for on-demand record %s — feeds were quiet", record_id,
+        )
+        sb.table("delivery_history").update({
+            "status": "empty",
+            "source_count": len(feed_list),
+            "delivery_message": "Your sources were quiet today",
+        }).eq("id", record_id).execute()
+        _send_empty_edition_email(
+            sb,
+            prof=prof,
+            edition_date_str=edition_date_str,
+            feed_names=e.feed_names or [f.get("name", "") for f in feed_list],
+            delivery_method=record_delivery_method,
+        )
     except Exception as e:
         logger.exception("Build failed for record %s", record_id)
         sb.table("delivery_history").update({
@@ -830,16 +957,25 @@ def run_build_all() -> None:
 def run_deliver() -> None:
     """Deliver pre-built papers whose delivery window matches now.
 
-    Scans for records with status="built", checks if the user's delivery_time
-    is within ±15 min of the current time in their timezone.
+    Scans for records with status="built" created within the last 36h,
+    checks if the user's delivery_time is within ±15 min of the current time
+    in their timezone.
+
+    The 36h recency cap stops "burst delivery" — if the deliver cron has been
+    failing for days and finally fires inside a user's window, we don't drain
+    the entire backlog as a flurry of emails. Anything older is left for the
+    one-time rescue script to handle explicitly.
     """
     sb = get_supabase()
 
-    # Fetch all "built" records (not yet delivered)
+    cutoff = (datetime.now(ZoneInfo("UTC")) - timedelta(hours=36)).isoformat()
+
+    # Fetch recent "built" records (not yet delivered, ≤36h old)
     built_records = (
         sb.table("delivery_history")
         .select("*")
         .eq("status", "built")
+        .gte("created_at", cutoff)
         .execute()
     )
 

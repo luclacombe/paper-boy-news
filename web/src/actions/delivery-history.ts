@@ -33,6 +33,7 @@ export async function getDeliveryHistory(
     deliveryMessage: row.deliveryMessage ?? "",
     errorMessage: row.errorMessage,
     epubStoragePath: row.epubStoragePath,
+    resendMessageId: row.resendMessageId,
     sections: (row.sections as SectionSummary[]) ?? null,
     createdAt: row.createdAt.toISOString(),
   }));
@@ -74,6 +75,7 @@ export async function getEditionForDate(
     deliveryMessage: row.deliveryMessage ?? "",
     errorMessage: row.errorMessage,
     epubStoragePath: row.epubStoragePath,
+    resendMessageId: row.resendMessageId,
     sections: (row.sections as SectionSummary[]) ?? null,
     createdAt: row.createdAt.toISOString(),
   };

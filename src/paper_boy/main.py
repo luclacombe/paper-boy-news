@@ -17,6 +17,23 @@ from paper_boy.feeds import FeedObservation, Section, fetch_feeds, get_feed_obse
 logger = logging.getLogger(__name__)
 
 
+class EmptyEditionError(RuntimeError):
+    """All configured feeds returned zero usable articles for this edition.
+
+    Raised by `build_newspaper` to distinguish "user's feeds were quiet"
+    from a generic system failure. The build runner catches this
+    separately and sends an explanatory empty-edition email instead of
+    the failure email — empty isn't an outage, it's a content drought.
+
+    Inherits from RuntimeError so callers with a broad `except RuntimeError`
+    keep working unchanged.
+    """
+
+    def __init__(self, feed_names: List[str] | None = None):
+        super().__init__("No articles were extracted from any feed")
+        self.feed_names: List[str] = list(feed_names or [])
+
+
 @dataclass
 class BuildResult:
     """Result of a newspaper build, including the fetched content."""
@@ -48,7 +65,7 @@ def build_newspaper(
 
     total_articles = sum(len(s.articles) for s in sections)
     if total_articles == 0:
-        raise RuntimeError("No articles were extracted from any feed")
+        raise EmptyEditionError(feed_names=[f.name for f in config.feeds])
 
     logger.info(
         "Extracted %d articles across %d sections",

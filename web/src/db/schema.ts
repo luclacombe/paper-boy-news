@@ -77,7 +77,7 @@ export const deliveryHistory = pgTable("delivery_history", {
     .notNull()
     .references(() => userProfiles.id, { onDelete: "cascade" }),
 
-  status: text("status").notNull(), // building | built | delivered | failed
+  status: text("status").notNull(), // building | built | delivered | failed | empty
   editionNumber: integer("edition_number"),
   editionDate: text("edition_date").notNull(),
   articleCount: integer("article_count").default(0),
@@ -90,6 +90,10 @@ export const deliveryHistory = pgTable("delivery_history", {
 
   // Supabase Storage path
   epubStoragePath: text("epub_storage_path"),
+
+  // Resend message id — durable proof-of-send. Non-null means email
+  // already sent; deliver path short-circuits to prevent duplicates.
+  resendMessageId: text("resend_message_id"),
 
   // Sections + headlines JSON (for dashboard display)
   sections: jsonb("sections"), // [{ name, headlines: [string] }]
