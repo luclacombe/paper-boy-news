@@ -1250,3 +1250,166 @@ class TestDeliverRecordIdempotency:
         assert mock_deliver.call_count == 1, (
             "deliver() was called twice — idempotency guard failed"
         )
+
+
+# ─── _build_for_user — empty edition path (Outcome 4) ───────────────
+
+
+class TestBuildForUserEmptyEdition:
+    """Empty edition has its own user-facing path.
+
+    When the user's feeds yielded zero articles we send an explanatory
+    "your sources were quiet today" email — NOT the generic failure email.
+    Different failure mode, different UX.
+    """
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_sets_status_empty(
+        self, mock_build, mock_failure, mock_resend, tmp_path, monkeypatch
+    ):
+        """All feeds quiet → status='empty' (not 'failed')."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(feed_names=["Feed 1", "Feed 2"])
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+        # auth admin lookup for account email
+        sb.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(email="x@x.com")
+        )
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="email",
+        )
+
+        update_call = sb.table("delivery_history").update.call_args
+        update_data = update_call[0][0]
+        assert update_data["status"] == "empty"
+        # Should NOT be marked failed
+        assert update_data["status"] != "failed"
+
+        # Generic failure path must NOT have run
+        mock_failure.assert_not_called()
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_sends_explanatory_email(
+        self, mock_build, mock_failure, mock_resend, tmp_path, monkeypatch
+    ):
+        """The empty-edition email — not the failure email — is sent to the user."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(
+            feed_names=["The Verge", "Hacker News"]
+        )
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="email", recipient_email="user@x.com")
+        sb.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(email="user@x.com")
+        )
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="email",
+        )
+
+        # Resend was called exactly once with the empty-edition copy
+        mock_resend.Emails.send.assert_called_once()
+        params = mock_resend.Emails.send.call_args[0][0]
+        html = params["html"]
+        assert "quiet" in html.lower()
+        assert "The Verge" in html
+        assert "Hacker News" in html
+        # Must NOT contain failure-email phrasing
+        assert "we weren't able to deliver" not in html.lower()
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_no_admin_alert(
+        self, mock_build, mock_failure, mock_resend, tmp_path, monkeypatch
+    ):
+        """Empty editions are user-side, not system bugs — no admin spam."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(feed_names=["Feed 1"])
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        monkeypatch.setenv("ADMIN_ALERT_EMAIL", "admin@x.com")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+        sb.auth.admin.get_user_by_id.return_value = MagicMock(
+            user=MagicMock(email="x@x.com")
+        )
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="email",
+        )
+
+        # Only the user email — never the admin alert template
+        for call_args in mock_resend.Emails.send.call_args_list:
+            params = call_args[0][0]
+            assert "admin@x.com" not in params.get("to", []), (
+                "Admin alert must not fire for empty editions"
+            )
+
+    @patch("scripts.build_for_users.resend")
+    @patch("scripts.build_for_users.build_newspaper")
+    def test_empty_edition_local_user_skips_email(
+        self, mock_build, mock_resend, tmp_path, monkeypatch
+    ):
+        """Local/koreader users see empty state on the dashboard — no email."""
+        from paper_boy.main import EmptyEditionError
+
+        mock_build.side_effect = EmptyEditionError(feed_names=["Feed 1"])
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+
+        sb = MagicMock()
+        prof = _make_profile(delivery_method="local")
+
+        feeds = _make_feed_list()
+
+        _build_for_user(
+            sb, prof, feeds, "rec-1", date(2026, 5, 3),
+            record_delivery_method="local",
+        )
+
+        # Status still flips to empty
+        update_call = sb.table("delivery_history").update.call_args
+        update_data = update_call[0][0]
+        assert update_data["status"] == "empty"
+
+        # No email goes out
+        mock_resend.Emails.send.assert_not_called()
+
+    def test_skip_already_built_check_uses_neq_failed(self):
+        """Sanity: an "empty" record blocks rebuild today (same as built/delivered).
+
+        The partial unique index on (user_id, edition_date) WHERE status != 'failed'
+        also includes 'empty' — so a quiet-feed morning won't trigger a rebuild
+        loop. Verify by source inspection rather than a runtime mock.
+        """
+        import inspect
+        import scripts.build_for_users as mod
+
+        source = inspect.getsource(mod.run_build_all)
+        # The dedup check must use .neq("status", "failed") so "empty" counts
+        # as terminal-for-today (no rebuild).
+        assert '.neq("status", "failed")' in source, (
+            "run_build_all skip-check must include 'empty' in the rebuild guard"
+        )

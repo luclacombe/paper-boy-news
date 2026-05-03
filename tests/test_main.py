@@ -9,7 +9,12 @@ from unittest.mock import patch
 import pytest
 
 from paper_boy.cache import ContentCache
-from paper_boy.main import BuildResult, build_and_deliver, build_newspaper
+from paper_boy.main import (
+    BuildResult,
+    EmptyEditionError,
+    build_and_deliver,
+    build_newspaper,
+)
 
 
 class TestBuildResult:
@@ -76,12 +81,35 @@ class TestBuildNewspaper:
         mock_epub.assert_called_once_with(sections, local_config, test_date, "/tmp/out.epub")
 
     @patch("paper_boy.main.fetch_feeds")
-    def test_raises_runtime_error_when_no_articles(self, mock_fetch, local_config):
-        """RuntimeError raised when all sections have zero articles."""
+    def test_raises_empty_edition_error_when_no_articles(self, mock_fetch, local_config):
+        """EmptyEditionError raised when all sections have zero articles.
+
+        This is a typed exception (not a generic RuntimeError) so the build
+        runner can distinguish "feeds were quiet" from a real system failure
+        and send a different user-facing email.
+        """
         mock_fetch.return_value = []
 
-        with pytest.raises(RuntimeError, match="No articles were extracted"):
+        with pytest.raises(EmptyEditionError):
             build_newspaper(local_config)
+
+    def test_empty_edition_error_inherits_runtime_error(self):
+        """Subclassing RuntimeError keeps backward compat with broad excepts."""
+        assert issubclass(EmptyEditionError, RuntimeError)
+
+    @patch("paper_boy.main.fetch_feeds")
+    def test_empty_edition_error_carries_feed_names(self, mock_fetch, local_config):
+        """EmptyEditionError exposes the feeds we tried so the email can list them."""
+        mock_fetch.return_value = []
+
+        with pytest.raises(EmptyEditionError) as excinfo:
+            build_newspaper(local_config)
+
+        # The exception should expose the feed names from the config so the
+        # build runner can render "we tried these sources" in the email.
+        feed_names = excinfo.value.feed_names
+        configured = [f.name for f in local_config.feeds]
+        assert feed_names == configured
 
     @patch("paper_boy.main.build_epub")
     @patch("paper_boy.main.fetch_feeds")

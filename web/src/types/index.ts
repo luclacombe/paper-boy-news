@@ -56,7 +56,7 @@ export interface Feed {
 export interface DeliveryRecord {
   id: string;
   userId: string;
-  status: "delivered" | "failed" | "building" | "built";
+  status: "delivered" | "failed" | "building" | "built" | "empty";
   editionNumber: number;
   editionDate: string;
   articleCount: number;

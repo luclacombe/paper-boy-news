@@ -157,4 +157,29 @@ describe("getDashboardState", () => {
     expect(getDashboardState(CONFIGURED, "fetching", false, false, BUILT_EDITION, 3))
       .toBe("build-in-progress");
   });
+
+  it("returns empty when today's edition is empty", () => {
+    // "Empty" means feeds were quiet today — distinct from "failed"
+    // (system bug). Dashboard should show explanatory copy + "add more
+    // sources" CTA, not the failure recovery affordance.
+    const EMPTY_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "empty",
+      articleCount: 0,
+      epubStoragePath: null,
+    };
+    expect(getDashboardState(CONFIGURED, "idle", false, false, EMPTY_EDITION, 3))
+      .toBe("empty");
+  });
+
+  it("active build still beats empty", () => {
+    const EMPTY_EDITION: DeliveryRecord = {
+      ...DELIVERED_EDITION,
+      status: "empty",
+      articleCount: 0,
+      epubStoragePath: null,
+    };
+    expect(getDashboardState(CONFIGURED, "fetching", false, false, EMPTY_EDITION, 3))
+      .toBe("build-in-progress");
+  });
 });

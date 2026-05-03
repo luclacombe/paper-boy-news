@@ -45,9 +45,13 @@ import resend
 
 from paper_boy.cache import ContentCache
 from paper_boy.delivery import deliver
-from paper_boy.email_template import render_admin_alert_email, render_failure_email
+from paper_boy.email_template import (
+    render_admin_alert_email,
+    render_empty_edition_email,
+    render_failure_email,
+)
 from paper_boy.feeds import FeedObservation
-from paper_boy.main import build_newspaper
+from paper_boy.main import EmptyEditionError, build_newspaper
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -368,6 +372,68 @@ def _send_failure_notifications(
         logger.warning("Failed to send failure notifications: %s", e)
 
 
+def _send_empty_edition_email(
+    sb,
+    *,
+    prof: dict,
+    edition_date_str: str,
+    feed_names: list[str],
+    delivery_method: str,
+) -> None:
+    """Send the "your sources were quiet today" email to the user.
+
+    Distinct from `_send_failure_notifications`: empty editions are user-side
+    (their feeds were quiet), not a system bug. Skip the admin alert and
+    skip sending entirely for local/koreader users (they see the empty
+    state on the dashboard).
+
+    Never raises — all errors are logged and swallowed so the empty-path
+    flow can never disrupt the build run.
+    """
+    if delivery_method in ("local", "koreader"):
+        return
+
+    try:
+        api_key = os.environ.get("RESEND_API_KEY")
+        if not api_key:
+            return
+        resend.api_key = api_key
+
+        account_email = None
+        try:
+            auth_user = sb.auth.admin.get_user_by_id(prof["auth_id"])
+            account_email = auth_user.user.email
+        except Exception:
+            logger.warning(
+                "Could not look up account email for user %s", prof.get("id")
+            )
+
+        if not account_email:
+            return
+
+        title = prof.get("title", "Morning Digest")
+        try:
+            from datetime import datetime as dt
+            readable_date = dt.strptime(edition_date_str, "%Y-%m-%d").strftime("%B %-d, %Y")
+        except (ValueError, IndexError):
+            readable_date = edition_date_str
+
+        html = render_empty_edition_email(
+            title=title,
+            edition_date=readable_date,
+            feed_names=feed_names,
+        )
+        resend.Emails.send({
+            "from": "Paper Boy News <delivery@paper-boy-news.com>",
+            "to": [account_email],
+            "subject": f"{title} | sources were quiet today",
+            "html": html,
+        })
+        logger.info("Sent empty-edition notification to %s", account_email)
+    except Exception as e:
+        logger.warning("Failed to send empty-edition email: %s", e)
+
+
 def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
                     edition_date: date, cache: ContentCache | None = None,
                     record_delivery_method: str | None = None,
@@ -455,6 +521,23 @@ def _build_for_user(sb, prof: dict, feed_list: list[dict], record_id: str,
             except Exception as e:
                 logger.warning("Feed stats upsert failed (non-critical): %s", e)
 
+    except EmptyEditionError as e:
+        logger.info(
+            "Empty edition for record %s — feeds were quiet (%d configured)",
+            record_id, len(e.feed_names),
+        )
+        sb.table("delivery_history").update({
+            "status": "empty",
+            "source_count": len(feed_list),
+            "delivery_message": "Your sources were quiet today",
+        }).eq("id", record_id).execute()
+        _send_empty_edition_email(
+            sb,
+            prof=prof,
+            edition_date_str=edition_date_str,
+            feed_names=e.feed_names or [f.get("name", "") for f in feed_list],
+            delivery_method=delivery_method,
+        )
     except Exception as e:
         logger.exception("Build failed for record %s", record_id)
         sb.table("delivery_history").update({
@@ -729,6 +812,22 @@ def build_and_deliver_for_record(
             except Exception as e:
                 logger.warning("Feed stats upsert failed (non-critical): %s", e)
 
+    except EmptyEditionError as e:
+        logger.info(
+            "Empty edition for on-demand record %s — feeds were quiet", record_id,
+        )
+        sb.table("delivery_history").update({
+            "status": "empty",
+            "source_count": len(feed_list),
+            "delivery_message": "Your sources were quiet today",
+        }).eq("id", record_id).execute()
+        _send_empty_edition_email(
+            sb,
+            prof=prof,
+            edition_date_str=edition_date_str,
+            feed_names=e.feed_names or [f.get("name", "") for f in feed_list],
+            delivery_method=record_delivery_method,
+        )
     except Exception as e:
         logger.exception("Build failed for record %s", record_id)
         sb.table("delivery_history").update({
