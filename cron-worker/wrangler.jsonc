@@ -19,6 +19,15 @@
     "GITHUB_REPO": "luclacombe/paper-boy-news"
   },
 
+  // Expose the worker at https://paper-boy-cron.<account>.workers.dev so
+  // the fetch() handler is reachable for healthchecks. The endpoint
+  // returns only the configured cron strings — no secrets.
+  "workers_dev": true,
+
+  // Don't auto-create preview URLs for non-production versions. We only
+  // ever deploy to production for this worker.
+  "preview_urls": false,
+
   // GITHUB_PAT is a Wrangler secret — set with:
   //   wrangler secret put GITHUB_PAT
   // Do not commit it to this file.
