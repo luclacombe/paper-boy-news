@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "paper-boy-cron",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-01",
+
+  // Two cron triggers — must match the constants in src/index.ts
+  // character-for-character (controller.cron is matched as a string).
+  "triggers": {
+    "crons": [
+      "45 3,7,11,15,19,23 * * *",
+      "*/30 * * * *"
+    ]
+  },
+
+  // Public, non-secret configuration. Repo identifier is visible in
+  // every commit URL anyway, so it lives here rather than as a secret.
+  "vars": {
+    "GITHUB_REPO": "luclacombe/paper-boy"
+  },
+
+  // GITHUB_PAT is a Wrangler secret — set with:
+  //   wrangler secret put GITHUB_PAT
+  // Do not commit it to this file.
+
+  "observability": {
+    "enabled": true
+  }
+}
