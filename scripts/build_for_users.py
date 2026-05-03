@@ -830,16 +830,25 @@ def run_build_all() -> None:
 def run_deliver() -> None:
     """Deliver pre-built papers whose delivery window matches now.
 
-    Scans for records with status="built", checks if the user's delivery_time
-    is within ±15 min of the current time in their timezone.
+    Scans for records with status="built" created within the last 36h,
+    checks if the user's delivery_time is within ±15 min of the current time
+    in their timezone.
+
+    The 36h recency cap stops "burst delivery" — if the deliver cron has been
+    failing for days and finally fires inside a user's window, we don't drain
+    the entire backlog as a flurry of emails. Anything older is left for the
+    one-time rescue script to handle explicitly.
     """
     sb = get_supabase()
 
-    # Fetch all "built" records (not yet delivered)
+    cutoff = (datetime.now(ZoneInfo("UTC")) - timedelta(hours=36)).isoformat()
+
+    # Fetch recent "built" records (not yet delivered, ≤36h old)
     built_records = (
         sb.table("delivery_history")
         .select("*")
         .eq("status", "built")
+        .gte("created_at", cutoff)
         .execute()
     )
 

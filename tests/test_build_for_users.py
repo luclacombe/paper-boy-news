@@ -32,6 +32,7 @@ from scripts.build_for_users import (
     _deliver_record,
     _send_failure_notifications,
     build_and_deliver_for_record,
+    run_deliver,
     _epub_filename,
     _format_file_size,
     _generate_delivery_message,
@@ -1007,3 +1008,111 @@ class TestSendFailureNotifications:
         assert "email" in html
         assert "2026-03-22" in html
         assert "&#x27;str&#x27; has no attribute &#x27;stem&#x27;" in html
+
+
+# ─── run_deliver — recency cap (Outcome 1) ──────────────────────────
+
+
+class TestRunDeliverRecencyCap:
+    """Verify run_deliver() never picks up records older than ~36h.
+
+    Stops burst delivery: if the rare on-time deliver cron fires after
+    the build cron has been failing for days, only fresh records get sent.
+    """
+
+    @patch("scripts.build_for_users._deliver_record")
+    @patch("scripts.build_for_users.get_supabase")
+    def test_skips_records_older_than_36h(self, mock_get_sb, mock_deliver_record):
+        """Three records (2h, 24h, 48h old) — only the first two are eligible."""
+        from datetime import datetime, timedelta, timezone as _tz
+
+        now = datetime.now(_tz.utc)
+        rec_2h = _make_record(
+            id="rec-2h",
+            user_id="user-1",
+            status="built",
+            created_at=(now - timedelta(hours=2)).isoformat(),
+            edition_date=now.date().isoformat(),
+        )
+        rec_24h = _make_record(
+            id="rec-24h",
+            user_id="user-1",
+            status="built",
+            created_at=(now - timedelta(hours=24)).isoformat(),
+            edition_date=(now - timedelta(days=1)).date().isoformat(),
+        )
+        rec_48h = _make_record(
+            id="rec-48h",
+            user_id="user-1",
+            status="built",
+            created_at=(now - timedelta(hours=48)).isoformat(),
+            edition_date=(now - timedelta(days=2)).date().isoformat(),
+        )
+
+        # The Supabase Python client filters server-side, so to faithfully
+        # exercise the filter we capture the .gte() call AND only return
+        # records that satisfy it.
+        sb = MagicMock()
+        mock_get_sb.return_value = sb
+
+        captured = {}
+
+        def gte_side_effect(column, value):
+            captured["column"] = column
+            captured["value"] = value
+            chain = MagicMock()
+            cutoff = datetime.fromisoformat(value)
+            filtered = [
+                r for r in [rec_2h, rec_24h, rec_48h]
+                if datetime.fromisoformat(r["created_at"]) >= cutoff
+            ]
+            chain.execute.return_value = MagicMock(data=filtered)
+            return chain
+
+        # status=built chain → .gte("created_at", cutoff) → .execute()
+        built_chain = MagicMock()
+        built_chain.select.return_value.eq.return_value.gte.side_effect = (
+            gte_side_effect
+        )
+
+        # Profile chain — return a UTC user with delivery_time matching now
+        prof = _make_profile(
+            timezone="UTC",
+            delivery_time=now.strftime("%H:%M"),
+        )
+        profile_chain = MagicMock()
+        profile_chain.select.return_value.eq.return_value.single.return_value.execute.return_value = (
+            MagicMock(data=prof)
+        )
+
+        def table_router(name):
+            if name == "delivery_history":
+                return built_chain
+            if name == "user_profiles":
+                return profile_chain
+            return MagicMock()
+
+        sb.table.side_effect = table_router
+
+        run_deliver()
+
+        # The cutoff filter must be on created_at and ~36h ago
+        assert captured["column"] == "created_at", (
+            f"expected gte on 'created_at', got {captured.get('column')!r}"
+        )
+        cutoff = datetime.fromisoformat(captured["value"])
+        age = now - cutoff
+        # 36h ± a small fudge factor for execution time
+        assert timedelta(hours=35, minutes=55) <= age <= timedelta(hours=36, minutes=5), (
+            f"cutoff age was {age}, expected ~36h"
+        )
+
+        # Only records 2h and 24h old should be delivered; 48h must be skipped
+        delivered_ids = [
+            call_args[0][1]["id"]
+            for call_args in mock_deliver_record.call_args_list
+        ]
+        assert "rec-2h" in delivered_ids
+        assert "rec-24h" in delivered_ids
+        assert "rec-48h" not in delivered_ids
+        assert len(delivered_ids) == 2
