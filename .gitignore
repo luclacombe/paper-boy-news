@@ -33,6 +33,11 @@ docs/RESEARCH.md
 docs/RESEARCH-EBOOK-GENERATION.md
 docs/RESEARCH-ROADMAP.md
 
+# Internal planning + execution prompts (kept locally for reference,
+# not for the public repo)
+docs/superpowers/
+DELIVERY_RELIABILITY_PROMPTS.md
+
 # Test output files
 *.opf
 

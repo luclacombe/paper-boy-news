@@ -44,13 +44,12 @@ delivery:
     # For GitHub Actions, set GOOGLE_CREDENTIALS secret instead
     credentials_file: "credentials.json"
 
-  # Email delivery (Send-to-Kindle, or any email address)
-  # Set method: "email" to use this
+  # Email delivery (Send-to-Kindle, or any email address).
+  # Set method: "email" to use this. Sending goes through Resend — set
+  # the RESEND_API_KEY environment variable before running. For
+  # Send-to-Kindle, the recipient must have your Resend sender domain
+  # on their Personal Document Settings approved list.
   email:
-    smtp_host: "smtp.gmail.com"
-    smtp_port: 465
-    sender: "your-email@gmail.com"         # Your email address
-    password: "xxxx xxxx xxxx xxxx"        # Gmail App Password (not your regular password)
     recipient: "your-kindle@kindle.com"    # Kindle: your Send-to-Kindle address
 
   # Keep this many days of past issues in Google Drive
