@@ -166,6 +166,11 @@ pnpm dev:reset -- --email X       # Reset specific user by email
 # Requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY env vars (from .env.local.cloud)
 python scripts/seed_feed_stats.py              # RSS scan: entry counts only (fast, ~2 min)
 python scripts/seed_feed_stats.py --from-build # Push local build observations (full stats)
+
+# ── Migrations ──
+python scripts/check_migrations.py                       # Safety check (run before pushing a PR)
+python scripts/check_migrations.py --diff origin/main..HEAD   # PR mode (only changed files)
+# Migrations auto-deploy on merge to main via .github/workflows/supabase-migrate.yml
 ```
 
 ## Local Development (Supabase)
@@ -253,6 +258,40 @@ Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only
 | Web app | Vercel | `web/` directory, `www.paper-boy-news.com` |
 | EPUB builds | GitHub Actions | `.github/workflows/build-newspaper.yml` |
 | Database | Supabase | PostgreSQL + Auth + Storage |
+| DB migrations | GitHub Actions | `.github/workflows/supabase-migrate.yml` |
+| Cron triggers | Cloudflare Worker | `cron-worker/` |
+
+## Release Process
+
+### Adding a database migration
+
+Database migrations are **deployed automatically** when merged to `main`. The history of doing this manually was lossy — on 2026-05-04 the `resend_message_id` migration was merged but never reached prod, and 5 users got phantom "delivery issue" emails when the post-send UPDATE failed against the missing column.
+
+**Workflow**:
+
+1. Create the migration file: `supabase/migrations/YYYYMMDDHHMMSS_short_description.sql`. Use the local timestamp at creation; the Supabase CLI orders by filename, so a file named with an older timestamp than what's already deployed will be skipped.
+2. First non-empty line must be a `--` comment explaining **why** the change exists. The CI checker enforces this.
+3. Update `web/src/db/schema.ts` to match (Drizzle camelCase ↔ snake_case). Update `web/src/types/index.ts` if the column is exposed.
+4. If the change touches seeded tables, update `supabase/seed.sql`.
+5. Locally: `supabase db reset` to verify the migration applies cleanly + seeds load.
+6. Run `python scripts/check_migrations.py` locally to preview the safety report.
+7. Open the PR. The `Supabase migrations` workflow comments back with the safety report (errors block merge; warnings/notes are advisory).
+8. After merge, the deploy job runs `supabase db push --linked` against the production project. Watch the run on the Actions tab.
+
+**Backwards-compatible migrations only**: the deploy job runs in parallel with Vercel's auto-deploy, so for a brief window the new code may be hitting the old schema (or vice versa). Stick to additive changes (`ADD COLUMN`, `CREATE TABLE`) for everything that can't be staged. For destructive changes, deploy in two steps: (a) stop reading/writing the column in app code → deploy → (b) drop the column in a follow-up PR.
+
+**Safety nets in code**: `_safe_update_delivery_history()` in `scripts/build_for_users.py` retries `delivery_history` writes without keys listed in `on_drift_remove` if it sees a PGRST204 / "schema cache" error. This prevents user-facing failure emails when a column is briefly missing — but only on `delivery_history` writes. The dashboard SELECT path has no such fallback, so the migration must apply.
+
+**Required GitHub secrets** (Settings → Secrets and variables → Actions):
+- `SUPABASE_ACCESS_TOKEN` — personal access token from <https://supabase.com/dashboard/account/tokens>
+- `SUPABASE_DB_PASSWORD` — DB password for the prod project (rotate via Supabase dashboard)
+- `SUPABASE_PROJECT_REF` (optional repo variable; defaults to `mfcxiajybdebfexhedec`)
+
+**Manual override**: in an emergency, the workflow has a `workflow_dispatch` trigger with a `dry_run` option. Use `gh workflow run supabase-migrate.yml -f dry_run=true` to lint + show pending without pushing, or `dry_run=false` to push immediately.
+
+### Adding any other change
+
+Vercel auto-deploys on push to `main`. The Cloudflare Worker (`cron-worker/`) is deployed manually via `cd cron-worker && wrangler deploy` — there's no CI for it because it changes rarely.
 
 ## Edition Model
 

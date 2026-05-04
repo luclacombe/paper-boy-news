@@ -1252,6 +1252,295 @@ class TestDeliverRecordIdempotency:
         )
 
 
+# ─── _safe_update_delivery_history — schema-drift safety (2026-05-04) ──
+
+
+class TestSafeUpdateDeliveryHistory:
+    """A successful Resend send must never produce a phantom failure email.
+
+    The 2026-05-04 incident: PR #43's `resend_message_id` migration was
+    never applied to prod. After deliver() sent the email, the post-send
+    UPDATE threw PGRST204 ("column not found in schema cache"), the broad
+    except in _deliver_record caught it, flipped the row to status=failed
+    and emailed 5 users telling them their paper failed — minutes after
+    they'd already received it.
+
+    Two invariants the helper must enforce:
+      1. PGRST204 on a key listed in `on_drift_remove` retries without it
+         and still succeeds. The user-visible state is `delivered`.
+      2. Other DB errors do NOT raise — the email is already out the
+         door, so the caller must never see an exception that would
+         trigger a user-facing failure notification.
+    """
+
+    def setup_method(self):
+        from scripts.build_for_users import _safe_update_delivery_history
+        self.fn = _safe_update_delivery_history
+
+    def test_happy_path_returns_true(self):
+        sb = MagicMock()
+        sb.table().update().eq().execute.return_value = MagicMock()
+
+        ok = self.fn(sb, "rec-1", {"status": "delivered"})
+
+        assert ok is True
+
+    def test_pgrst204_retries_without_drifted_key(self):
+        """First call raises PGRST204; second call (without the listed key)
+        succeeds. Final write must NOT contain `resend_message_id`."""
+        sb = MagicMock()
+        executed = []
+
+        def update_side_effect(payload):
+            update_obj = MagicMock()
+
+            def execute():
+                executed.append(dict(payload))
+                if "resend_message_id" in payload:
+                    raise Exception(
+                        "{'message': \"Could not find the 'resend_message_id' "
+                        "column of 'delivery_history' in the schema cache\", "
+                        "'code': 'PGRST204', 'hint': None, 'details': None}"
+                    )
+                return MagicMock()
+
+            update_obj.eq().execute.side_effect = execute
+            return update_obj
+
+        sb.table().update.side_effect = update_side_effect
+
+        ok = self.fn(
+            sb, "rec-1",
+            {"status": "delivered", "delivery_message": "x", "resend_message_id": "msg_1"},
+            on_drift_remove=("resend_message_id",),
+        )
+
+        assert ok is True, "fallback retry should have succeeded"
+        # First attempt with the drifted key, then retry without
+        assert any("resend_message_id" in p for p in executed), "first call must include the drifted key"
+        assert any("resend_message_id" not in p for p in executed), "retry must drop the drifted key"
+        # The retry's payload must still mark the record delivered
+        retry_payload = next(p for p in executed if "resend_message_id" not in p)
+        assert retry_payload["status"] == "delivered"
+
+    def test_non_drift_error_does_not_raise(self):
+        """Non-drift DB errors are logged + swallowed. Caller never sees an
+        exception, so the broad upstream except can't flip the row to failed."""
+        sb = MagicMock()
+        sb.table().update().eq().execute.side_effect = Exception("connection reset")
+
+        # Must NOT raise — that's the whole point of this helper.
+        ok = self.fn(sb, "rec-1", {"status": "delivered"})
+
+        assert ok is False
+
+    def test_drift_retry_failure_does_not_raise(self):
+        """If both the original and the retry fail, caller still doesn't see
+        an exception."""
+        sb = MagicMock()
+        sb.table().update().eq().execute.side_effect = Exception(
+            "PGRST204: schema cache: column missing"
+        )
+
+        ok = self.fn(
+            sb, "rec-1",
+            {"status": "delivered", "resend_message_id": "msg_1"},
+            on_drift_remove=("resend_message_id",),
+        )
+
+        assert ok is False
+
+    def test_drift_without_on_drift_remove_does_not_raise(self):
+        """If `on_drift_remove` is empty, a PGRST204 is just logged + swallowed
+        (no retry). The caller must still not see an exception."""
+        sb = MagicMock()
+        sb.table().update().eq().execute.side_effect = Exception(
+            "PGRST204: schema cache: column missing"
+        )
+
+        ok = self.fn(sb, "rec-1", {"status": "delivered"})  # no drift_remove
+
+        assert ok is False
+
+
+class TestDeliverRecordPhantomFailureRegression:
+    """Regression tests for the 2026-05-04 phantom-failure incident.
+
+    Once deliver() returns successfully, NOTHING that happens after may
+    trigger a user-facing failure-notification email — the user already
+    has their paper. Any post-send error gets logged and (when admin
+    alerts are wired) admin-alerted, but the record stays `delivered` so
+    the dashboard reflects reality.
+    """
+
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_pgrst204_after_send_does_not_notify_user(
+        self, mock_tokens, mock_deliver, mock_failure_notify
+    ):
+        """The smoking gun: simulate PGRST204 on the post-send UPDATE.
+
+        Expected behavior: record ends up `delivered` (via fallback retry
+        without resend_message_id), and _send_failure_notifications is
+        NEVER called. This is the exact scenario from 2026-05-04."""
+        mock_tokens.return_value = None
+        mock_deliver.return_value = "msg_resend_id"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        # Make ONLY the update including resend_message_id raise PGRST204.
+        # Other update calls (without that key) succeed.
+        executed_payloads = []
+
+        def update_side_effect(payload):
+            update_obj = MagicMock()
+
+            def execute():
+                executed_payloads.append(dict(payload))
+                if "resend_message_id" in payload:
+                    raise Exception(
+                        "{'code': 'PGRST204', 'message': \"Could not find the "
+                        "'resend_message_id' column of 'delivery_history' in "
+                        "the schema cache\"}"
+                    )
+                return MagicMock()
+
+            update_obj.eq().execute.side_effect = execute
+            return update_obj
+
+        sb.table().update.side_effect = update_side_effect
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-04.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        # MUST NOT raise — bookkeeping failure must not propagate.
+        _deliver_record(sb, rec, prof)
+
+        # Email was sent exactly once
+        mock_deliver.assert_called_once()
+        # No phantom failure email sent to the user
+        mock_failure_notify.assert_not_called(), (
+            "post-send PGRST204 must NOT trigger user-facing failure notification — "
+            "this is exactly the 2026-05-04 incident"
+        )
+        # And the record should have ended up delivered (via the drift-retry path)
+        assert any(
+            p.get("status") == "delivered" and "resend_message_id" not in p
+            for p in executed_payloads
+        ), f"expected a fallback `status=delivered` write without resend_message_id; saw {executed_payloads}"
+
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_token_writeback_failure_does_not_notify_user(
+        self, mock_tokens, mock_deliver, mock_failure_notify
+    ):
+        """Token writeback is post-send bookkeeping — its failure also must
+        never produce a user-facing failure notification."""
+        mock_tokens.return_value = {"token": "new-token", "refresh_token": "r"}
+        mock_deliver.return_value = "msg_xyz"
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        # user_profiles UPDATE (token writeback) raises; delivery_history
+        # UPDATE succeeds. Use the table name to discriminate.
+        original_table = sb.table
+
+        def table_side_effect(name):
+            t = original_table(name)
+            if name == "user_profiles":
+                t.update().eq().execute.side_effect = Exception("connection reset")
+            return t
+
+        sb.table = MagicMock(side_effect=table_side_effect)
+
+        # google_tokens needs a different access token so writeback runs
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-04.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(
+            delivery_method="email",
+            recipient_email="x@x.com",
+            google_tokens={"token": "old-token"},
+        )
+
+        _deliver_record(sb, rec, prof)
+
+        mock_deliver.assert_called_once()
+        mock_failure_notify.assert_not_called(), (
+            "token writeback failure (post-send) must not trigger user-facing failure"
+        )
+
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_real_send_failure_still_notifies_user(
+        self, mock_tokens, mock_deliver, mock_failure_notify
+    ):
+        """Negative control: if deliver() itself raises, the user-facing
+        failure notification SHOULD still fire. We're not gagging real
+        failures — only the post-send phantom variety."""
+        mock_tokens.return_value = None
+        mock_deliver.side_effect = Exception("Resend API 500")
+
+        sb = MagicMock()
+        sb.storage.from_().download.return_value = b"PK\x03\x04fake"
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/Morning-Digest-2026-05-04.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        mock_failure_notify.assert_called_once()
+        kwargs = mock_failure_notify.call_args.kwargs
+        assert "Delivery failed" in kwargs["error_message"]
+
+    @patch("scripts.build_for_users._send_failure_notifications")
+    @patch("scripts.build_for_users.deliver")
+    @patch("scripts.build_for_users.get_token_data")
+    def test_pre_send_setup_failure_still_notifies_user(
+        self, mock_tokens, mock_deliver, mock_failure_notify
+    ):
+        """Negative control: a pre-send failure (e.g. storage download
+        error) is a real delivery failure and SHOULD fire the user
+        notification — the email never went out."""
+        mock_tokens.return_value = None
+
+        sb = MagicMock()
+        sb.storage.from_().download.side_effect = Exception("Storage 404")
+
+        rec = _make_record(
+            status="built",
+            delivery_method="email",
+            epub_storage_path="auth-1/missing.epub",
+            resend_message_id=None,
+        )
+        prof = _make_profile(delivery_method="email", recipient_email="x@x.com")
+
+        _deliver_record(sb, rec, prof)
+
+        # deliver() never called because download blew up first
+        mock_deliver.assert_not_called()
+        # User SHOULD be notified — the email never went out
+        mock_failure_notify.assert_called_once()
+
+
 # ─── _build_for_user — empty edition path (Outcome 4) ───────────────
 
 
