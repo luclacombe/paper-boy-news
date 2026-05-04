@@ -175,6 +175,7 @@ export function DashboardClient({
   useEffect(() => {
     if (earlyState !== "fetching") return;
     if (todaysEdition?.status === "delivered" || todaysEdition?.status === "built") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEarlyState("done");
       setEarlyResult({
         success: true,

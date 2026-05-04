@@ -373,9 +373,16 @@ export function SettingsAccordion({
     setOpenSection((prev) => (prev === section ? null : section));
   }
 
+  // Sections that are locked during an active build
+  const lockedDuringBuild: SettingsSection[] = ["sources", "delivery", "schedule"];
+  function isSectionLocked(section: SettingsSection): boolean {
+    return buildInProgress && lockedDuringBuild.includes(section);
+  }
+
   // Close the currently open section if it becomes locked by a build
   useEffect(() => {
     if (openSection && isSectionLocked(openSection)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpenSection(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -396,12 +403,6 @@ export function SettingsAccordion({
       });
     }
   }, [initialOpen]);
-
-  // Sections that are locked during an active build
-  const lockedDuringBuild: SettingsSection[] = ["sources", "delivery", "schedule"];
-  function isSectionLocked(section: SettingsSection): boolean {
-    return buildInProgress && lockedDuringBuild.includes(section);
-  }
 
   // ── Render ──
 

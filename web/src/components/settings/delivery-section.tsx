@@ -320,6 +320,7 @@ export function DeliverySection({
   useEffect(() => {
     if (values.deliveryMethod !== "koreader" || opdsUrl || opdsBusy) return;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpdsBusy(true);
     enableOpdsSync()
       .then(({ url }) => {
