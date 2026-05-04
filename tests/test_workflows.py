@@ -12,28 +12,30 @@ from pathlib import Path
 import yaml
 
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build-newspaper.yml"
+WORKFLOWS_DIR = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+WORKFLOW = WORKFLOWS_DIR / "build-newspaper.yml"
+MIGRATE_WORKFLOW = WORKFLOWS_DIR / "supabase-migrate.yml"
 
 BUILD_CRON = "45 3,7,11,15,19,23 * * *"
 DELIVER_CRON = "0,30 * * * *"
 
 
-def _load() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text())
+def _load(path: Path = WORKFLOW) -> dict:
+    return yaml.safe_load(path.read_text())
 
 
-def _on_block() -> dict:
+def _on_block(path: Path = WORKFLOW) -> dict:
     """Return the workflow's `on:` block.
 
     PyYAML's YAML 1.1 boolean coercion turns the unquoted key `on:` into
     Python `True`, so `data["on"]` is empty. Accept either form so the
     test stays robust if the YAML is later quoted.
     """
-    data = _load()
+    data = _load(path)
     block = data.get("on")
     if block is None:
         block = data.get(True)
-    assert block is not None, "could not find `on:` block in workflow"
+    assert block is not None, f"could not find `on:` block in {path.name}"
     return block
 
 
@@ -247,3 +249,114 @@ class TestRecordIdValidationGate:
             "validate-record-id step must gate on event.action == 'build-newspaper' "
             "so build/deliver dispatches don't hit the regex check"
         )
+
+
+# ─── Supabase migration workflow ─────────────────────────────────────
+
+
+class TestSupabaseMigrateWorkflow:
+    """The auto-deploy workflow is the response to the 2026-05-04 schema
+    drift incident. Structural invariants we must preserve:
+
+    - PR runs include the safety check + lint
+    - Push-to-main runs the deploy job
+    - Deploy uses `--linked` (against the prod project ref)
+    - Concurrency is configured (no parallel pushes)
+    - Required secrets are referenced by name (so missing secrets surface
+      as a clear configuration issue, not silent skips)
+    """
+
+    def test_workflow_file_exists(self):
+        assert MIGRATE_WORKFLOW.exists(), (
+            "supabase-migrate.yml must exist — it's the deploy half of "
+            "the schema-drift incident response"
+        )
+
+    def test_path_filter_targets_migrations(self):
+        """PR + push triggers must filter on supabase/migrations/** so
+        unrelated commits don't trip the workflow."""
+        on = _on_block(MIGRATE_WORKFLOW)
+        for trigger in ("pull_request", "push"):
+            paths = on[trigger].get("paths", [])
+            assert any("supabase/migrations" in p for p in paths), (
+                f"{trigger} trigger must filter on supabase/migrations/**, "
+                f"got {paths!r}"
+            )
+
+    def test_concurrency_group_serializes_pushes(self):
+        data = _load(MIGRATE_WORKFLOW)
+        concurrency = data.get("concurrency")
+        assert concurrency, "workflow must declare a concurrency group"
+        assert "supabase" in concurrency["group"].lower()
+        # Aborting a half-applied migration is worse than waiting
+        assert concurrency.get("cancel-in-progress") is False, (
+            "cancel-in-progress must be false — aborting mid-migration "
+            "leaves the DB in a partially-applied state"
+        )
+
+    def test_check_job_runs_only_on_pr(self):
+        data = _load(MIGRATE_WORKFLOW)
+        if_expr = data["jobs"]["check"].get("if", "")
+        assert "pull_request" in if_expr
+
+    def test_deploy_job_does_not_run_on_pr(self):
+        data = _load(MIGRATE_WORKFLOW)
+        if_expr = data["jobs"]["deploy"].get("if", "")
+        assert "pull_request" not in if_expr or "!= 'pull_request'" in if_expr or "push" in if_expr, (
+            "deploy job must not run on PR — only on push to main / dispatch"
+        )
+
+    def test_deploy_uses_linked_flag(self):
+        """`--linked` is what tells the CLI to push against the project
+        configured in `supabase link`. Without it we'd push to a sandbox."""
+        data = _load(MIGRATE_WORKFLOW)
+        steps = data["jobs"]["deploy"]["steps"]
+        push_step = next(
+            (s for s in steps if "Push" in s.get("name", "") and s.get("run")),
+            None,
+        )
+        assert push_step is not None, "no `Push migrations` step found"
+        assert "--linked" in push_step["run"], (
+            "`supabase db push` must use --linked so it targets the prod "
+            "project, not a local sandbox"
+        )
+
+    def test_deploy_references_required_secrets(self):
+        """Missing secrets should surface as a clear configuration issue."""
+        text = MIGRATE_WORKFLOW.read_text()
+        for secret in ("SUPABASE_ACCESS_TOKEN", "SUPABASE_DB_PASSWORD"):
+            assert f"secrets.{secret}" in text, (
+                f"workflow must reference {secret} via secrets.{secret} so "
+                "GitHub surfaces a missing-secret error if it isn't set"
+            )
+
+    def test_check_job_runs_safety_checker(self):
+        data = _load(MIGRATE_WORKFLOW)
+        steps = data["jobs"]["check"]["steps"]
+        joined = "\n".join(s.get("run", "") for s in steps)
+        assert "scripts/check_migrations.py" in joined, (
+            "check job must run scripts/check_migrations.py — that's the "
+            "single source of truth for the safety rules"
+        )
+
+    def test_deploy_job_runs_safety_checker_as_final_guard(self):
+        """Even though the PR check covers this, run again on the merged
+        commit so a force-pushed main can't bypass the rules."""
+        data = _load(MIGRATE_WORKFLOW)
+        steps = data["jobs"]["deploy"]["steps"]
+        joined = "\n".join(s.get("run", "") for s in steps)
+        assert "scripts/check_migrations.py" in joined, (
+            "deploy job must run the safety checker as a final guard"
+        )
+
+    def test_setup_cli_pinned_to_sha(self):
+        """All third-party actions in this repo are SHA-pinned. Match that."""
+        text = MIGRATE_WORKFLOW.read_text()
+        # supabase/setup-cli must appear with a 40-char hex SHA before the version comment
+        import re
+        for match in re.finditer(r"supabase/setup-cli@([^\s]+)", text):
+            ref = match.group(1)
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+                f"supabase/setup-cli must be SHA-pinned (got {ref!r}) — "
+                "the rest of this repo's workflows pin to commit SHAs"
+            )

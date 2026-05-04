@@ -303,6 +303,55 @@ def _write_back_tokens(sb, prof: dict, user_id: str, token_data: dict | None) ->
         ).eq("id", user_id).execute()
 
 
+def _safe_update_delivery_history(
+    sb,
+    record_id: str,
+    payload: dict,
+    *,
+    on_drift_remove: tuple[str, ...] = (),
+) -> bool:
+    """Update delivery_history with a PGRST204 schema-drift fallback.
+
+    Designed for post-send bookkeeping where the email has already left
+    the building. A failure here must NOT raise — the broad upstream
+    `except` would treat a successful send as a failure and trigger a
+    phantom failure-notification email to the user (real incident on
+    2026-05-04: a missing migration produced a column-not-in-schema-cache
+    error AFTER 5 users had already received their paper).
+
+    If the write fails because of a missing column (PGRST204 / "schema
+    cache" — i.e. an unapplied migration), retry without the keys listed
+    in ``on_drift_remove``. Returns True on success, False otherwise.
+    Never raises.
+    """
+    try:
+        sb.table("delivery_history").update(payload).eq("id", record_id).execute()
+        return True
+    except Exception as e:
+        msg = str(e)
+        is_drift = "PGRST204" in msg or "schema cache" in msg
+        if on_drift_remove and is_drift:
+            logger.error(
+                "Schema-drift on delivery_history update for record %s: %s. "
+                "Retrying without keys: %s. Apply the missing migration ASAP.",
+                record_id, msg, list(on_drift_remove),
+            )
+            cleaned = {k: v for k, v in payload.items() if k not in on_drift_remove}
+            try:
+                sb.table("delivery_history").update(cleaned).eq("id", record_id).execute()
+                return True
+            except Exception as e2:
+                logger.exception(
+                    "Schema-drift retry also failed for record %s: %s",
+                    record_id, e2,
+                )
+                return False
+        logger.exception(
+            "delivery_history update failed for record %s: %s", record_id, msg,
+        )
+        return False
+
+
 def _send_failure_notifications(
     sb,
     *,
@@ -561,10 +610,25 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
     already sent in a previous run — we just mark the record as delivered
     and return without resending. The Resend SDK's idempotency_key (the
     record UUID) provides 24h server-side dedupe as defense-in-depth.
+
+    Three phases, with deliberate failure boundaries:
+      1. Setup (config, token data, storage download). Failure here is a
+         real failure — record→failed and notify the user.
+      2. Send (the call to deliver()). Failure here is a real failure too.
+      3. Post-send bookkeeping (token writeback + status update). The email
+         is OUT THE DOOR. Failures from here on MUST NOT trigger a
+         user-facing failure notification — they get logged + admin alert
+         only. Real incident on 2026-05-04 sent 5 users phantom "delivery
+         issue" emails when the post-send UPDATE failed.
     """
     record_id = rec["id"]
     user_id = rec["user_id"]
     epub_storage_path = rec.get("epub_storage_path")
+    edition_date_str = rec.get("edition_date", "unknown")
+    record_delivery_method_raw = rec.get("delivery_method")
+    delivery_method_for_notify = (
+        record_delivery_method_raw or prof.get("delivery_method", "unknown")
+    )
 
     # Idempotency guard: if we already have a Resend message id, the email
     # was sent in a previous run. Don't send a second one.
@@ -573,10 +637,10 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             "Record %s already has resend_message_id %s — marking delivered without resending",
             record_id, rec["resend_message_id"],
         )
-        sb.table("delivery_history").update({
+        _safe_update_delivery_history(sb, record_id, {
             "status": "delivered",
             "delivery_message": "Already delivered",
-        }).eq("id", record_id).execute()
+        })
         return
 
     if not epub_storage_path:
@@ -589,65 +653,89 @@ def _deliver_record(sb, rec: dict, prof: dict) -> None:
             record_id=record_id,
             prof=prof,
             error_message="No EPUB file in storage",
-            edition_date_str=rec.get("edition_date", "unknown"),
-            delivery_method=rec.get("delivery_method") or prof.get("delivery_method", "unknown"),
+            edition_date_str=edition_date_str,
+            delivery_method=delivery_method_for_notify,
         )
         return
 
+    # ── Phase 1: setup (pre-send). Failure here = real delivery failure. ──
     try:
-        # Use the delivery_method from the record (snapshot from build time)
-        # so settings changes after build don't break delivery
         prof_snapshot = dict(prof)
-        record_delivery_method = rec.get("delivery_method")
-        if record_delivery_method:
-            prof_snapshot["delivery_method"] = record_delivery_method
+        if record_delivery_method_raw:
+            prof_snapshot["delivery_method"] = record_delivery_method_raw
         config = build_config_from_profile(prof_snapshot, [])  # feeds not needed for delivery
         token_data = get_token_data(prof)
-
-        # Download EPUB from Supabase Storage
         epub_bytes = sb.storage.from_("epubs").download(epub_storage_path)
+    except Exception as e:
+        logger.exception("Pre-delivery setup failed for record %s", record_id)
+        err = f"Delivery failed: {str(e)[:480]}"
+        sb.table("delivery_history").update({
+            "status": "failed", "error_message": err,
+        }).eq("id", record_id).execute()
+        _send_failure_notifications(
+            sb,
+            record_id=record_id,
+            prof=prof,
+            error_message=err,
+            edition_date_str=edition_date_str,
+            delivery_method=delivery_method_for_notify,
+        )
+        return
 
-        with tempfile.TemporaryDirectory(prefix="paperboy_deliver_") as tmp_dir:
-            # Use the original filename from storage path so delivery backends get the title
-            deliver_filename = os.path.basename(epub_storage_path)
-            epub_path = os.path.join(tmp_dir, deliver_filename)
-            Path(epub_path).write_bytes(epub_bytes)
+    # ── Phase 2: send. The point of no return. ──
+    with tempfile.TemporaryDirectory(prefix="paperboy_deliver_") as tmp_dir:
+        deliver_filename = os.path.basename(epub_storage_path)
+        epub_path = os.path.join(tmp_dir, deliver_filename)
+        Path(epub_path).write_bytes(epub_bytes)
 
+        try:
             message_id = deliver(
                 Path(epub_path), config, token_data=token_data,
                 article_count=rec.get("article_count", 0) or 0,
                 source_count=rec.get("source_count", 0) or 0,
                 idempotency_key=record_id,
             )
+        except Exception as e:
+            logger.exception("Delivery send failed for record %s", record_id)
+            err = f"Delivery failed: {str(e)[:480]}"
+            sb.table("delivery_history").update({
+                "status": "failed", "error_message": err,
+            }).eq("id", record_id).execute()
+            _send_failure_notifications(
+                sb,
+                record_id=record_id,
+                prof=prof,
+                error_message=err,
+                edition_date_str=edition_date_str,
+                delivery_method=delivery_method_for_notify,
+            )
+            return
 
-            delivery_message = _generate_delivery_message(config)
-            _write_back_tokens(sb, prof, user_id, token_data)
+    # ── Phase 3: post-send bookkeeping. Email is sent. ──
+    # Failures past this line MUST NOT trigger a user-facing failure email.
+    delivery_message = _generate_delivery_message(config)
 
-            update_payload: dict = {
-                "status": "delivered",
-                "delivery_message": delivery_message,
-            }
-            if message_id:
-                update_payload["resend_message_id"] = message_id
-
-            sb.table("delivery_history").update(update_payload).eq("id", record_id).execute()
-
-            logger.info("Delivered record %s: %s", record_id, delivery_message)
-
-    except Exception as e:
-        logger.exception("Delivery failed for record %s", record_id)
-        sb.table("delivery_history").update({
-            "status": "failed",
-            "error_message": f"Delivery failed: {str(e)[:480]}",
-        }).eq("id", record_id).execute()
-        _send_failure_notifications(
-            sb,
-            record_id=record_id,
-            prof=prof,
-            error_message=f"Delivery failed: {str(e)[:480]}",
-            edition_date_str=rec.get("edition_date", "unknown"),
-            delivery_method=rec.get("delivery_method") or prof.get("delivery_method", "unknown"),
+    try:
+        _write_back_tokens(sb, prof, user_id, token_data)
+    except Exception:
+        logger.exception(
+            "Token writeback failed for record %s (delivery still successful)",
+            record_id,
         )
+
+    update_payload: dict = {
+        "status": "delivered",
+        "delivery_message": delivery_message,
+    }
+    if message_id:
+        update_payload["resend_message_id"] = message_id
+
+    _safe_update_delivery_history(
+        sb, record_id, update_payload,
+        on_drift_remove=("resend_message_id",),
+    )
+
+    logger.info("Delivered record %s: %s", record_id, delivery_message)
 
 
 def build_and_deliver_for_record(
@@ -762,10 +850,20 @@ def build_and_deliver_for_record(
                         idempotency_key=record_id,
                     )
                     delivery_message = _generate_delivery_message(config)
-                    _write_back_tokens(sb, prof, user_id, token_data)
                 except Exception as e:
                     delivery_message = f"Delivery failed: {e}"
                     logger.error("Delivery failed: %s", e)
+                else:
+                    # Email is OUT THE DOOR. Token writeback failure must
+                    # NOT taint delivery_message — that would mark the
+                    # record failed and email the user a phantom failure.
+                    try:
+                        _write_back_tokens(sb, prof, user_id, token_data)
+                    except Exception:
+                        logger.exception(
+                            "Token writeback failed for record %s (delivery still successful)",
+                            record_id,
+                        )
 
             # Determine final status based on delivery outcome
             delivery_failed = delivery_message.startswith("Delivery failed:")
@@ -787,7 +885,13 @@ def build_and_deliver_for_record(
                 if message_id:
                     update_data["resend_message_id"] = message_id
 
-            sb.table("delivery_history").update(update_data).eq("id", record_id).execute()
+            # Use the safe helper so a missing-column failure on a
+            # SUCCESSFUL delivery won't be caught by the outer except (line
+            # ~895) and re-flipped to "failed" with a phantom failure email.
+            _safe_update_delivery_history(
+                sb, record_id, update_data,
+                on_drift_remove=("resend_message_id",),
+            )
 
             if delivery_failed:
                 _send_failure_notifications(

@@ -1,0 +1,185 @@
+name: Supabase migrations
+
+# Pre-merge: lint + safety report on every PR that touches migrations.
+# Post-merge: deploy to production via `supabase db push`.
+#
+# This workflow is the response to the 2026-05-04 schema-drift incident:
+# the resend_message_id migration was merged to git but never reached
+# production, the post-send UPDATE failed against the missing column,
+# and the broad `except Exception` in _deliver_record sent 5 users
+# phantom "delivery issue" emails MINUTES after their actual paper had
+# already arrived.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN  — personal access token, create at
+#                            https://supabase.com/dashboard/account/tokens
+#   SUPABASE_DB_PASSWORD   — DB password for the prod project (set when
+#                            the project was created; rotate via dashboard)
+# Required repo variable (or hardcode below):
+#   SUPABASE_PROJECT_REF   — `mfcxiajybdebfexhedec` (paper-boy prod project)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "scripts/check_migrations.py"
+      - ".github/workflows/supabase-migrate.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only (skip the actual push)"
+        type: boolean
+        default: false
+
+# Two pushes overlapping each other is a recipe for half-applied state.
+# `cancel-in-progress: false` because aborting a running migration mid-way
+# is worse than waiting for it to finish.
+concurrency:
+  group: supabase-migrate-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Pin the Supabase CLI version so this workflow's behavior doesn't drift
+  # under our feet. Bump after testing locally; coordinate with the
+  # `setup-cli` action version below.
+  SUPABASE_CLI_VERSION: "2.95.4"
+  SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'mfcxiajybdebfexhedec' }}
+
+jobs:
+  # ── PR-time safety report ────────────────────────────────────────
+  check:
+    name: Check migrations (lint + safety report)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write   # so we can comment on the PR
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0   # full history so `git diff base..head` works
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      - name: Run safety checker on PR diff
+        id: check
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          python scripts/check_migrations.py \
+            --diff "${base}..${head}" \
+            --output report.md \
+            | tee "${GITHUB_STEP_SUMMARY}"
+        continue-on-error: false
+
+      - uses: supabase/setup-cli@df56b21da46c98abb12a9804e4fb1f657773e333 # v2.0.0
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: supabase db lint
+        run: |
+          # Syntactic + semantic lint of every migration file. Catches the
+          # things our heuristic checker doesn't (function refs, schema
+          # references, etc.). Errors fail the job.
+          supabase db lint --schema public,storage,auth,extensions \
+            || (echo "::error::supabase db lint failed — fix migrations and re-push" && exit 1)
+
+      - name: Comment safety report on PR
+        if: always() && hashFiles('report.md') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Replace any previous bot comment for this PR so we don't pile
+          # them up across pushes. Find by sentinel marker in the body.
+          marker="<!-- supabase-migrate-check -->"
+          body=$(printf '%s\n\n%s\n' "${marker}" "$(cat report.md)")
+          existing=$(gh api "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | contains(\"${marker}\")) | .id" \
+            | head -1)
+          if [ -n "${existing}" ]; then
+            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${existing}" \
+              -f body="${body}"
+          else
+            gh api --method POST "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              -f body="${body}"
+          fi
+
+  # ── Post-merge deploy ────────────────────────────────────────────
+  deploy:
+    name: Deploy migrations to production
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch')
+    environment:
+      name: production
+      url: https://supabase.com/dashboard/project/${{ vars.SUPABASE_PROJECT_REF || 'mfcxiajybdebfexhedec' }}/database/migrations
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.12"
+
+      # Final guard: re-run the safety checker on the merged commit. Hard
+      # errors here (filename / missing intent) abort before we touch prod.
+      - name: Final safety check
+        run: python scripts/check_migrations.py | tee "${GITHUB_STEP_SUMMARY}"
+
+      - uses: supabase/setup-cli@df56b21da46c98abb12a9804e4fb1f657773e333 # v2.0.0
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Lint migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          supabase db lint --schema public,storage,auth,extensions
+
+      - name: Link to project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          supabase link --project-ref "${SUPABASE_PROJECT_REF}"
+
+      - name: Show pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          # Surface drift before push: lists local vs remote, so a manual
+          # dashboard-applied migration that didn't get added to git shows
+          # up as remote-only here.
+          supabase migration list --linked || true
+
+      - name: Push migrations
+        if: ${{ inputs.dry_run != true }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          # `--include-all` is intentional: in the rare case where a
+          # migration with an older timestamp was merged after a newer
+          # one (e.g. backport), include it. Without this flag the CLI
+          # silently skips out-of-order older migrations.
+          supabase db push --linked --include-all
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run == true }}
+        run: |
+          echo "::notice::Dry-run mode — no migrations pushed. Re-run with dry_run=false to apply."
