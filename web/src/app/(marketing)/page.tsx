@@ -7,6 +7,10 @@ import {
   type ArchivalStory,
 } from "@/components/archival-column";
 
+// Re-render hourly so the masthead dateline in the static HTML stays current
+// (the client also swaps in the viewer's local date after hydration).
+export const revalidate = 3600;
+
 /* Archival image stories */
 
 const LEFT_STORIES: ArchivalStory[] = [

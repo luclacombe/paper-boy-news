@@ -4,6 +4,7 @@ import {
   isBeforeEditionCutoff,
   isBeforeDeliveryTime,
   getUserLocalHourMinute,
+  formatDatelineDate,
 } from "@/lib/edition-date";
 
 // Helper: create a Date for a specific time in UTC
@@ -109,5 +110,18 @@ describe("getUserLocalHourMinute", () => {
     // 15:00 UTC = 11:00 AM EDT
     const { hour } = getUserLocalHourMinute("US/Eastern", utc(2026, 3, 8, 15, 0));
     expect(hour).toBe(11);
+  });
+});
+
+describe("formatDatelineDate", () => {
+  it("formats a long-form English dateline", () => {
+    // Midday so the date is the same in any runtime timezone
+    expect(formatDatelineDate(new Date(2026, 10, 9, 12))).toBe(
+      "Monday, November 9, 2026"
+    );
+  });
+
+  it("defaults to the current date, not a fixed one", () => {
+    expect(formatDatelineDate()).toBe(formatDatelineDate(new Date()));
   });
 });

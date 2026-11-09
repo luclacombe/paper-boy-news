@@ -73,3 +73,16 @@ export function getUserLocalHourMinute(
   const { hour, minute } = getDatePartsInTZ(timezone, now);
   return { hour, minute };
 }
+
+/**
+ * Long-form dateline date, e.g. "Monday, November 9, 2026", in the runtime's
+ * local timezone (server: UTC on Vercel; browser: the viewer's timezone).
+ */
+export function formatDatelineDate(now: Date = new Date()): string {
+  return now.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
