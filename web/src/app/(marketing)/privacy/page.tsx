@@ -19,7 +19,7 @@ export default function PrivacyPage() {
           Privacy Policy
         </h1>
         <p className="mt-2 font-body text-sm italic text-caption">
-          Last updated: March 12, 2026
+          Last updated: November 9, 2026
         </p>
       </header>
 
@@ -29,9 +29,20 @@ export default function PrivacyPage() {
             What Paper Boy News Is
           </h2>
           <p>
-            Paper Boy News is a free, open-source tool that compiles RSS feeds into
-            EPUB newspapers and delivers them to your e-reader. The source code
-            is publicly available on GitHub.
+            Paper Boy News (www.paper-boy-news.com) is a free, open-source tool
+            that compiles the RSS news feeds you choose into an EPUB newspaper
+            and delivers it to your e-reader each morning. The source code is
+            publicly available on{" "}
+            <a
+              href="https://github.com/luclacombe/paper-boy-news"
+              className="underline hover:no-underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              GitHub
+            </a>
+            . This policy explains what data the service collects, how it is
+            used, and how you can delete it.
           </p>
         </section>
 
@@ -42,33 +53,141 @@ export default function PrivacyPage() {
             Data We Collect
           </h2>
           <p className="mb-3">
-            When you create an account, we store the minimum needed to operate
-            the service:
+            We store the minimum needed to operate the service:
           </p>
           <ul className="list-disc space-y-1.5 pl-5">
             <li>
-              <strong>Account info</strong> — email address and name (from
-              Google sign-in or email registration)
+              <strong>Account info:</strong> your email address, and your name
+              if you sign in with Google
             </li>
             <li>
-              <strong>Newspaper preferences</strong> — your RSS feeds, device
-              type, delivery method, delivery time, and timezone
+              <strong>Newspaper preferences:</strong> your RSS feeds, newspaper
+              title, device type, delivery method, delivery email address,
+              delivery time, and timezone
             </li>
             <li>
-              <strong>Delivery credentials</strong> — if you choose Google
-              Drive delivery, an OAuth token scoped to file creation
-              (drive.file). Email delivery uses Resend (no credentials
-              stored)
+              <strong>Delivery credentials:</strong> if you choose Google Drive
+              delivery, an OAuth token limited to files the app creates (see
+              below). Email delivery uses Resend; no credentials are stored
             </li>
             <li>
-              <strong>OPDS sync token</strong> — if you enable wireless sync,
-              a randomly generated access token for your personal OPDS feed
+              <strong>OPDS sync token:</strong> if you enable wireless sync, a
+              randomly generated access token for your personal OPDS feed
             </li>
             <li>
-              <strong>Delivery history</strong> — a log of your past newspaper
-              builds (date, status, article count)
+              <strong>Delivery history:</strong> a log of your past newspaper
+              builds (date, status, article count, headlines)
             </li>
           </ul>
+        </section>
+
+        <div className="h-px bg-rule-gray/40" />
+
+        <section>
+          <h2 className="mb-3 font-headline text-lg font-bold text-ink">
+            Google User Data
+          </h2>
+          <p>
+            Paper Boy News uses Google APIs in two optional ways: signing in
+            with your Google account, and delivering newspapers to your Google
+            Drive.
+          </p>
+
+          <h3 className="mb-2 mt-4 font-headline text-base font-bold text-ink">
+            What we access
+          </h3>
+          <ul className="list-disc space-y-1.5 pl-5">
+            <li>
+              <strong>Google sign-in</strong> (scopes: openid, email,
+              profile): your Google account ID, email address, name, and
+              profile picture URL. We do not access your contacts, calendar,
+              Gmail, or any other Google data.
+            </li>
+            <li>
+              <strong>Google Drive delivery</strong> (scope: drive.file, only
+              if you choose it): permission to create a newspaper folder in
+              your Drive, upload each edition as an EPUB file, and remove old
+              editions that the app itself uploaded. This scope cannot see,
+              read, or change any other file in your Drive.
+            </li>
+          </ul>
+
+          <h3 className="mb-2 mt-4 font-headline text-base font-bold text-ink">
+            How we use it
+          </h3>
+          <ul className="list-disc space-y-1.5 pl-5">
+            <li>
+              Your email address and Google account ID identify your account
+              and let you sign in. Your email is also used to send you service
+              notices, such as a failed delivery.
+            </li>
+            <li>
+              The Drive token is used only to upload your newspaper to your
+              chosen folder and remove that folder&apos;s older editions.
+            </li>
+            <li>
+              Google user data is not used for advertising, profiling, or to
+              train AI or machine-learning models.
+            </li>
+          </ul>
+
+          <h3 className="mb-2 mt-4 font-headline text-base font-bold text-ink">
+            How we store and protect it
+          </h3>
+          <p>
+            Sign-in details and Drive tokens are stored in our Supabase
+            database, which is encrypted at rest and accessed over encrypted
+            (TLS) connections. Database rules restrict each account to its own
+            data. Drive tokens are read only by the automated build process
+            that delivers your newspaper.
+          </p>
+
+          <h3 className="mb-2 mt-4 font-headline text-base font-bold text-ink">
+            Sharing
+          </h3>
+          <p>
+            We do not sell, rent, or share Google user data with anyone. It is
+            only processed by the infrastructure providers listed under
+            Third-Party Services, solely to run the service, and is never
+            transferred to third parties for any other purpose.
+          </p>
+
+          <h3 className="mb-2 mt-4 font-headline text-base font-bold text-ink">
+            Retention and deletion
+          </h3>
+          <p>
+            Google user data is kept only while your account exists. Deleting
+            your account (Settings &gt; Account) immediately removes your
+            profile, Drive tokens, and sign-in record. You can also revoke
+            Paper Boy News&apos;s access at any time from your{" "}
+            <a
+              href="https://myaccount.google.com/permissions"
+              className="underline hover:no-underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Google Account permissions page
+            </a>
+            . Files already delivered to your Drive stay there until you
+            delete them.
+          </p>
+
+          <h3 className="mb-2 mt-4 font-headline text-base font-bold text-ink">
+            Limited Use
+          </h3>
+          <p>
+            Paper Boy News&apos;s use and transfer of information received from
+            Google APIs adheres to the{" "}
+            <a
+              href="https://developers.google.com/terms/api-services-user-data-policy"
+              className="underline hover:no-underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Google API Services User Data Policy
+            </a>
+            , including the Limited Use requirements.
+          </p>
         </section>
 
         <div className="h-px bg-rule-gray/40" />
@@ -83,8 +202,8 @@ export default function PrivacyPage() {
             <li>We do not use analytics services</li>
             <li>We do not read the content of your newspapers after delivery</li>
             <li>
-              We do not store your Google password — authentication goes through
-              Google&apos;s OAuth flow and we only receive a scoped token
+              We do not see or store your Google password. Sign-in goes through
+              Google&apos;s own OAuth flow
             </li>
           </ul>
         </section>
@@ -105,9 +224,9 @@ export default function PrivacyPage() {
             >
               Supabase
             </a>{" "}
-            hosted PostgreSQL database. EPUB files are temporarily stored in
-            Supabase Storage and are available for download for a limited time
-            after each build.
+            hosted PostgreSQL database. EPUB files are stored in Supabase
+            Storage so you can download past editions from your dashboard, and
+            are deleted with your account.
           </p>
         </section>
 
@@ -119,16 +238,21 @@ export default function PrivacyPage() {
           </h2>
           <ul className="list-disc space-y-1.5 pl-5">
             <li>
-              <strong>Supabase</strong> — authentication and database hosting
+              <strong>Supabase:</strong> authentication, database, and file
+              storage
             </li>
             <li>
-              <strong>Vercel</strong> — web app hosting
+              <strong>Vercel:</strong> web app hosting
             </li>
             <li>
-              <strong>GitHub Actions</strong> — newspaper build pipeline
+              <strong>GitHub Actions:</strong> the automated newspaper build
+              pipeline
             </li>
             <li>
-              <strong>Google APIs</strong> — sign-in and (optionally) Drive
+              <strong>Resend:</strong> sending newspapers and service emails
+            </li>
+            <li>
+              <strong>Google APIs:</strong> sign-in and (optionally) Drive
               delivery
             </li>
           </ul>
@@ -147,7 +271,7 @@ export default function PrivacyPage() {
           <p>
             You can delete your account and all associated data directly from
             Settings &gt; Account in the app. Deletion is immediate and
-            permanent — your profile, feeds, delivery history, stored EPUBs,
+            permanent: your profile, feeds, delivery history, stored EPUBs,
             and any Google OAuth tokens are removed. You can also contact us
             at{" "}
             <a
@@ -164,12 +288,30 @@ export default function PrivacyPage() {
 
         <section>
           <h2 className="mb-3 font-headline text-lg font-bold text-ink">
+            Contact
+          </h2>
+          <p>
+            Paper Boy News is a personal project run by Luc Lacombe. Questions
+            about this policy or your data:{" "}
+            <a
+              href="mailto:contact@paper-boy-news.com"
+              className="underline hover:no-underline"
+            >
+              contact@paper-boy-news.com
+            </a>
+            .
+          </p>
+        </section>
+
+        <div className="h-px bg-rule-gray/40" />
+
+        <section>
+          <h2 className="mb-3 font-headline text-lg font-bold text-ink">
             Changes
           </h2>
           <p>
             If this policy changes, the updated version will be posted here with
-            a new date. Paper Boy News is a personal project — the policy is kept
-            simple because the project is simple.
+            a new date.
           </p>
         </section>
       </div>
