@@ -1,4 +1,6 @@
 import { cn } from "@/lib/utils";
+import { EditionDate } from "@/components/edition-date";
+import { formatDatelineDate } from "@/lib/edition-date";
 
 interface NewspaperMastheadProps {
   subtitle?: string;
@@ -16,16 +18,6 @@ function scalePunctuation(text: string): React.ReactNode[] {
       part
     )
   );
-}
-
-function formatDate(): string {
-  const now = new Date();
-  return now.toLocaleDateString("en-US", {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
 }
 
 export function NewspaperMasthead({
@@ -68,7 +60,7 @@ export function NewspaperMasthead({
             <span className="hidden sm:inline" aria-hidden="true">
               ·
             </span>
-            <span>{formatDate()}</span>
+            <EditionDate serverDate={formatDatelineDate()} />
             <span className="hidden sm:inline" aria-hidden="true">
               ·
             </span>
