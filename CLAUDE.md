@@ -88,7 +88,7 @@ scripts/                 # Build + utility scripts for GitHub Actions
 legacy/streamlit/        # Archived Streamlit prototype
 legacy/api/              # Archived FastAPI backend (replaced by GitHub Actions)
 tests/                   # Python tests for core lib
-.github/workflows/       # CI + build-newspaper
+.github/workflows/       # CI + build-newspaper + keepalive (weekly re-enable of scheduled workflows)
 ```
 
 ## Source Audit Workflow
@@ -260,6 +260,7 @@ Do NOT write implementation details to auto-memory (`MEMORY.md`). Memory is only
 | Database | Supabase | PostgreSQL + Auth + Storage |
 | DB migrations | GitHub Actions | `.github/workflows/supabase-migrate.yml` |
 | Cron triggers | Cloudflare Worker | `cron-worker/` |
+| Workflow keepalive | GitHub Actions | `.github/workflows/keepalive.yml` (GitHub disables scheduled workflows after 60 days without repo activity; this re-enables them weekly) |
 
 ## Release Process
 
