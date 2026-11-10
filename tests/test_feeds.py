@@ -1080,6 +1080,21 @@ class TestBrowserUAFallback:
 
 
 class TestBloombergExtraction:
+    @patch("paper_boy.feeds.urllib.request.urlopen")
+    def test_bloomberg_api_sends_app_user_agent(self, mock_urlopen):
+        """Story endpoints 403 a generic UA since Sept 2026 — the app UA is required."""
+        from paper_boy.feeds import _BLOOMBERG_API_UA, _fetch_bloomberg_api
+
+        resp = MagicMock()
+        resp.read.return_value = b'{"html": "<p>ok</p>"}'
+        resp.headers.get.return_value = None
+        mock_urlopen.return_value.__enter__.return_value = resp
+
+        assert _fetch_bloomberg_api("https://cdn-mobapi.bloomberg.com/x") == {"html": "<p>ok</p>"}
+        req = mock_urlopen.call_args[0][0]
+        assert req.get_header("User-agent") == _BLOOMBERG_API_UA
+        assert _BLOOMBERG_API_UA.startswith("BloombergHorseshoe|Android")
+
     @patch("paper_boy.feeds._fetch_bloomberg_api")
     def test_bloomberg_api_success(self, mock_api):
         """Bloomberg BW news API returns article HTML and byline."""
@@ -2392,6 +2407,37 @@ class TestExtractFtArticles:
         section = _extract_ft_articles(feed_cfg, local_config)
         assert len(section.articles) == 0
 
+    @patch("paper_boy.feeds.feedparser.parse")
+    def test_aborts_after_consecutive_failures(self, mock_parse, local_config):
+        """When every page load fails (bot wall), stop after the RSS-feed threshold."""
+        import sys
+        import types
+
+        from paper_boy.config import FeedConfig
+
+        feed_cfg = FeedConfig(name="FT", url="https://www.ft.com/world?format=rss")
+        entries = [
+            _make_feed_entry(title=f"FT Article {i}", link=f"https://www.ft.com/content/{i}")
+            for i in range(8)
+        ]
+        mock_parse.return_value = _make_parsed_feed(entries=entries)
+
+        page = MagicMock()
+        page.goto.side_effect = TimeoutError("Timeout 10000ms exceeded")
+        pw = MagicMock()
+        pw.chromium.launch.return_value.new_context.return_value.new_page.return_value = page
+        sync_playwright = MagicMock()
+        sync_playwright.return_value.__enter__.return_value = pw
+        fake_module = types.ModuleType("playwright.sync_api")
+        fake_module.sync_playwright = sync_playwright
+
+        with patch.dict(sys.modules, {"playwright": types.ModuleType("playwright"),
+                                      "playwright.sync_api": fake_module}):
+            section = _extract_ft_articles(feed_cfg, local_config)
+
+        assert section.articles == []
+        assert page.goto.call_count == feeds._MAX_CONSECUTIVE_FAILURES
+
     def test_ft_routed_from_fetch_single_feed(self, local_config, make_config):
         """_fetch_single_feed routes ft.com URLs to _extract_ft_articles."""
         from paper_boy.config import FeedConfig
@@ -2775,6 +2821,21 @@ class TestDomainSpecificImageRecovery:
         )
         result = _recover_images_from_html(extracted, raw, "https://apnews.com/article/test")
         assert "bsp-photo.jpg" in result
+
+    def test_abc_news_uses_featured_media_not_promos(self):
+        """ABC News wire stories take the FeaturedMedia photo, not sidebar promos in <main>."""
+        extracted = "<p>Text only.</p>"
+        raw = (
+            "<html><body><main>"
+            '<div class="FeaturedMedia"><figure><img src="https://i.abcnewsfe.com/a/1/wirestory_abc.jpg"/></figure></div>'
+            '<aside><img src="https://i.abcnewsfe.com/a/2/promo_hpMain_square.jpg"/></aside>'
+            "</main></body></html>"
+        )
+        result = _recover_images_from_html(
+            extracted, raw, "https://abcnews.com/International/wireStory/test-123"
+        )
+        assert "wirestory_abc.jpg" in result
+        assert "promo_hpMain_square.jpg" not in result
 
     def test_non_ap_uses_generic_xpath(self):
         """Non-AP domains still use the generic //article//img xpath."""
