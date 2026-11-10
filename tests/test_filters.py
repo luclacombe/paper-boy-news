@@ -130,6 +130,18 @@ class TestStripJunk:
         "0 of 44",
         "23 of 44",
         "Balenciaga AW26 look 1. (Launchmetrics.com/Spotlight)",
+        # Guardian newsletter embed marker + letters footer (Build 8 audit)
+        "after newsletter promotion",
+        "skip past newsletter promotion",
+        "Do you have an opinion on the issues raised in this article? If you would like to submit a response of up to 300 words by email to be considered for publication in our letters section, please click here.",
+        # Fox News / OutKick app + podcast CTAs (Build 8 audit)
+        "OUTKICK IS NOW AVAILABLE ON THE FOX NEWS APP: CLICK HERE TO DOWNLOAD",
+        "OUTKICK IS NOW ON THE FOX APP: CLICK HERE TO DOWNLOAD",
+        "GET FOX BUSINESS ON THE GO BY CLICKING HERE",
+        "THE CRAIG CARTON SHOW–UNFILTERED, UNAPOLOGETIC AND UNMISSABLE. DOWNLOAD HIS DAILY PODCAST NOW!",
+        # The Conversation inline related links (Build 8 audit)
+        "Read more: What is a GPU? An expert explains the chips powering the AI boom, and why they’re worth trillions",
+        "Read more: Israel election by the numbers: who might form the next government?",
     ])
     def test_removes_junk_paragraph(self, junk_text):
         html = f"<p>Good content here.</p><p>{junk_text}</p>"
@@ -148,6 +160,11 @@ class TestStripJunk:
         "The article continues below the fold with more analysis.",
         "Users must confirm their identity before accessing the system.",
         "She decided to subscribe to the Bloomberg Terminal for market data.",
+        # Build 8 audit — contextual uses that must NOT be stripped
+        "The interview aired on the Fox News app on Sunday, and viewers responded within minutes to the remarks.",
+        "Readers who were after newsletter promotions this week found the offers had expired.",
+        "To take the rest of FP’s weekly international news quiz, click here, or sign up to be alerted when a new one is published.",
+        "Read more: " + "the committee published a detailed rebuttal that ran to several pages, " * 5,
     ])
     def test_preserves_contextual_mentions(self, safe_text):
         html = f"<p>{safe_text}</p>"
@@ -529,6 +546,21 @@ class TestStripSectionJunk:
         assert "Bank of England" in result
         assert "Recommended newsletters" not in result
         assert "FirstFT" not in result
+
+    def test_strip_fstoppers_community_cta(self):
+        """Fstoppers 'Join the Fstoppers community for free' heading + perks list stripped."""
+        html = (
+            "<p>The lens ships in December for $599.</p>"
+            "<h3>Join the Fstoppers community for free</h3>"
+            "<ul><li>Post comments and join in the discussions</li>"
+            "<li>Browse the site ad-free</li></ul>"
+            "<p>Final paragraph of the review.</p>"
+        )
+        result = strip_section_junk(html)
+        assert "ships in December" in result
+        assert "Join the Fstoppers" not in result
+        assert "Browse the site ad-free" not in result
+        assert "Final paragraph" in result
 
 
 

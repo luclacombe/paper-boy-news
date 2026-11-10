@@ -69,6 +69,11 @@ _DOMAIN_IMAGE_XPATHS: dict[str, list[str]] = {
         '//div[contains(@class,"RichTextStoryBody")]//img',
         '//bsp-figure//img',
     ],
+    # ABC News wire stories: the lead photo sits in FeaturedMedia; the generic
+    # //main//img fallback would pick up sidebar promo thumbnails instead.
+    "abcnews.com": [
+        '//div[contains(@class,"FeaturedMedia")]//img',
+    ],
 }
 
 # Domain-level extraction failure tracking.
@@ -355,6 +360,10 @@ _BLOOMBERG_CDN = "https://cdn-mobapi.bloomberg.com"
 _BLOOMBERG_BW_STORIES = f"{_BLOOMBERG_CDN}/wssmobile/v1/bw/news/stories/"
 _BLOOMBERG_NAV = f"{_BLOOMBERG_CDN}/wssmobile/v1/navigation/bloomberg_app/search-v2"
 _BLOOMBERG_BW_LIST = f"{_BLOOMBERG_CDN}/wssmobile/v1/bw/news/list?limit=1"
+# Since ~Sept 2026 the story endpoints return 403 unless the request carries
+# the Android app's UA (section listings still work with any UA).
+# UA from Calibre's bloomberg.recipe by unkn0wn (2026-09-13 update).
+_BLOOMBERG_API_UA = "BloombergHorseshoe|Android|16|6.66.0"
 
 # Reuters mobile app API (returns structured JSON with full article content)
 # Technique from Calibre's reuters.recipe by unkn0wn
@@ -1238,7 +1247,7 @@ def _fetch_bloomberg_api(url: str) -> dict | list | None:
         req = urllib.request.Request(
             url,
             headers={
-                "User-Agent": "Mozilla/5.0",
+                "User-Agent": _BLOOMBERG_API_UA,
                 "Accept-Encoding": "gzip",
             },
         )
@@ -2051,12 +2060,24 @@ def _extract_ft_articles(
 
     UA = "Mozilla/5.0 (Java) outbrain"
     max_age = _freshness_window_days(feed_cfg)
+    # Same consecutive-failure abort as RSS feeds: when FT's bot protection
+    # rejects the browser, every article times out (~11s each), so stop early
+    # instead of burning ~3.5 min per feed.
+    consecutive_failures = 0
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(user_agent=UA)
 
         for entry in entries:
+            if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                logger.info(
+                    "Aborting %s after %d consecutive extraction failures",
+                    feed_cfg.name,
+                    consecutive_failures,
+                )
+                break
+
             url = entry.get("link", "")
             title = entry.get("title", "Untitled")
 
@@ -2145,14 +2166,17 @@ def _extract_ft_articles(
                             title=title, url=url, author=author, date=date,
                             html_content=html_content, images=images,
                         ))
+                        consecutive_failures = 0
                         continue
 
                 # Failed extraction — cache as None
+                consecutive_failures += 1
                 if cache:
                     cache.set_article(url, include_images, None)
 
             except Exception:
                 logger.debug("FT extraction failed: %s", url)
+                consecutive_failures += 1
                 if cache:
                     cache.set_article(url, include_images, None)
             finally:

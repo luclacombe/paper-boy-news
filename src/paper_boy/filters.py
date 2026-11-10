@@ -24,7 +24,10 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"share\s+this\s+article",
         r"share\s+on\s+\w+",
         r"related\s+articles?",
-        r"read\s+more\s*:",
+        # "Read more:" alone, or an inline related link ("Read more: <title of
+        # another article>", The Conversation). Capped length so a long
+        # paragraph that happens to open with "Read more:" is kept.
+        r"read\s+more\s*:.{0,250}",
         r"more\s+from\b.*",
         r"you\s+may\s+also\s+be\s+interested\s+in",
         r"partner\s+content\s+from\b.*",  # Eater sponsored content label
@@ -61,6 +64,17 @@ _JUNK_PATTERN_GROUPS: list[list[str]] = [
         r"click\s+here\s+for\s+more\b.*",
         r"like\s+what\s+you(?:'re|.re)\s+reading\??\s*click\s+here\b.*",
         r"follow\s+fox\s+news\b.*",
+        # App/podcast CTAs that don't start with "click here":
+        # "OUTKICK IS NOW AVAILABLE ON THE FOX NEWS APP: CLICK HERE TO DOWNLOAD"
+        r"outkick\s+is\s+now\s+(?:available\s+)?on\s+the\s+fox\s+(?:news\s+)?app\b.*",
+        r".{0,120}:\s*click\s+here\s+to\s+(?:download|get|sign\s+up|subscribe)\b.*",
+        r"get\s+fox\s+business\s+on\s+the\s+go\b.*",
+        r".{0,150}\bdownload\s+(?:his|her|their|our)\s+daily\s+podcast\s+now!?",  # OutKick Craig Carton promo
+    ],
+    # --- Guardian inline markers / footers ---
+    [
+        r"(?:skip\s+past|after)\s+newsletter\s+promotion",  # leftover newsletter embed marker
+        r"do\s+you\s+have\s+an\s+opinion\s+on\s+the\s+issues\s+raised\s+in\s+this\s+article\b.*letters\s+section\b.*",
     ],
     # --- Source-specific boilerplate preambles ---
     [
@@ -271,6 +285,8 @@ _SECTION_JUNK_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^From just\b.*Kiplinger\b", re.IGNORECASE), "next_2"),
     # FT "Recommended newsletters for you" footer — everything after is promo
     (re.compile(r"^Recommended newsletters?\s+for\s+you$", re.IGNORECASE), "to_end"),
+    # Fstoppers membership CTA after every article: heading + one <ul> of perks
+    (re.compile(r"^Join the Fstoppers community\b", re.IGNORECASE), "next_1"),
 ]
 
 

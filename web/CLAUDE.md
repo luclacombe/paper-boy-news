@@ -79,7 +79,7 @@ src/
 │   ├── feed-chip-grid.tsx    # Chip grid with category/frequency filter bar, groupMode controlled by parent
 │   └── *.tsx          # Shared components (device-card, edition-card, etc.)
 ├── data/
-│   └── feed-catalog.yaml  # Curated feed catalog (~55 feeds, 18 categories, 3 bundles)
+│   └── feed-catalog.yaml  # Curated feed catalog (~53 feeds, 21 categories, 3 bundles)
 ├── db/
 │   ├── index.ts       # Drizzle client (postgres-js driver)
 │   ├── schema.ts      # 4 tables: user_profiles, user_feeds, delivery_history, feed_stats
